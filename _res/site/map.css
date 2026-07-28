@@ -1,0 +1,28 @@
+html, body {
+    margin: 0;
+    padding: 0;
+    height: 100%;
+}
+
+#map {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    right: 0;
+}
+
+#cm-coords {
+    position: absolute;
+    bottom: 24px;
+    left: 8px;
+    z-index: 1000;
+    background: rgba(0, 0, 0, 0.65);
+    color: #ddd;
+    font: 11px/1.6 monospace;
+    padding: 3px 8px;
+    border-radius: 3px;
+    pointer-events: none;
+    white-space: pre;
+    min-width: 16em;
+}
