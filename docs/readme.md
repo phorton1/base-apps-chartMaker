@@ -2,7 +2,7 @@
 
 **Home** --
 **[Architecture](architecture.md)** --
-**[Design](design.md)** --
+**[Design](design/readme.md)** --
 **[Implementation](implementation.md)**
 
 **chartMaker** is a desktop application for building **offline satellite chartsets** for
@@ -43,16 +43,19 @@ bring a source and make a decision or two - but everything after that is meant t
   Definition and why it exists, the mbtiles and RCT outputs, the UI layers, deliberate
   boundaries, and the distribution path.
 
-- **[Design](design.md)** -
-  The TSD field reference and schema, the project file, the build engine, the exporter
-  seam, and module layering.
+- **[Design](design/readme.md)** -
+  The formats and subsystems in detail, each in its own document: the
+  [region](design/regions.md) file and the coverage model on disk, the
+  [TSD](design/tsd.md) field reference, the [build](design/build.md) engine and the tile
+  proxy, and the [mbtiles](design/mbtiles.md) and [RCT](design/rct.md) output
+  specifications.
 
 - **[Implementation](implementation.md)** -
-  Module inventory by layer, the HTTP server and Leaflet applet boundary, and the
-  separate executables.
+  Where the application keeps its files, the HTTP surface between the browser and the
+  program, and the two executables the installer ships.
 
-*Design and Implementation are stubs at this stage. Separate specifications for the
-mbtiles and RCT outputs will be added as the implementation proceeds.*
+*The design documents are written to the depth the decisions have been made. Build, mbtiles
+and RCT are outlines at this stage and say so.*
 
 ## Credits
 

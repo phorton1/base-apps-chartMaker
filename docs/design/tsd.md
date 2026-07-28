@@ -1,0 +1,201 @@
+# chartMaker - TSD
+
+**[Design](readme.md)** --
+**[Regions](regions.md)** --
+**TSD** --
+**[Build](build.md)** --
+**[MBTiles](mbtiles.md)** --
+**[RCT](rct.md)**
+
+folders: **[Home](../readme.md)** --
+**[Architecture](../architecture.md)** --
+**Design** --
+**[Implementation](../implementation.md)**
+
+A **TSD** (*Tile Source Definition*, extension `.tsd`) describes exactly one imagery
+source. [Architecture](../architecture.md#tile-source-definition-tsd) says why the format
+exists and what it refuses to be; this document is the field reference.
+
+TSD files live in `$data_dir` and are found by scanning it, so installing a source somebody
+sent you is a matter of putting the file in the folder.
+
+## Field reference
+
+```
+    tsd_version:      1
+    id:               a stable identifier, referenced by targets
+    name:             what a person calls it
+    notes:            free text
+    kind:             remote_xyz | local_mbtiles | local_dir | wms
+    url:              template, for the remote kinds
+    subdomains:       values substituted for {s}
+    tile_format:      jpeg | png        (an expectation, not a guarantee)
+    tile_size:        256
+    crs:              EPSG:3857
+    zoom:             { min, max }      PROTOCOL limits only
+    attribution:      MANDATORY, non-empty
+    terms_url:        where the terms of use are published
+    license:          a short identifier or description
+    redistributable:  yes | no | unknown          (default unknown)
+    uses:             ["display"] | ["display","build"]
+    credentials:      [ { slot, label, obtain_url } ]    SLOTS, never values
+    policy:           { max_concurrency, min_interval_ms }
+```
+
+| Field             | Notes                                                                      |
+| ----------------- | -------------------------------------------------------------------------- |
+| `tsd_version`     | Format version.                                                            |
+| `id`              | Stable. Targets reference it; renaming the file does not change it.        |
+| `kind`            | Determines which of the remaining fields apply.                            |
+| `url`             | Template. Substitutes only from the closed placeholder set below.          |
+| `tile_format`     | What the source is expected to return. The actual format is detected.      |
+| `tile_size`       | Must be 256. Anything else is rejected at import.                          |
+| `crs`             | Must be `EPSG:3857`. Anything else is rejected at import.                  |
+| `zoom.max`        | The highest zoom the **server will answer at all**, not where detail ends. |
+| `attribution`     | Mandatory and non-empty. A file without it does not load.                  |
+| `redistributable` | The author's assertion. Propagates into built output as metadata.          |
+| `uses`            | Whether the source may be built from, or only looked at.                   |
+| `credentials`     | Names of secrets the source needs. Never the secrets themselves.           |
+| `policy`          | Requested limits. The application clamps regardless of what is asked for.  |
+
+The fields land almost exactly on Leaflet's `L.TileLayer` options, arrived at independently
+over fifteen years of tiled maps. That convergence is a reasonable sign the shape is right.
+
+## The closed placeholder set
+
+A URL template may contain these and nothing else:
+
+| Placeholder | Substitutes                                                        |
+| ----------- | ------------------------------------------------------------------ |
+| `{z}`       | Zoom level.                                                        |
+| `{x}`       | Tile column.                                                       |
+| `{y}`       | Tile row, counting from the north.                                 |
+| `{-y}`      | Tile row, counting from the south - the TMS row flip.              |
+| `{s}`       | One of the declared `subdomains`.                                  |
+| `{q}`       | The quadkey - the same grid under a different encoding.            |
+| `{slot}`    | The value stored for a credential slot the file itself declares.   |
+
+`{-y}` is why there is no addressing-scheme enum: TMS is not a different grid, only a
+different row origin. `{q}` is there for the same reason.
+
+**Nothing else substitutes, and nothing is computed.** The format has no expressions, no
+scripting, and no derived fields, so it is structurally unable to express a request
+signature or a session-token derivation. That is a guarantee enforced by the schema rather
+than a promise made in a document, and it is what makes a file received from a stranger
+data being read rather than code being run.
+
+## Validation
+
+A TSD is **JSON with a published JSON Schema**, chosen over a looser format precisely
+because these files circulate between people who do not know each other. The schema is both
+a validator and a machine-checkable statement of what the format is *able* to say.
+
+Rules that cause a file to be rejected:
+
+- `attribution` missing or empty.
+- `tile_size` other than 256, or `crs` other than `EPSG:3857`.
+- A placeholder in `url` that is not in the closed set, or a credential placeholder for a
+  slot the file does not declare.
+- Any field the schema does not define.
+
+`notes` exists because JSON has no comments and these files are read by people.
+
+## Protocol is declared, data is discovered
+
+The rule that settles most schema arguments before they start. A **protocol** fact is true
+everywhere the source is reachable and belongs in the file. A **data** fact is local to a
+place and is found out at runtime.
+
+- **There is no `bounds` field and no declared coverage.** Every source is sparse, so a
+  rectangle claims both more and less than the source holds, and the build must tolerate
+  absence regardless. Coverage is discovered and cached - including the misses, which is
+  what makes the picture accumulate for free. See [Build](build.md#the-cache).
+- **`zoom.max` is a protocol limit only.** It says where the server starts refusing
+  requests. Where *real* detail ends varies by location within a single source and is
+  discovered. NASA GIBS is the declarable case, since each of its layers names a tile
+  matrix set and the service refuses above it; a large commercial mosaic is the opposite
+  case, upsampling indefinitely rather than answering "not found."
+- **`tile_format` is an expectation.** Servers mix formats within one source, and at least
+  one output format accepts only one of them, so the actual format is read from the image's
+  magic bytes and a mismatch becomes a decision rather than a surprise.
+
+## Display versus build
+
+`uses` declares whether a source may be used for **display** only, or for display **and**
+build. A display-only source never appears in a build picker.
+
+The distinction does two jobs at once, which is usually the sign a field is drawn
+correctly. It describes genuinely different traffic - browsing generates viewport-shaped
+requests, building generates systematic ones - and it records the user's own assertion
+about what a source is for. It is the user's assertion and not the application's legal
+opinion, so it guards against accident rather than intent: against reaching for a backdrop
+as a build source at two in the morning.
+
+It is also simply practical. A street basemap is display-only because building a
+nine-thousand-tile pyramid of one is pointless, not because of anybody's terms.
+
+## Credentials
+
+**A TSD declares credential slots and never contains a credential value.** A slot names the
+secret a source needs and where to obtain one:
+
+```
+    credentials: [ { slot: "api_key", label: "API key", obtain_url: "https://..." } ]
+```
+
+The value lives in the credential store, whose location is specified in
+[Implementation](../implementation.md#the-credential-store). Two consequences follow, and
+both are structural rather than procedural: a TSD is safe to share by construction, and no
+secret can reach the browser, because the browser never contacts a tile server directly.
+See [Build](build.md#everything-goes-through-the-proxy).
+
+**Open: the binding mechanism.** How a declared slot resolves to a stored value - the
+store's format, and what a slot is keyed by - is not yet specified.
+
+## Authoring and testing a source
+
+Sources rot. Endpoints move, terms change, and services retire, so the ability to find out
+*which* source broke matters as much as the ability to add one.
+
+**TEST_FETCH.** Paste a template, fetch one tile at the current view, look at it. This
+turns "did I get the URL right" from a twenty-minute debugging session into two seconds.
+Behind it: format detected from magic bytes, tile size read from the image header, and
+failures distinguished from one another - 403 is not 404 is not 200-with-a-blank-tile.
+
+For the single most common authoring error, TEST_FETCH renders `{z}/{x}/{y}` and
+`{z}/{y}/{x}` side by side and lets the user click the coastline that looks right. Row and
+column order is reversed between major services, and every guide on the internet has to
+warn about it.
+
+**The evaluator - "show me every source here."** Pick a location; chartMaker fetches one
+tile from each known source at each source's declared ceiling and shows them side by side
+with resolution and license. The user judges with their eyes, because "is this imagery
+useful here" is a visual question that no metadata answers. It generalises TEST_FETCH, it
+is neutral about what it evaluates, and it is the honest answer to a catalog of hundreds of
+layers with no way to tell which one is worth anything in your bay.
+
+The per-source result it produces - answered, refused, absent, blank - is the same status a
+health pass over all sources writes, and it is shown in both the source list and the map's
+layer palette.
+
+## The cache is keyed by source
+
+A tile coordinate means something different in every source, so the cache carries a source
+dimension and the layout is specified in
+[Implementation](../implementation.md#temp_dir---everything-regenerable). It is keyed by
+the **leaf name of the `.tsd` file** rather than the `id` inside it, so that a user looking
+at the cache in a file browser sees one folder per source they have used and can delete
+exactly one of them.
+
+## Open questions
+
+- The credential store's format and the slot binding mechanism.
+- The published location and versioning of the JSON Schema itself.
+- Which sources ship with the application. The rule is that chartMaker ships no source it
+  is not entitled to ship, and the working answer is imagery published by government
+  agencies whose terms contemplate this use - but the specific list, and the URL templates,
+  are verified by TEST_FETCH rather than assumed.
+
+---
+
+**Next:** [Build](build.md)

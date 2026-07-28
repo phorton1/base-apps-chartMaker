@@ -2,7 +2,7 @@
 
 **[Home](readme.md)** --
 **Architecture** --
-**[Design](design.md)** --
+**[Design](design/readme.md)** --
 **[Implementation](implementation.md)**
 
 ## Primary Statement
@@ -22,27 +22,33 @@ server**, serving a **Leaflet** map applet to a browser window running alongside
 packaged by **Cava Packager** into a versioned Windows installer that bundles its own Perl,
 and is published as a GitHub Release asset.
 
-The application takes two kinds of input and produces two kinds of output:
+The application takes three kinds of input and produces two kinds of output:
 
 ```
-    project file  ---.                             .---> .mbtiles  (the hub)
-    (the coverage      \                          /          |
-     model: regions,     +---> build engine -----+           +---> OpenCPN
-     zooms, detail      /      (queued, rate-      \         |
-     areas)            /        limited, cached)    \        '---> other exporters
-                      /                              \
-    TSD  ------------'                                '---> .RCT + INDEX.RCI
-    (one or more tile source definitions)                   (E-Series card)
+    regions ---------.                             .---> .mbtiles  (the hub)
+    (geometry,        \                           /           |
+     nesting, and      \                         /            +---> OpenCPN
+     the depth each     +---> build engine -----+             |
+     area deserves)    /      (queued, rate-     \            '---> other exporters
+                      /        limited, cached)   \
+    TSD -------------+                             '---> .RCT + INDEX.RCI
+    (the imagery     |                                   (E-Series card)
+     source)         |
+                     |
+    target ----------'
+    (which regions, how deep, which source, which output)
 ```
 
-Three architectural facts account for most of what follows:
+Four architectural facts account for most of what follows:
 
 1. **The coverage model is durable and the tiles are not.** Regions are edited, nested and
    refined over years. A rebuild reproduces the imagery from the model.
 2. **Sources are data, not code.** Every imagery source is described by a **TSD** file -
    one that ships with the app, or one the user supplies. chartMaker never ships tiles, and
    never ships credentials.
-3. **mbtiles is the hub and the card is an export.** Everything the build engine produces
+3. **Depth is requested by a region and decided by a target.** The same coastline is built
+   shallow for a small card and deep for a large one, from one description of where it is.
+4. **mbtiles is the hub and the card is an export.** Everything the build engine produces
    lands in `.mbtiles` first; every other output format is a converter reading from there.
 
 ## Who chartMaker Is For
@@ -94,17 +100,10 @@ because these files will circulate between strangers, and a schema is both a val
 a machine-checkable statement of what the format is *able* to say. A `notes` field
 compensates for JSON's lack of comments.
 
-```
-tsd_version, id, name
-kind:         remote_xyz | local_mbtiles | local_dir | wms
-url           (template), subdomains, tile_format, tile_size, crs
-zoom:         { min, max }                     <- PROTOCOL limits only
-attribution   (MANDATORY), terms_url, license
-redistributable:  yes | no | unknown           (default unknown)
-uses:         ["display"] | ["display","build"]
-credentials:  [ { slot, label, obtain_url } ]  <- SLOTS, never values
-policy:       { max_concurrency, min_interval_ms }
-```
+It describes a source's addressing - a URL template, the grid, the tile size - along with
+its protocol limits, its terms, what it may be used for, and the names of any credentials
+it needs. The full field reference, the validation rules and the authoring tools are in
+[Design: TSD](design/tsd.md).
 
 The URL template substitutes from a **closed set** of placeholders - `{z} {x} {y} {-y} {s}
 {q}` plus any credential slots the file declares - and nothing else. `{-y}` covers the TMS
@@ -178,9 +177,32 @@ location is described in [Implementation](implementation.md). The consequence is
 key can leak through a shared definition, and no secret ever lands in a file that could be
 committed to a repository or served to a browser.
 
-**Project files reference sources by id and never embed them.** Sharing a coverage model
-therefore never ships the author's source inside it. An unresolved id prompts the recipient
-to supply their own - the right conversation to force at exactly that moment.
+**Regions and targets reference sources by id and never embed them.** Sharing a coverage
+model therefore never ships the author's source inside it. An unresolved id prompts the
+recipient to supply their own - the right conversation to force at exactly that moment.
+
+## The Tile Proxy
+
+chartMaker has exactly one path from a tile coordinate to bytes, and everything uses it -
+the map in the browser, the preview, the source evaluator and the build engine. **The
+browser never contacts a tile server directly.** It asks the application, and the
+application answers.
+
+That single decision is load-bearing for four things that otherwise have nothing to do with
+one another:
+
+- **No credential can reach the browser.** A source that needs a key is fetched by the
+  application, which holds the key. Nothing in the page - and nothing in the page's network
+  log - contains a secret. Without the proxy, the promise made just above could not be
+  kept.
+- **Displaying and building share one cache.** Looking at a region at a zoom it will be
+  built at leaves those tiles where the build will find them, so nothing is fetched twice.
+- **The refusal to prefetch becomes checkable.** One place counts every outbound request,
+  which turns a claim in a document into a property that can be observed.
+- **Rate limiting has one home,** where no code path can bypass it by accident.
+
+It also collapses most of the build engine into something already written: **the build is
+the same path driven by the coverage model instead of by a viewport.**
 
 ## Deliberate Boundaries
 
@@ -211,6 +233,19 @@ Enforced by a schema rather than by trust.
 
 **The editor never prefetches.** The line between displaying and building stays real.
 
+**The browser never contacts a tile server.** Every request goes through the application,
+which is what makes "no credential can reach the browser" structural rather than merely
+careful.
+
+**Nothing is editable in two places.** Lists, names, structure and status are edited in the
+native windows; geometry and imagery are edited on the map. Both surfaces show both kinds
+of thing, but each thing has exactly one place it is changed - one model, one
+implementation of every operation, and no way for two views to disagree.
+
+**No project files and no File menu.** The unit people exchange is a region, so the
+container around it never needs to travel, and the entire document-application apparatus -
+open, save-as, recent files, unsaved-changes prompts - buys nothing.
+
 **Not turnkey.** The corollary of the first two: the seam that keeps the decision with the
 user is the same seam that prevents the application from making it for them.
 
@@ -221,29 +256,57 @@ what your chartset *is*.
 
 ## The Coverage Model
 
-A **project** holds **regions**, which may contain **subregions**, in a containment
-hierarchy. Each level carries the zoom range it deserves: broad coverage at coarse zooms
-for the whole cruising area, deep detail on the approaches and anchorages where a metre
-matters.
+A **region** is an area of water you care about, described by a polygon. Inside it, any
+number of **subregions** mark the smaller areas that deserve more detail - the approaches,
+the anchorage, the pass. A subregion is itself a region and may contain subregions of its
+own, so a square nautical mile at high detail with a single dock deeper still inside it is
+expressible without any special case.
 
-Two rules give the model its properties:
+**One region is one file, and it is self-contained.** It holds its geometry, its identity
+and all of its subregions, and it refers to nothing outside itself - no parent elsewhere,
+no imagery source, no path on the author's disk. That is what makes a region the unit
+people exchange: handing someone a region file hands them a complete description of a piece
+of coastline and nothing else.
 
-- **Subregions are geometrically contained in their parent**, and coverage is rasterised
-  by intersection. Containment of polygons then implies containment of tiles - a tile's
-  parent necessarily intersects any polygon the child intersects - which is exactly the
-  nested-coverage invariant the card format needs in order to fall back gracefully from a
-  missing tile to a coarser one.
+There is no project file. Regions live in a folder, and the application finds them by
+looking; a **set** is a named list of them, and the set you currently have checked is the
+one you are looking at. The full format is specified in [Design: Regions](design/regions.md).
+
+Three rules give the model its properties:
+
+- **Depth is requested by a region and decided by a target.** A region says the anchorage
+  deserves detail; a target says this particular card stops at a particular zoom, and the
+  built depth is the lesser of the two. That is what lets one description of Bocas del Toro
+  produce both a small card for a plotter with a small slot and a large one for a plotter
+  without that limit - and, because the tiles are already cached, the second card costs no
+  additional fetching at all. Real imagery resolution is a third opinion, and it only ever
+  warns: a source that upsamples still yields tiles worth carrying.
+- **A polygon meets the tile grid exactly once**, at the zoom that area is quantised at.
+  Coarser levels are the parent tiles of that set and finer ones fill it in completely, so
+  coverage is the union of those tiles rather than the polygon itself, and there is only
+  ever one place geometry becomes tiles.
+- **Subregions are geometrically contained in their parent.** Containment of polygons then
+  implies containment of tiles - every tile a subregion covers has a coarser tile above it
+  that the parent already covers - which is exactly the nested-coverage invariant the card
+  format needs in order to fall back gracefully from a missing tile to a coarser one. It
+  also means each level supplies only the zoom band its parent does not reach.
 - **Where regions overlap, ownership is a union, not a contest.** A tile that two regions
   both want appears in both. Duplicate tiles at a seam are harmless downstream, and the
   alternative - deciding an owner - is how tiles go missing at exactly the boundaries where
   a mariner is most likely to be looking.
 
 The **editor** and the **preview** are one component in two modes, not two pipelines: the
-same map, the same local tile proxy, a different source and overlay. Preview earns its
-place by answering two questions that are otherwise expensive - what the *build* source
-actually looks like here, before committing to a nine-thousand-tile run; and how the
-plotter's fallback behaves at a zoom the card does not carry, without a card, a boat, or a
-trip to the water.
+same map, the same tile proxy, a clip and a cap applied on top. Preview earns its place by
+answering two questions that are otherwise expensive - what the *build* source actually
+looks like here, before committing to a nine-thousand-tile run; and how the plotter's
+fallback behaves at a zoom the card does not carry, without a card, a boat, or a trip to
+the water.
+
+What makes that more than an illustration is that **preview renders through the build's own
+rasteriser.** Whether a tile is in coverage is asked once, of one implementation, whether
+the asker is the screen or the build. A preview that looked right and a build that came out
+wrong would be two answers to one question, and the place they would differ is the seams -
+where it costs the most.
 
 ## Outputs
 
@@ -259,7 +322,8 @@ is a deployment artifact, not a source of truth.
 Further exporters plug into the same seam. A KAP/BSB writer is the obvious second, reaching
 a long tail of navigation software for very little work.
 
-Both formats get their own specification documents alongside this one.
+Both formats have their own specifications: [MBTiles](design/mbtiles.md) and
+[RCT](design/rct.md).
 
 ## Distribution Path
 
@@ -283,7 +347,7 @@ The repository follows the same layout as the other applications in this family:
 | `/_res/site`  | The Leaflet applet - HTML, CSS, JavaScript - served by the embedded HTTP server. Not Perl. |
 | `/_installer` | Packaging support for the Windows installer build.                 |
 | `/releases`   | The release log. Installers themselves are Release assets, so the repository stays text-only and lean. |
-| `/docs`       | These documents.                                                   |
+| `/docs`       | These documents, and the design specifications in `/docs/design`.  |
 
 Underscore-prefixed folders at the top level hold **separate executables** and build-time
 material rather than application modules, keeping them visually and functionally distinct
@@ -296,11 +360,11 @@ architecture:
 | Prefix       | Layer               | Modules (all `.pm`)                                                      |
 | ------------ | ------------------- | ------------------------------------------------------------------------ |
 | `chartMaker` | entry point         | application object, startup, wiring                                      |
-| `cm_`        | foundational        | `cm_defs`, `cm_utils`, `cm_prefs`                                        |
+| `cm_`        | foundational        | `cm_defs`, `cm_utils`, `cm_prefs`, `cm_visibility`                       |
 | `dm_`        | data subsystems     | `dm_region`, `dm_source`, `dm_cache`, `dm_fetch`, `dm_mbtiles`, `dm_rct` |
 | `em_`        | active subsystems   | `em_command`, `em_console`, `em_server`                                  |
 | `w_`         | wx-aware, not panes | `w_resources`, `w_frame`, `w_dialogs`                                    |
-| `win`        | panes and subpanes  | `winMap`, `winRegions`, `winSources`, `winMonitor`                       |
+| `win`        | panes and subpanes  | `winRegions`, `winSources`                                               |
 
 `chartMaker.pm` breaks the ordering deliberately, as the entry point that sits above every
 layer. Three rules govern the rest:
@@ -320,11 +384,13 @@ resume all live at `em_` or in that separate executable. The same split puts reg
 geometry, source definitions and the output writers below anything that decides *when* to
 act.
 
-The `em_` layer has one more property worth stating: **`em_command` sits beneath both front
-doors.** The console reads a line, the HTTP server reads a request, and both hand the same
-dispatcher the same verb - one command vocabulary, two transports. That is also the test
-surface, since anything the console can do, an HTTP client can do.
+The `em_` layer has one more property worth stating: **`em_command` sits beneath every
+front door.** The console reads a line, an HTTP client calls the command endpoint, and the
+map applet posts an edit - all three hand the same dispatcher the same verb. One vocabulary,
+three transports. That is also the test surface, since anything one door can do the others
+can; and it is what would make an undo journal a matter of recording what already passes
+through a single point, rather than a feature to be built.
 
 ---
 
-**Next:** [Design](design.md)
+**Next:** [Design](design/readme.md)

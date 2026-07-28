@@ -2,11 +2,11 @@
 
 **[Home](readme.md)** --
 **[Architecture](architecture.md)** --
-**[Design](design.md)** --
+**[Design](design/readme.md)** --
 **Implementation**
 
-Where [Design](design.md) describes the structures, this document describes the code that
-implements them.
+Where [Design](design/readme.md) describes the structures, this document describes the code
+that implements them.
 
 ## Installed versus Development Versions
 
@@ -34,9 +34,13 @@ installed application testable by running the development one.
 `$data_dir` holds everything the user authored or acquired, and nothing chartMaker can
 regenerate:
 
-- **Project files** - the coverage models: regions, subregions, zoom ranges, detail areas.
-- **TSD files** - the tile source definitions the application can build from. This is where
-  chartMaker looks for sources, and where a user drops one that somebody sent them.
+- **Region files** - the coverage model: geometry, nesting, and the depth each area
+  deserves. One file per region, found by scanning the folder, so dropping in a region
+  somebody sent you is how you add it. See [Design: Regions](design/regions.md).
+- **TSD files** - the tile source definitions the application can build from. Found the
+  same way, for the same reason. See [Design: TSD](design/tsd.md).
+- **The workspace index** - the small file holding what a folder scan cannot answer: the
+  named sets, and which regions are currently checked.
 - **The credential store** - the secrets for those sources that require one.
 
 It lives in **My Documents deliberately**. This is the user's own work: it is what they
@@ -100,16 +104,90 @@ without an environment-keyed default the second application to start simply fail
 defaults are **9884 in development** and **9874 when installed**, and like the credential
 store location, the port is a preference and can be overridden.
 
+## The HTTP Surface
+
+The embedded server answers two unrelated audiences, and they are kept apart on purpose.
+
+**`/api/...` is the drive surface.** It is the console vocabulary exposed over HTTP - what
+a developer calls by hand, what a test harness calls, and what makes a running chartMaker
+inspectable from outside. It is stable, because things outside the application depend on
+it.
+
+**Everything else is the applet's own protocol.** These paths are a private contract
+between the server and the JavaScript in `_res/site`, and they change whenever the applet
+changes. Nothing outside the application should depend on them.
+
+| Path                      | Surface | Purpose                                        |
+| ------------------------- | ------- | ---------------------------------------------- |
+| `/api/command?cmd=<cmd>`  | drive   | Dispatch a command through `em_command`.       |
+| `/api/log?since=<seq>`    | drive   | Output-ring entries since a point.             |
+| `/poll`                   | applet  | A cheap version probe.                         |
+| `/state`                  | applet  | Everything currently visible, as one document. |
+| `/tile/<src>/<z>/<x>/<y>` | applet  | The tile proxy.                                |
+| `/edit`                   | applet  | A model mutation carrying structured data.     |
+
+### The poll protocol
+
+The application holds the truth; the browser renders it and asks for changes. `/poll`
+returns a version number, and the client refetches `/state` when that number differs from
+what it last rendered.
+
+**One version counter, one state document.** The visible regions, the source list, the
+active source, an evaluator result - all of it arrives together, so no two parts of the
+display can be out of step with one another. The temptation to add a second channel for
+some later feature is the thing to resist.
+
+Three properties of the protocol are worth stating because each is easy to lose:
+
+- **The server has no notion of a connected browser.** It answers questions. That is what
+  makes closing and reopening the browser a non-event, with no session to clean up.
+- **Reconnect is client-owned.** Every fetch carries a short timeout; on failure the client
+  clears its layers and resets its last-rendered version, so the next successful poll sees a
+  mismatch and resyncs everything.
+- **The render loop must yield.** JavaScript is single-threaded, so a long render blocks
+  the poll timer. Rendering in chunks with a yield between them is what keeps the
+  connection alive under load - it looks like an optimisation and is actually a
+  correctness requirement.
+
+### Mutations and the applet
+
+The applet edits geometry, so `/edit` carries structured data rather than a command line -
+a polygon does not fit in a query string. It **dispatches into the same `em_command`
+vocabulary** as the console and `/api/command`, which is what keeps the "anything one door
+can do, the others can" property true even for the one operation only the map can perform.
+
+That requires the dispatcher to accept an optional structured payload alongside the verb
+and its text arguments. The console passes none.
+
+One applet-side rule follows from the poll loop: **an object being edited leaves the
+poll-rendered layer.** While a polygon is under the user's hand it is rendered from local
+state and skipped by the renderer; on commit the edit is sent, the version advances, and
+the application's copy becomes the truth again. Without that, the poll would deliver the
+old geometry back mid-drag and fight the user.
+
+## The Two Executables
+
+The installed application ships twice: one executable running under `perl`, with a console
+window, and one under `wperl`, without. They are the same program.
+
+The console build is where the application's output is visible. There is deliberately **no
+monitor pane** - the console window is the monitor, and shipping the console build means
+that surface is available to an installed user and not only to a developer. When something
+looks wrong in the windowed build, the answer is to run the other one.
+
+Output is not written to a file. `Pub::` supports it - it needs only the shared `$logfile`
+variable set - which makes it a candidate for a preferences dialog later rather than
+something to design now.
+
 ## Still To Come
 
 - **Module inventory by layer** - foundational utilities, portable logic, wx components,
   and the top-level wx panes, in the order they may depend on one another.
-- **The HTTP server and the Leaflet applet** - what is served from `_res/site`, and the
-  request surface between the browser and the application.
+- **`cm_visibility`** - the observer and batch mechanism that keeps the native panes and
+  the browser agreeing about what is checked, and where its state is written.
 - **The build engine and exporters** - which modules do the fetching, the assembly, and
-  the conversion to each output format.
-- **Separate executables** - anything living in an underscore-prefixed folder, what it is
-  for, and why it is separate.
+  the conversion to each output format, and whether the engine runs on a thread or in a
+  separate process.
 
 ---
 
