@@ -20,9 +20,85 @@ const MAP_MAX_ZOOM = 22;
 const map = L.map('map', {
     maxZoom: MAP_MAX_ZOOM,
 });
-map.setView([9.33, -82.24], 10);    // Bocas del Toro
 
 L.control.scale({ imperial: true, metric: true }).addTo(map);
+
+
+// ============================================================================
+// Where the map is looking
+// ============================================================================
+// THE VIEW IS THE BROWSER'S STATE, and it is kept here rather than sent to
+// the application.  The application cannot ask a closed browser where it
+// was looking, and a round trip on every pan would buy nothing, because
+// nothing but this page ever reads the answer.
+//
+// moveend and zoomend fire when the pan, the inertia or the zoom animation
+// has SETTLED -- not per frame during a drag -- so saving on them directly
+// is already the debounce it looks like it needs.
+//
+// NO PLACE IS HARDCODED.  This applet shipped centred on Bocas del Toro,
+// which was the only location-specific content in the tree.  The fallbacks
+// are, in order: where you last were, the regions currently on the map,
+// and finally the whole world -- which is the honest answer for somebody
+// who has not drawn anything yet.
+
+const VIEW_KEY   = 'chartMaker.view';
+const WORLD_VIEW = { lat: 0, lon: 0, zoom: 2 };
+
+function saveView() {
+    try {
+        const c = map.getCenter();
+        localStorage.setItem(VIEW_KEY, JSON.stringify({
+            lat: c.lat, lon: c.lng, zoom: map.getZoom(),
+        }));
+    } catch (e) {
+        // Private browsing, a full quota, a policy -- none of it is worth
+        // breaking the map over.  The view simply is not remembered.
+    }
+}
+
+function savedView() {
+    try {
+        const v = JSON.parse(localStorage.getItem(VIEW_KEY) || 'null');
+        if (v && isFinite(v.lat) && isFinite(v.lon) && isFinite(v.zoom)) return v;
+    } catch (e) { /* corrupt or unavailable -- fall through */ }
+    return null;
+}
+
+// Set immediately so the map is never without a view, then refined once
+// /state arrives IF nothing was remembered -- see fitRegionsIfUnset().
+
+const startView = savedView() || WORLD_VIEW;
+map.setView([startView.lat, startView.lon], startView.zoom);
+
+let viewIsFromStorage = savedView() !== null;
+
+function fitRegionsIfUnset(regions) {
+    // Only ever fires on the first /state of a session that had nothing
+    // remembered.  After that the user's own view wins, and it must not be
+    // yanked away from them by a poll.
+    if (viewIsFromStorage) return;
+
+    const pts = [];
+    const walk = reg => {
+        (reg.polygons || []).forEach(poly =>
+            poly.forEach(p => pts.push([p[1], p[0]])));
+        (reg.subregions || []).forEach(walk);
+    };
+    (regions || []).forEach(walk);
+
+    // NOTHING TO FIT IS NOT AN ANSWER.  The world view stands and the
+    // flag is deliberately left unset, so that importing a region into an
+    // empty set still lands the map on it rather than leaving somebody
+    // staring at the Atlantic wondering where their KML went.
+
+    if (!pts.length) return;
+
+    viewIsFromStorage = true;
+    map.fitBounds(L.latLngBounds(pts), { padding: [24, 24] });
+}
+
+map.on('moveend zoomend', saveView);
 
 let imageryLayer = null;
 let imagerySig   = null;    // what the current layer was built from
@@ -85,6 +161,7 @@ function setRegions(regions) {
 
     regionLayer.clearLayers();
     (regions || []).forEach(reg => drawRegion(reg, REGION_STYLE));
+    fitRegionsIfUnset(regions);
 }
 
 

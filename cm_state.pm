@@ -13,12 +13,16 @@
 # be out of step with one another.
 #
 # WHY THIS IS A cm_ MODULE.  The counter is bumped from em_command and
-# read by em_server, and will be bumped by dm_ modules as well.  Only
-# the foundational layer is below all of them.
+# read by em_server, and is bumped by dm_ modules as well.  Only the
+# foundational layer is below all of them.
 #
-# NOT PERSISTED YET.  The active source is view state and belongs in
-# $temp_dir with the rest of it, but the workspace that will hold it
-# does not exist.  Until it does, this resets at startup.
+# THE ACTIVE SOURCE USED TO LIVE HERE, as unpersisted view state waiting
+# for somewhere to be remembered.  It now lives in dm_source, which owns
+# the selection AND resolves it against what the folder actually holds,
+# and it is remembered in the ini across a session.  There is one
+# selection rather than a session one and a stored one: what you last
+# picked is what you want next time, which is all a radio button ever
+# meant.
 
 package cm_state;
 use strict;
@@ -35,8 +39,6 @@ BEGIN
 	our @EXPORT = qw(
 		bumpState
 		getStateSeq
-		getActiveSource
-		setActiveSource
 	);
 }
 
@@ -46,7 +48,6 @@ our $dbg_state:shared = 0;
 
 
 my $state_seq:shared		= 1;
-my $active_source:shared	= '';
 
 
 sub getStateSeq
@@ -63,25 +64,6 @@ sub bumpState
 	$state_seq++;
 	display($dbg_state,0,"state $state_seq: ".($why // 'changed'));
 	return $state_seq;
-}
-
-
-sub getActiveSource
-	# The source the map is displaying, or '' if nothing has chosen one.
-	# The fallback for '' belongs to whoever knows what sources exist,
-	# which is not this module.
-{
-	return $active_source;
-}
-
-
-sub setActiveSource
-{
-	my ($id) = @_;
-	$id //= '';
-	return if $id eq $active_source;
-	$active_source = $id;
-	bumpState("active source is now '$id'");
 }
 
 

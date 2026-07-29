@@ -20,6 +20,22 @@ and they encode what was learned by getting things wrong.
 | `_` prefix | **Less durable.** Spent one-offs, or things resting on something transient. |
 | `old` in the name | **Depends on something outside this repo that is going away** - `chartMaker_old` or the pre-rewrite card in `OLD_RASTER`. Delete these before the repo is published. |
 
+## What is here
+
+| Script | What it pins down |
+| ------ | ----------------- |
+| `test_source.pl` | TSD validation and rejection, addressing, quadkey, the TMS flip |
+| `test_set.pl` | region sets as folders, per-set ids, the ini selections and how they degrade, checked-is-a-view |
+| `test_fetch.pl` | a live fetch, the cache, negative caching |
+| `test_rct.pl` | calls the exporter, then audits every byte it wrote |
+| `tool_app_command.pl` | one command to the LIVE app, printing only its output |
+| `tool_rct_inspect.pl` | the firmware's own arithmetic over a card |
+
+The `_old_*` scripts predate region sets and **no longer run** - they call a workspace API
+that no longer exists. They were already marked for deletion before the repo is published;
+the only thing worth rescuing from them is their coverage assertions, which have to be
+rewritten against synthetic polygons the way `test_set.pl` writes its own fixtures.
+
 ## Running them
 
 From this folder, with the shared Perl tree on the include path:

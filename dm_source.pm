@@ -9,10 +9,16 @@
 # that knows the format; everything else asks for a source by id and gets
 # back a validated hash.
 #
-# ONLY $data_dir IS SCANNED.  Sources that ship with the application are
-# copied into the user's data dir by the installer under an existence
-# guard, which makes a shipped source an ordinary editable file like any
-# other.  There is no second search path and no shadowing rule.
+# ONLY $data_dir/sources IS SCANNED.  Sources that ship with the
+# application are copied into the user's data dir by the installer under
+# an existence guard, which makes a shipped source an ordinary editable
+# file like any other.  There is no second search path and no shadowing
+# rule.
+#
+# EXISTENCE COMES FROM THE FOLDER, SELECTION COMES FROM THE INI, exactly
+# as for region sets.  getDefaultSource resolves a remembered id that may
+# no longer name anything; see the note there for why the fallback is
+# what it is.
 #
 # VALIDATION IS IN CODE.  The format is specified as JSON with a published
 # schema, but no JSON Schema validator is present in this Perl and adding
@@ -35,6 +41,8 @@ use threads::shared;
 use JSON::PP;
 use Pub::Utils;
 use cm_defs;
+use cm_state;
+use dm_set;
 
 
 BEGIN
@@ -46,6 +54,8 @@ BEGIN
 		getSourceIds
 		getSource
 		sourceTileUrl
+		getDefaultSource
+		setDefaultSource
 	);
 }
 
@@ -80,6 +90,11 @@ my @PLACEHOLDERS = qw( z x y -y s q );
 my $scan_seq:shared	= 1;	# bumped by rescanSources()
 my $my_seq			= 0;	# the generation this thread has loaded
 my %sources;				# id => validated source hash
+
+my $default_source:shared = '';
+	# The REMEMBERED id from the ini, not the resolved one.  Shared,
+	# because it is set from whichever thread the user changed it on and
+	# read by all of them.
 my $subdomain_seq	= 0;	# round robin for {s}
 
 
@@ -329,22 +344,23 @@ sub _loadFile
 
 
 sub loadSources
-	# Scan $data_dir for .tsd files.  Called at startup, and again by any
-	# thread that finds itself behind the shared generation counter.
+	# Scan $data_dir/sources for .tsd files.  Called at startup, and again
+	# by any thread that finds itself behind the shared generation counter.
 {
 	%sources = ();
 
+	my $dir = sourcesDir();
 	my $dh;
-	if (!opendir($dh,$data_dir))
+	if (!opendir($dh,$dir))
 	{
-		error("could not read $data_dir: $!");
+		error("could not read $dir: $!");
 		return;
 	}
-	my @leaves = sort grep { /\.tsd$/i && -f "$data_dir/$_" } readdir($dh);
+	my @leaves = sort grep { /\.tsd$/i && -f "$dir/$_" } readdir($dh);
 	closedir $dh;
 
-	display($dbg_source,0,"loadSources() scanning $data_dir");
-	_loadFile("$data_dir/$_",$_) for @leaves;
+	display($dbg_source,0,"loadSources() scanning $dir");
+	_loadFile("$dir/$_",$_) for @leaves;
 
 	my $found = scalar(keys %sources);
 	my $seen  = scalar(@leaves);
@@ -380,6 +396,38 @@ sub getSourceIds
 	_current();
 	my @ids = sort keys %sources;
 	return @ids;
+}
+
+
+sub getDefaultSource
+	# The remembered source if it still exists, else the official default
+	# if IT exists, else the first source in tree order, else ''.
+	#
+	# RESOLVED ON EVERY READ, never cached, for the reason dm_set's
+	# getActiveSet gives: the remembered id is a pointer into folder
+	# contents, and the folder is edited from outside this application.
+	# Deleting a .tsd should quietly leave the map on something else, not
+	# leave it on nothing with no way to say so.
+{
+	my @ids = getSourceIds();
+	return '' if !@ids;
+
+	return $default_source if $default_source && $sources{$default_source};
+	return $DEFAULT_SOURCE_ID if $sources{$DEFAULT_SOURCE_ID};
+	return $ids[0];
+}
+
+
+sub setDefaultSource
+	# Remembered, not resolved -- an id is stored even when it names
+	# nothing, because the ini is read before the first scan.
+{
+	my ($id) = @_;
+	$id //= '';
+	return 1 if $id eq $default_source;
+	$default_source = $id;
+	bumpState("source is now '$id'");
+	return 1;
 }
 
 

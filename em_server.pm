@@ -30,6 +30,7 @@ use Pub::HTTP::Response qw(http_ok);
 use cm_defs;
 use cm_prefs;
 use cm_state;
+use dm_set;
 use dm_source;
 use dm_fetch;
 use dm_region;
@@ -119,6 +120,10 @@ sub handle_request
 	{
 		return $this->applet_coverage($request)
 	}
+	elsif ($uri eq '/edit')
+	{
+		return $this->applet_edit($request)
+	}
 	elsif ($uri =~ m{^/tile/([a-z0-9_-]+)/(\d+)/(\d+)/(\d+)$})
 	{
 		return $this->applet_tile($request,$1,$2,$3,$4)
@@ -192,6 +197,52 @@ sub api_log
 #---------------------------------------------
 # the applet protocol
 #---------------------------------------------
+
+sub applet_edit
+	# POST /edit  { verb, args, data }
+	#
+	# THE ONE MUTATION THE QUERY STRING CANNOT CARRY.  A polygon is a list
+	# of hundreds of coordinate pairs; it does not fit in a url and should
+	# not be made to.  So this is the only applet endpoint that takes a
+	# body, and the body is JSON.
+	#
+	# IT DISPATCHES INTO em_command, exactly as the console and
+	# /api/command do.  That is what keeps "anything one door can do, the
+	# others can" true even for the operation only the map can perform:
+	# the geometry arrives as a structured payload beside the verb, and
+	# the console simply passes none.  A second, private mutation path
+	# would have been easier and would have split the vocabulary in two.
+	#
+	# The RESPONSE CARRIES THE NEW VERSION, so the applet can tell its own
+	# committed edit apart from somebody else's change: it sets its
+	# rendered version to this one and does not redraw over the geometry
+	# it already has.
+{
+	my ($this,$request) = @_;
+
+	my $body = $request->{content};
+	my $edit = $body ? eval { JSON::PP->new->decode($body) } : undef;
+	if (!$edit || ref($edit) ne 'HASH' || !$edit->{verb})
+	{
+		return $this->api_json_response($request,{
+			ok		=> 0,
+			error	=> 'expected a JSON object with a verb',
+			version	=> 0 + getStateSeq(),
+		});
+	}
+
+	my $verb = $edit->{verb};
+	my $args = defined($edit->{args}) ? $edit->{args} : '';
+	display($dbg_request,0,"/edit $verb $args");
+
+	dispatchCommand($verb,$args,$edit->{data});
+
+	return $this->api_json_response($request,{
+		ok		=> 1,
+		verb	=> $verb,
+		version	=> 0 + getStateSeq(),
+	});
+}
 
 sub _regionShape
 	# One region flattened for the browser, subregions included.
@@ -290,20 +341,21 @@ sub applet_state
 	}
 	$fallback = $sources[0]{id} if !$fallback && @sources;
 
-	# Three places may name the display source, in this order: the choice
-	# made this session, the workspace's stored default, and finally the
-	# alphabetical fallback.  A stored id that no longer resolves -- its
-	# .tsd deleted while the application ran -- drops through rather than
-	# leaving a blank map.
+	# ONE selection, resolved by dm_source against what the folder holds:
+	# the remembered id, else the official default, else the first source
+	# in tree order.  $fallback remains only for the case where this
+	# thread's source list and dm_source's disagree, which it cannot, but
+	# a blank map is a bad way to find that out.
 
-	my $active = getActiveSource();
-	$active = getDefaultSource()	if !$active   || !getSource($active);
+	my $active = getDefaultSource();
 	$active = $fallback				if !$active   || !getSource($active);
 
 	return $this->api_json_response($request,{
 		version			=> 0 + getStateSeq(),
 		sources			=> \@sources,
 		active_source	=> $active,
+		sets			=> [ getSetNames() ],
+		active_set		=> getActiveSet(),
 		regions			=> _regionsForState(),
 	});
 }

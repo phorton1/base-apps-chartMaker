@@ -24,6 +24,7 @@ use cm_defs;
 use cm_prefs;
 use cm_state;
 use cm_utils;
+use dm_set;
 use dm_source;
 use dm_cache;
 use dm_fetch;
@@ -62,15 +63,18 @@ sub commandHelp
 		[ 'prefs',				'list the current preferences'								],
 		[ 'map',				'open the Leaflet map in a browser'							],
 		[ 'dbg [name] [value]',	'list, show, or set a $dbg_xxx debug level at runtime'		],
-		[ 'sources',			'list the tile source definitions found in the data dir'	],
+		[ 'sources',			'list the tile source definitions found in sources/'		],
 		[ 'source <id>',		'show one source in full'									],
-		[ 'source rescan',		're-read the .tsd files from the data dir'					],
+		[ 'source rescan',		're-read the .tsd files from sources/'						],
 		[ 'source use <id>',	'make one source the one the map displays'					],
 		[ 'tile <id> <z> <x> <y>',	'fetch one tile and report what came back'				],
 		[ 'cache [id]',			'what the tile cache holds, by zoom'						],
-		[ 'regions',			'list the regions found in the data dir'					],
+		[ 'set',				'list the region sets, marking the active one'				],
+		[ 'set use <name>',		'make one region set active'								],
+		[ 'set new <name>',		'create an empty region set'								],
+		[ 'regions',			'list the regions in the active set'						],
 		[ 'region <id>',		'show one region and its subregions'						],
-		[ 'region rescan',		're-read the .region files from the data dir'				],
+		[ 'region rescan',		're-read the .region files from the active set'				],
 		[ 'region new <name> [z]',		'create an empty region'							],
 		[ 'region rename <id> <name>',	'change a region\'s name (free text, no structural role)'],
 		[ 'region id <id> <new id>',	'change a region\'s id, its file and every set naming it'],
@@ -78,14 +82,15 @@ sub commandHelp
 		[ 'region zmin <id> <z>',		'set the overview floor'							],
 		[ 'region zmax <id> <z> [sub]',	'set how deep a region or subregion goes'			],
 		[ 'region count [id|all] [zmax]','how many tiles a region would build, by zoom'		],
+		[ 'region geometry <id> [sub]',	'replace polygons - /edit only, the map supplies them'],
 		[ 'region delete <id>',			'delete a region and its file'						],
 		[ 'region import <file> [z]',	'import each KML folder as a region'				],
 		[ 'subregion new <region> <name> <lat> <lon> <half_nm> <z>',
 										'add a detail area by centre and half extent'		],
 		[ 'subregion delete <region> <id>',	'remove a detail area'							],
 		[ 'build rct <id|set> [zmax]',	'export region(s) as .rct card files'				],
-		[ 'check <id>',			'add a region to the working set (show it on the map)'		],
-		[ 'uncheck <id>',		'remove it from the working set'							],
+		[ 'check <id>',			'show a region on the map'									],
+		[ 'uncheck <id>',		'hide it from the map (it is still on the card)'			],
 	];
 }
 
@@ -172,7 +177,7 @@ sub _sourcesCommand
 	my @ids = getSourceIds();
 	if (!@ids)
 	{
-		display(0,0,"no sources in $data_dir");
+		display(0,0,"no sources in ".sourcesDir());
 		display(0,1,"a source is a .tsd file - see docs/design/tsd.md");
 		return;
 	}
@@ -218,7 +223,7 @@ sub _sourceCommand
 		$which =~ s/\s+$// if defined $which;
 		if (!defined($which) || $which eq '')
 		{
-			display(0,0,"active source is '".(getActiveSource() || '(default)')."'");
+			display(0,0,"the map is showing '".(getDefaultSource() || '(none)')."'");
 			return;
 		}
 		if (!getSource($which))
@@ -226,7 +231,7 @@ sub _sourceCommand
 			warning(0,0,"source use: no source with id '$which'");
 			return;
 		}
-		setActiveSource($which);
+		setDefaultSource($which);
 		display(0,0,"source use: the map is now showing '$which'");
 		return;
 	}
@@ -342,10 +347,13 @@ sub _showSubregions
 sub _buildCommand
 	# build rct <id|set|all> [zmax]
 	#
-	# 'set' means the working set, which is what a card is: the regions
-	# that travel together.  The output folder is one folder per card,
-	# because THE SET OF FILES PRESENT IS THE SET OF REGIONS - there is no
-	# manifest, so the folder IS the card.
+	# 'set' MEANS THE WHOLE ACTIVE SET, not the checked part of it.  The
+	# set is a folder and every region file in it is part of the card,
+	# because THE SET OF FILES PRESENT IS THE SET OF REGIONS - on the card
+	# there is no manifest, and there is none here either.  Checking a
+	# region hides it from the map while you work; it has never been a
+	# statement about what belongs on the card, and 'all' is now the same
+	# thing said twice.
 {
 	my ($rest) = @_;
 	my ($what,$which,$zmax) = split(/\s+/,$rest || '');
@@ -357,8 +365,15 @@ sub _buildCommand
 	}
 	$which = 'set' if !defined($which) || $which !~ /\S/;
 
-	my @ids = $which eq 'all' ? getRegionIds() :
-			  $which eq 'set' ? getWorkingSet() : ($which);
+	my $set = getActiveSet();
+	if (!$set)
+	{
+		warning(0,0,"build rct: there is no active region set");
+		return;
+	}
+
+	my @ids = ($which eq 'all' || $which eq 'set') ?
+		getRegionIds() : ($which);
 	if (!@ids)
 	{
 		warning(0,0,"build rct: nothing to build");
@@ -367,13 +382,13 @@ sub _buildCommand
 
 	# The source you are LOOKING at is the one you build from - display
 	# and build share one cache, so previewing a region is what fills the
-	# cache the build reads.  Falling back to the workspace default keeps
+	# cache the build reads.  Falling back to the remembered default keeps
 	# a fresh start working before anything has been selected.
 	#
 	# Once a region carries its own source this becomes the fallback
 	# rather than the answer.
 
-	my $src_id = getActiveSource() || getDefaultSource();
+	my $src_id = getDefaultSource();
 	my $src    = $src_id ? getSource($src_id) : undef;
 	if (!$src)
 	{
@@ -382,9 +397,20 @@ sub _buildCommand
 	}
 	display(0,1,"source '$src_id'");
 
+	# ONE OUTPUT FOLDER PER SET, and it is the folder you copy to the card.
+	# \RASTER\ on the CF card is the CONSUMER's contract - a single outer
+	# folder holding exactly one region set - so the producer side needs
+	# one folder per set for the copy to be a copy rather than a decision.
+
 	if (!-d $RASTER_DIR)
 	{
 		warning(0,0,"build rct: $RASTER_DIR does not exist");
+		return;
+	}
+	my $out_dir = "$RASTER_DIR/$set";
+	if (!-d $out_dir && !mkdir($out_dir))
+	{
+		error("build rct: could not create $out_dir: $!");
 		return;
 	}
 
@@ -411,7 +437,7 @@ sub _buildCommand
 		return;
 	}
 
-	display(0,0,"build rct -> $RASTER_DIR".(defined $zmax ? "   cap zmax=$zmax" : ''));
+	display(0,0,"build rct -> $out_dir".(defined $zmax ? "   cap zmax=$zmax" : ''));
 	my $total = 0;
 	my $short = 0;
 
@@ -430,7 +456,7 @@ sub _buildCommand
 			next;
 		}
 
-		my $st = writeRct($reg,$src,"$RASTER_DIR/$name",
+		my $st = writeRct($reg,$src,"$out_dir/$name",
 			{ defined $zmax ? (zmax => int($zmax)) : () });
 		next if !$st;
 
@@ -449,14 +475,22 @@ sub _buildCommand
 
 sub _regionsCommand
 {
+	my $set = getActiveSet();
+	if (!$set)
+	{
+		display(0,0,"there is no active region set");
+		display(0,1,"try 'set new <name>'");
+		return;
+	}
+
 	my @ids = getRegionIds();
 	if (!@ids)
 	{
-		display(0,0,"no regions in $data_dir");
+		display(0,0,"no regions in set '$set'");
 		display(0,1,"try 'region import <file.kml>' or 'region new <name>'");
 		return;
 	}
-	display(0,0,"regions");
+	display(0,0,"regions in set '$set'");
 	for my $id (@ids)
 	{
 		my $reg = getRegion($id);
@@ -470,13 +504,86 @@ sub _regionsCommand
 			$reg->{name}));
 	}
 	my @working = getWorkingSet();
-	display(0,1,scalar(@working)." of ".scalar(@ids)." in the working set");
+	display(0,1,scalar(@working)." of ".scalar(@ids).
+		" shown on the map - ALL ".scalar(@ids)." are on the card");
+}
+
+
+sub _regionGeometry
+	# region geometry <id> [subregion id]   + data = [ polygon, ... ]
+	#
+	# THE ONLY VERB THAT REQUIRES STRUCTURED DATA, and the only one the
+	# console therefore cannot invoke on its own.  That asymmetry is the
+	# point rather than a wart: drawing is a thing the map does, and this
+	# is where what it drew enters the model through the same door
+	# everything else uses.
+	#
+	# The geometry REPLACES what was there.  An edit session is a whole
+	# polygon list handed over on commit, not a stream of vertex deltas -
+	# there is no partial state on this side to get out of step, and a
+	# lost or duplicated message cannot leave a half-moved shape behind.
+	#
+	# Validation is dm_region's, not this module's.  saveRegion validates
+	# what will actually be written and refuses the whole save, so a
+	# polygon with two points or a latitude outside Web Mercator never
+	# reaches the file.
+{
+	my ($rest,$data) = @_;
+	my ($id,$sub_id) = split(/\s+/,$rest || '');
+
+	if (!defined($id) || $id !~ /\S/)
+	{
+		warning(0,0,"region geometry: which region?");
+		return;
+	}
+	if (ref($data) ne 'ARRAY')
+	{
+		warning(0,0,"region geometry: needs a polygon list, which only ".
+			"the map can supply - there is no way to type one");
+		return;
+	}
+
+	my $reg = getRegion($id);
+	if (!$reg)
+	{
+		warning(0,0,"region geometry: no region with id '$id'");
+		return;
+	}
+
+	my $target = $reg;
+	if (defined($sub_id) && $sub_id =~ /\S/)
+	{
+		($target) = findSubregion($reg,$sub_id);
+		if (!$target)
+		{
+			warning(0,0,"region geometry: '$id' has no subregion '$sub_id'");
+			return;
+		}
+	}
+
+	my $was = scalar(@{$target->{geometry} || []});
+	$target->{geometry} = $data;
+
+	# The whole REGION is saved, because a subregion is not a file - it
+	# lives inside its root's.  A failed save leaves the in-memory copy
+	# wrong, so the model is reloaded from disk rather than left guessing.
+
+	if (!saveRegion($reg))
+	{
+		rescanRegions();
+		return;
+	}
+
+	my $now = scalar(@{$target->{geometry}});
+	display(0,0,"region geometry: '$target->{id}' $was -> $now polygon(s), ".
+		regionPointCount($target)." point(s)");
+	bumpState("'$target->{id}' geometry");
 }
 
 
 sub _regionCommand
 {
-	my ($rpart) = @_;
+	my ($rpart,$data) = @_;
 	my ($verb,$rest) = split(/\s+/,$rpart,2);
 	$verb //= '';
 	$rest //= '';
@@ -622,6 +729,10 @@ sub _regionCommand
 		bumpState("'$target->{id}' $verb $zoom");
 		return;
 	}
+	if ($verb eq 'geometry')
+	{
+		return _regionGeometry($rest,$data);
+	}
 	if ($verb eq 'delete')
 	{
 		my ($id) = split(/\s+/,$rest,2);
@@ -741,14 +852,92 @@ sub _checkCommand
 	}
 	return if !setChecked($id,$on);
 	display(0,0,($on ? 'check' : 'uncheck').": '$id' is ".
-		($on ? 'in' : 'out of')." the working set");
+		($on ? 'shown on' : 'hidden from')." the map");
 	bumpState("'$id' ".($on ? 'checked' : 'unchecked'));
 }
 
 
-sub dispatchCommand
+sub _setCommand
+	# set                 - list the sets, marking the active one
+	# set use <name>      - make one active
+	# set new <name>      - create one
+	#
+	# There is deliberately no 'set delete'.  A set is a folder of the
+	# user's own region files, and deleting it is File Explorer's job -
+	# which is the same reason there is no 'set add' or 'set remove': the
+	# files present ARE the set, so moving a .region file in or out of the
+	# folder is the whole of the operation.
 {
-	my ($lpart,$rpart) = @_;
+	my ($rpart) = @_;
+	my ($verb,$name) = split(/\s+/,$rpart || '',2);
+	$verb //= '';
+	$name =~ s/\s+$// if defined $name;
+
+	if ($verb eq '')
+	{
+		my @names = getSetNames();
+		if (!@names)
+		{
+			display(0,0,"there are no region sets in ".regionSetsDir());
+			display(0,1,"try 'set new <name>'");
+			return;
+		}
+		my $active = getActiveSet();
+		display(0,0,"region sets");
+		for my $n (@names)
+		{
+			my $dir = setDir($n);
+			my @regions = glob("$dir/*.region");
+			display(0,1,sprintf("%s %-16s %d region(s)",
+				$n eq $active ? '->' : '  ',$n,scalar(@regions)));
+		}
+		return;
+	}
+
+	if ($verb eq 'use')
+	{
+		if (!defined($name) || $name !~ /\S/)
+		{
+			warning(0,0,"set use: which set?");
+			return;
+		}
+		if (!setExists($name))
+		{
+			error("set use: there is no set named '$name'");
+			return;
+		}
+		setActiveSet($name);
+		display(0,0,"active set is '".getActiveSet()."'");
+		bumpState("active set is '$name'");
+		return;
+	}
+
+	if ($verb eq 'new')
+	{
+		if (!defined($name) || $name !~ /\S/)
+		{
+			warning(0,0,"set new: what name?");
+			return;
+		}
+		return if !newSet($name);
+		display(0,0,"created set '$name', now active");
+		bumpState("set '$name' created");
+		return;
+	}
+
+	warning(0,0,"set: expected 'use' or 'new'");
+}
+
+
+sub dispatchCommand
+	# THE THIRD ARGUMENT IS OPTIONAL STRUCTURED DATA, and only the map ever
+	# passes it -- a polygon does not fit in a command line, and pretending
+	# it could would mean encoding coordinates into text and parsing them
+	# back out on the far side.  The console and /api/command pass none,
+	# which is exactly what makes the vocabulary one vocabulary: a verb
+	# that needs geometry simply refuses when it arrives without any.
+{
+	my ($lpart,$rpart,$data) = @_;
 	$lpart = lc($lpart // '');
 	$rpart //= '';
 	return if !length($lpart);
@@ -800,13 +989,17 @@ sub dispatchCommand
 	{
 		_cacheCommand($rpart);
 	}
+	elsif ($lpart eq 'set')
+	{
+		_setCommand($rpart);
+	}
 	elsif ($lpart eq 'regions')
 	{
 		_regionsCommand();
 	}
 	elsif ($lpart eq 'region')
 	{
-		_regionCommand($rpart);
+		_regionCommand($rpart,$data);
 	}
 	elsif ($lpart eq 'subregion')
 	{

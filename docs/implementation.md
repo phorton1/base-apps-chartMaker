@@ -34,14 +34,18 @@ installed application testable by running the development one.
 `$data_dir` holds everything the user authored or acquired, and nothing chartMaker can
 regenerate:
 
-- **Region files** - the coverage model: geometry, nesting, and the depth each area
-  deserves. One file per region, found by scanning the folder, so dropping in a region
-  somebody sent you is how you add it. See [Design: Regions](design/regions.md).
-- **TSD files** - the tile source definitions the application can build from. Found the
-  same way, for the same reason. See [Design: TSD](design/tsd.md).
-- **The workspace index** - the small file holding what a folder scan cannot answer: the
-  named sets, and which regions are currently checked.
+- **Region sets** - `region_sets/<set>/`, one folder per card. The files present in a folder
+  ARE the set; there is no index, so dropping in a region somebody sent you is the whole of
+  adding it. Each file is one region: geometry, nesting, and the depth each area deserves.
+  See [Design: Regions](design/regions.md).
+- **TSD files** - `sources/*.tsd`, the tile source definitions the application can build
+  from. Found the same way, for the same reason. See [Design: TSD](design/tsd.md).
 - **The credential store** - the secrets for those sources that require one.
+
+There is deliberately **no index file** in `$data_dir`. What a scan cannot answer is which
+set and which source are *selected*, and those are per-machine facts that live in the
+application's ini in `$temp_dir` - not in the user's own material, where they would travel
+to another machine and be wrong there.
 
 It lives in **My Documents deliberately**. This is the user's own work: it is what they
 would want backed up, carried to another machine, or handed to another mariner. Putting it

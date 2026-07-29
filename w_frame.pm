@@ -17,9 +17,11 @@ use Wx qw(:everything);
 use Wx::Event qw(EVT_MENU);
 use Pub::Utils;
 use Pub::WX::Frame;
+use Pub::WX::AppConfig;
 use cm_defs;
 use cm_utils;
 use w_resources;
+use w_ini;
 use winRegions;
 use winSources;
 use base qw(Pub::WX::Frame);
@@ -62,6 +64,21 @@ sub createPane
 	return winSources->new($this,$book,$id,$data) if $id == $WIN_SOURCES;
 
 	return $this->SUPER::createPane($id,$book,$data);
+}
+
+
+sub saveState
+	# AFTER the base class, not before, and this is not a style choice.
+	# Pub::WX::Frame::saveState() begins by calling clearConfigFile(),
+	# which empties the whole config -- anything written during the session
+	# would be erased by the act of saving.  So the selections are written
+	# once the frame has rewritten its own state, and the file is saved a
+	# second time to take them.
+{
+	my ($this) = @_;
+	$this->SUPER::saveState();
+	writeIniSelections();
+	Pub::WX::AppConfig::save();
 }
 
 

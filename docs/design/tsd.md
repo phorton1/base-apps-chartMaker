@@ -2,6 +2,9 @@
 
 **[Design](readme.md)** --
 **[Regions](regions.md)** --
+**[Editing](editing.md)** --
+**[Map Editing](editing_leaflet.md)** --
+**[Tree Editing](editing_wx.md)** --
 **TSD** --
 **[Build](build.md)** --
 **[MBTiles](mbtiles.md)** --
@@ -187,14 +190,20 @@ the **leaf name of the `.tsd` file** rather than the `id` inside it, so that a u
 at the cache in a file browser sees one folder per source they have used and can delete
 exactly one of them.
 
-## Open questions
+## Deferred and settled
 
-- The credential store's format and the slot binding mechanism.
-- The published location and versioning of the JSON Schema itself.
-- Which sources ship with the application. The rule is that chartMaker ships no source it
-  is not entitled to ship, and the working answer is imagery published by government
-  agencies whose terms contemplate this use - but the specific list, and the URL templates,
-  are verified by TEST_FETCH rather than assumed.
+**The credential store's format and slot binding are deferred to [Build](build.md).** A
+credential matters when tiles are being fetched systematically; nothing in authoring needs
+one, so specifying it now would be guessing ahead of the code that has to use it.
+
+**There is no published JSON Schema.** The validation rules in this document are the schema,
+enforced in code by `dm_source`, and no external artefact is maintained alongside them.
+
+**The shipped sources are settled**: the two NASA GIBS files, with
+`gibs_weld_annual` as the official default - see [`cm_defs`](../implementation.md) for why
+that one and not Blue Marble. The rule they satisfy is that chartMaker ships no source it is
+not entitled to ship; both are US Government works, and their URL templates are verified by
+`test_fetch.pl` rather than assumed.
 
 ---
 

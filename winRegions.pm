@@ -35,6 +35,7 @@ use Pub::Utils;
 use Pub::WX::Window;
 use cm_defs;
 use cm_state;
+use dm_set;
 use dm_region;
 use base qw(Wx::SplitterWindow Pub::WX::Window);
 
@@ -247,6 +248,7 @@ sub _addNode
 		_nodeLabel($reg,$is_root));
 
 	$this->{tree}->SetItemData($item,Wx::TreeItemData->new({
+		kind	=> 'region',
 		root_id	=> $root_id,
 		id		=> $reg->{id},
 		is_root	=> $is_root ? 1 : 0,
@@ -275,6 +277,16 @@ sub _addNode
 
 
 sub populate
+	# THE OUTER LEVEL IS THE REGION SET, and it is a real level rather than
+	# the fake 'regions' root it replaces -- every node in this tree now
+	# names something that exists on disk.  It is also where the active set
+	# is chosen, by the same state-icon click winSources uses for a source,
+	# so the two panes select a thing the same way.
+	#
+	# ONLY THE ACTIVE SET HAS CHILDREN.  dm_region loads one set at a time
+	# by design, so the others are shown as what they are -- folders that
+	# exist and could be made active -- rather than opened.  A set you are
+	# not working in has nothing to say.
 {
 	my ($this) = @_;
 	my $tree = $this->{tree};
@@ -284,16 +296,34 @@ sub populate
 	$this->{_restore_item} = undef;
 
 	$tree->DeleteAllItems();
-	my $root = $tree->AddRoot('regions');
+	my $root   = $tree->AddRoot('sets');
+	my $active = getActiveSet();
+	my @names  = getSetNames();
 
-	$this->_addNode($root,$_,getRegion($_),1) for getRegionIds();
+	for my $name (@names)
+	{
+		my $item = $tree->AppendItem($root,$name);
+		$tree->SetItemData($item,Wx::TreeItemData->new({
+			kind	=> 'set',
+			set		=> $name,
+		}));
+		$tree->SetItemState($item,$name eq $active ? 1 : 0);
+
+		my $was = $this->{_restore};
+		$this->{_restore_item} = $item
+			if $was && ($was->{kind} || '') eq 'set' && $was->{set} eq $name;
+
+		next if $name ne $active;
+		$this->_addNode($item,$_,getRegion($_),1) for getRegionIds();
+		$tree->Expand($item);
+	}
 
 	$tree->SelectItem($this->{_restore_item})
 		if $this->{_restore_item} && $this->{_restore_item}->IsOk();
 	$this->{_restore} = undef;
 
 	$this->{seen_seq} = getStateSeq();
-	display($dbg_win,0,"winRegions::populate() ".
+	display($dbg_win,0,"winRegions::populate() ".scalar(@names)." set(s), ".
 		scalar(my @n = getRegionIds())." region(s) at state ".$this->{seen_seq});
 	$this->showProperties();
 }
@@ -341,6 +371,21 @@ sub onTreeLeftDown
 	{
 		my $d = $this->{tree}->GetItemData($item);
 		my $node = $d ? $d->GetData() : undef;
+
+		# On a set, the icon is a radio: it makes that set the active one.
+		# The whole tree is rebuilt afterwards, because changing the set
+		# changes which regions exist.
+
+		if ($node && ($node->{kind} || '') eq 'set')
+		{
+			return if $node->{set} eq getActiveSet();
+			display($dbg_win,0,"winRegions: active set '$node->{set}'");
+			setActiveSet($node->{set});
+			bumpState("active set is '$node->{set}'");
+			$this->populate();
+			return;
+		}
+
 		if ($node && $node->{is_root})
 		{
 			my $on = isChecked($node->{root_id}) ? 0 : 1;
@@ -377,6 +422,13 @@ sub _selectedRegion
 	my ($this) = @_;
 	my $node = $this->selectedIds();
 	return (undef,undef,undef) if !$node;
+
+	# A set node names a folder, not a region.  Every caller already
+	# handles "nothing selected", so a set selects as nothing rather than
+	# as a region with no fields, which is what would crash the panel.
+
+	return (undef,undef,$node) if ($node->{kind} || '') eq 'set';
+
 	my $root = getRegion($node->{root_id});
 	return (undef,undef,$node) if !$root;
 	return ($root,$root,$node) if $node->{is_root};
@@ -617,6 +669,50 @@ sub _enableControls
 }
 
 
+sub _setProperties
+	# What a region set is, said plainly, because the folder IS the answer
+	# to "what is on the card" and the user should be able to read it here
+	# rather than infer it.
+	#
+	# The active set is described from the loaded model; any other set is
+	# described from its FOLDER, because its regions are not loaded and
+	# counting the files is both cheap and exactly the right question.
+{
+	my ($this,$name) = @_;
+	my $dir    = setDir($name);
+	my $active = $name eq getActiveSet();
+
+	my $text = '';
+	$text .= sprintf("%-16s %s\n",'region set',$name);
+	$text .= sprintf("%-16s %s\n",'folder',$dir);
+	$text .= sprintf("%-16s %s\n",'active',$active ? 'yes' : 'no');
+
+	if ($active)
+	{
+		my @ids = getRegionIds();
+		my @on  = getWorkingSet();
+		$text .= sprintf("%-16s %d\n",'regions',scalar(@ids));
+		$text .= sprintf("%-16s %d of %d\n",'shown',scalar(@on),scalar(@ids));
+		$text .= "\n";
+		$text .= sprintf("    %s %-16s z%d-%d \@%d\n",
+			isChecked($_) ? '[x]' : '[ ]',$_,
+			getRegion($_)->{zmin},getRegion($_)->{zmax},
+			getRegion($_)->{zauthor}) for @ids;
+	}
+	else
+	{
+		my @files = glob("$dir/*.region");
+		$text .= sprintf("%-16s %d\n",'region files',scalar(@files));
+		$text .= "\n    click the icon to make this the active set\n";
+	}
+
+	$text .= "\nEVERY region in a set is on the card it builds.  The files\n".
+		"present in the folder ARE the set - there is no manifest, and\n".
+		"hiding a region here does not take it off the card.\n";
+	return $text;
+}
+
+
 sub showProperties
 {
 	my ($this) = @_;
@@ -630,8 +726,17 @@ sub showProperties
 		$this->{ctl_show}->SetValue(0);
 		$this->_enableControls(0,0);
 		$this->{loading} = 0;
-		$this->{props}->SetValue($node ?
-			"region '$node->{root_id}' is gone\n" : "no region selected\n");
+
+		my $kind = $node ? ($node->{kind} || 'region') : '';
+		if ($kind eq 'set')
+		{
+			$this->{props}->SetValue($this->_setProperties($node->{set}));
+		}
+		else
+		{
+			$this->{props}->SetValue($node ?
+				"region '$node->{root_id}' is gone\n" : "nothing selected\n");
+		}
 		return;
 	}
 
@@ -673,7 +778,7 @@ sub showProperties
 		$text .= sprintf("%-16s %d  (its band is z%d-%d)\n",'zmax',
 			$reg->{zmax},$parent->{zmax}+1,$reg->{zmax});
 	}
-	$text .= sprintf("%-16s %s\n",'checked',
+	$text .= sprintf("%-16s %s  (it is on the card either way)\n",'shown on map',
 		isChecked($node->{root_id}) ? 'yes' : 'no');
 	$text .= sprintf("%-16s %s\n",'notes',$reg->{notes}) if $reg->{notes};
 

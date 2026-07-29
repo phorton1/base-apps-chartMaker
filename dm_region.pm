@@ -4,12 +4,25 @@
 #---------------------------------------------
 # The coverage model on disk.  See docs/design/regions.md.
 #
-#	$data_dir/<id>.region		one region, self contained
-#	$data_dir/workspace.json	sets, and the defaults that are not a region's business
+#	$data_dir/region_sets/<set>/<id>.region		one region, self contained
 #
 # EXISTENCE COMES FROM THE FOLDER.  Regions are found by scanning, exactly
 # as sources are, so dropping in a region somebody sent you is how you add
-# one.  The workspace holds only what a scan cannot answer.
+# one.  There is no index and nothing to keep in step with the folder.
+#
+# ONE SET AT A TIME IS LOADED -- the active one, from dm_set.  Ids
+# therefore need only be unique WITHIN a set, which is more correct than
+# the alternative: a card is one folder, and two sets that both contain a
+# Bocas are two cards, not a conflict.  Changing the active set advances
+# the shared counter, so every thread reloads from the new folder.
+#
+# CHECKED MEANS SHOWN ON THE MAP, and nothing more.  It is not what
+# builds: the SET is what builds, because the set is a folder and the
+# files present in it are the card.  Checking is a per-machine view
+# convenience, held in memory here and written to the ini on clean exit
+# by the application layer -- it is deliberately NOT durable data, and
+# there is no file in the user's folder that can disagree with the
+# folder itself.
 #
 # A REGION'S GEOMETRY IS ONE OR MORE POLYGONS.  Not one.  Bocas del Toro
 # is a main body plus a detached area fifteen miles east, and San Blas has
@@ -51,6 +64,7 @@ use threads::shared;
 use JSON::PP;
 use Pub::Utils;
 use cm_defs;
+use dm_set;
 
 
 BEGIN
@@ -71,8 +85,8 @@ BEGIN
 		getWorkingSet
 		isChecked
 		setChecked
-		getDefaultSource
-		setDefaultSource
+		getUncheckedIds
+		setUncheckedIds
 
 		addSubregion
 		deleteSubregion
@@ -92,8 +106,6 @@ our $dbg_region:shared = 0;
 
 
 my $REGION_VERSION		= 2;
-my $WORKSPACE_VERSION	= 1;
-my $WORKSPACE_FILE		= 'workspace.json';
 
 my @REGION_FIELDS		= qw( region_version id name notes zauthor zmin zmax
 							  geometry subregions );
@@ -106,8 +118,20 @@ my $UPGRADE_ZMIN		= 10;
 
 my $scan_seq:shared	= 1;
 my $my_seq			= 0;
-my %regions;		# id => region hash
-my $workspace;		# the decoded workspace, or undef until loaded
+my %regions;		# id => region hash, for the ACTIVE set only
+my $loaded_set		= '';	# the set %regions was filled from
+
+my %unchecked:shared;
+	# "<set>|<folded id>" => 1 for the regions NOT shown on the map.
+	#
+	# The UNCHECKED ones are stored, not the checked ones, and the
+	# difference matters: a region dropped into the folder by hand appears
+	# CHECKED, which is what someone who just put it there expects.  Had
+	# the checked list been stored, every new region would arrive invisible
+	# and the folder would look broken.
+	#
+	# Keyed by set as well as id, because two sets may each hold a region
+	# with the same id and they are not the same region.
 
 
 #---------------------------------------------
@@ -245,7 +269,7 @@ sub _numify
 				_numify($thing->{$key});
 			}
 			elsif ($key eq 'zauthor' || $key eq 'zmin' || $key eq 'zmax' ||
-				   $key eq 'region_version' || $key eq 'workspace_version')
+				   $key eq 'region_version')
 			{
 				$thing->{$key} = 0 + $thing->{$key} if _isNum($thing->{$key});
 			}
@@ -498,27 +522,50 @@ sub _loadFile
 }
 
 
+sub _regionDir
+	# The folder of the ACTIVE set, or '' when there is none.  Every read
+	# and every write goes through this, so "which folder" is answered in
+	# exactly one place and changing the active set changes all of them.
+{
+	return setDir(getActiveSet());
+}
+
+
 sub loadRegions
 {
 	%regions = ();
+	$loaded_set = getActiveSet();
 
-	my $dh;
-	if (!opendir($dh,$data_dir))
+	# NO ACTIVE SET IS A LEGITIMATE STATE, not an error.  It is what a
+	# brand new installation looks like, and what deleting the last set
+	# folder leaves behind.  Everything downstream sees an empty model,
+	# which is exactly true.
+
+	my $dir = _regionDir();
+	if (!$dir)
 	{
-		error("could not read $data_dir: $!");
+		display($dbg_region,0,"loadRegions() - no region set");
+		$my_seq = $scan_seq;
 		return 0;
 	}
-	my @leaves = sort grep { /\.region$/i && -f "$data_dir/$_" } readdir($dh);
+
+	my $dh;
+	if (!opendir($dh,$dir))
+	{
+		error("could not read $dir: $!");
+		$my_seq = $scan_seq;
+		return 0;
+	}
+	my @leaves = sort grep { /\.region$/i && -f "$dir/$_" } readdir($dh);
 	closedir $dh;
 
-	display($dbg_region,0,"loadRegions() scanning $data_dir");
-	_loadFile("$data_dir/$_",$_) for @leaves;
+	display($dbg_region,0,"loadRegions() scanning $dir");
+	_loadFile("$dir/$_",$_) for @leaves;
 
 	my $found = scalar(keys %regions);
 	display($dbg_region,1,"$found region".($found == 1 ? '' : 's').
-		" loaded from ".scalar(@leaves)." file".(@leaves == 1 ? '' : 's'));
-
-	_loadWorkspace();
+		" loaded from ".scalar(@leaves)." file".(@leaves == 1 ? '' : 's').
+		" in set '$loaded_set'");
 
 	$my_seq = $scan_seq;
 	return $found;
@@ -552,8 +599,14 @@ sub _touch
 
 
 sub _current
+	# TWO reasons to be stale, not one.  The shared counter catches a
+	# change another thread made to the files; $loaded_set catches a change
+	# to WHICH FOLDER those files should come from, which the counter
+	# cannot, because the active set lives in dm_set and its own counter is
+	# not this one.  Comparing the names directly is cheaper than trying to
+	# keep two counters in step, and cannot drift.
 {
-	loadRegions() if $my_seq != $scan_seq;
+	loadRegions() if $my_seq != $scan_seq || $loaded_set ne getActiveSet();
 }
 
 
@@ -607,7 +660,9 @@ sub regionPointCount
 sub _regionPath
 {
 	my ($id) = @_;
-	return "$data_dir/$id.region";
+	my $dir = _regionDir();
+	return '' if !$dir;
+	return "$dir/$id.region";
 }
 
 
@@ -629,6 +684,12 @@ sub saveRegion
 	_numify(\%out);
 
 	my $path = _regionPath($reg->{id});
+	if (!$path)
+	{
+		error("saveRegion: there is no active region set to save '".
+			($reg->{id} // '?')."' into");
+		return 0;
+	}
 	my $text = JSON::PP->new->pretty->canonical->encode(\%out);
 	return 0 if !_writeFile($path,$text);
 
@@ -703,10 +764,9 @@ sub renameRegion
 
 sub setRegionId
 	# Changing the id moves three things that must move together: the file
-	# on disk, the key this module holds the region under, and every
-	# workspace set that names it.  Doing any one without the others
-	# leaves a region that is present but unreferenced, or referenced but
-	# absent.
+	# on disk, the key this module holds the region under, and whether it
+	# is hidden on the map.  Doing any one without the others leaves a
+	# region under the wrong name, or one that quietly reappears.
 	#
 	# A CASE-ONLY CHANGE IS NOT A RENAME ON WINDOWS.  PortBelo.region and
 	# portbelo.region are the same file, so the id inside the file changes
@@ -744,7 +804,7 @@ sub setRegionId
 	# one would be left behind as a duplicate.
 
 	my $old_path = $reg->{file} ?
-		"$data_dir/$reg->{file}" : _regionPath($old_id);
+		_regionDir()."/$reg->{file}" : _regionPath($old_id);
 	$reg->{id} = $new_id;
 
 	if (!saveRegion($reg))
@@ -760,7 +820,7 @@ sub setRegionId
 	{
 		delete $regions{ _foldId($old_id) };
 		unlink($old_path) if -f $old_path;
-		_renameInSets($old_id,$new_id);
+		_renameChecked($old_id,$new_id);
 		_touch();
 	}
 
@@ -782,7 +842,7 @@ sub deleteRegion
 	# upgraded file's leaf and its id need not agree.
 
 	my $path = $reg->{file} ?
-		"$data_dir/$reg->{file}" : _regionPath($reg->{id});
+		_regionDir()."/$reg->{file}" : _regionPath($reg->{id});
 	if (-f $path && !unlink($path))
 	{
 		error("deleteRegion: could not delete $path: $!");
@@ -791,10 +851,10 @@ sub deleteRegion
 	delete $regions{ _foldId($reg->{id}) };
 	_touch();
 
-	# Membership leaves with the region.  There is no separate visibility
-	# store to reconcile and nothing to prune.
+	# Visibility leaves with the region.  There is no separate store to
+	# reconcile and nothing to prune.
 
-	_forgetInSets($reg->{id});
+	delete $unchecked{ _checkKey($reg->{id}) };
 
 	display($dbg_region,0,"deleted $reg->{id}.region");
 	return 1;
@@ -927,129 +987,51 @@ sub deleteSubregion
 
 
 #---------------------------------------------
-# the workspace
+# what is shown on the map
 #---------------------------------------------
+# CHECKED IS A VIEW, NOT A MEMBERSHIP.  The set is the folder; every
+# region in it is part of the card.  Unchecking one hides it from the
+# map while you work on another, and that is all it does.
+#
+# There is deliberately no file behind this.  A stored membership list
+# was the last durable thing in workspace.json, and it was exactly the
+# kind of index that can disagree with the folder -- naming regions that
+# are gone, missing regions that are there.  What is left is per-machine
+# view state, which the application layer reads from and writes to the
+# ini around a session, and which costs nothing if it is lost.
 
-sub _workspacePath
-{
-	return "$data_dir/$WORKSPACE_FILE";
-}
-
-
-sub _loadWorkspace
-{
-	$workspace = {
-		workspace_version	=> $WORKSPACE_VERSION,
-		sets				=> { working => [] },
-		default_source		=> '',
-	};
-
-	my $path = _workspacePath();
-	return $workspace if !-f $path;
-
-	my $text = _readFile($path);
-	return $workspace if !defined $text;
-
-	my $got = eval { JSON::PP->new->decode($text) };
-	if ($@ || ref($got) ne 'HASH')
-	{
-		error("$WORKSPACE_FILE is not valid JSON - using an empty workspace");
-		return $workspace;
-	}
-
-	$workspace->{sets} = $got->{sets}
-		if ref($got->{sets}) eq 'HASH';
-	$workspace->{sets}{working} ||= [];
-
-	# A set written under the version 1 id rules names regions that no
-	# longer fold to anything, and the working set would come back empty
-	# with no diagnostic -- the regions would simply stop being drawn.
-	# Convert exactly as _upgradeRegion converts the region itself, so
-	# the two agree by construction rather than by coincidence.
-
-	for my $set (keys %{$workspace->{sets}})
-	{
-		next if ref($workspace->{sets}{$set}) ne 'ARRAY';
-		$workspace->{sets}{$set} = [
-			map { /^[A-Za-z0-9]+$/ ? $_ : _suggestId($_) }
-			grep { defined && !ref } @{$workspace->{sets}{$set}} ];
-	}
-	$workspace->{default_source} = $got->{default_source}
-		if defined $got->{default_source};
-
-	return $workspace;
-}
-
-
-sub _saveWorkspace
-{
-	_loadWorkspace() if !$workspace;
-	my %out = %$workspace;
-	$out{workspace_version} = $WORKSPACE_VERSION;
-	_numify(\%out);
-	my $ok = _writeFile(_workspacePath(),
-		JSON::PP->new->pretty->canonical->encode(\%out));
-	_touch() if $ok;
-	return $ok;
-}
-
-
-sub _forgetInSets
-	# Drop an id from every set.  Folded, because a set may have been
-	# written with a different spelling than the region carries now.
+sub _checkKey
 {
 	my ($id) = @_;
-	_loadWorkspace();
-	my $key = _foldId($id);
-	for my $set (keys %{$workspace->{sets}})
-	{
-		$workspace->{sets}{$set} =
-			[ grep { _foldId($_) ne $key } @{$workspace->{sets}{$set}} ];
-	}
-	return _saveWorkspace();
+	return lc(getActiveSet())."|"._foldId($id);
 }
 
 
-sub _renameInSets
-	# Rewrite an id in place in every set, preserving each set's ordering.
-	# Membership is a property of the set and must survive a rename -- a
-	# region that was checked stays checked.
+sub _renameChecked
+	# Visibility follows a region through a rename.  A hidden region that
+	# reappeared because it was renamed would be a small mystery every
+	# time, and the fix is two lines.
 {
 	my ($old_id,$new_id) = @_;
-	_loadWorkspace();
-	my $key = _foldId($old_id);
-	for my $set (keys %{$workspace->{sets}})
-	{
-		$workspace->{sets}{$set} =
-			[ map { _foldId($_) eq $key ? $new_id : $_ }
-				@{$workspace->{sets}{$set}} ];
-	}
-	return _saveWorkspace();
+	my $old = _checkKey($old_id);
+	return if !$unchecked{$old};
+	delete $unchecked{$old};
+	$unchecked{ _checkKey($new_id) } = 1;
 }
 
 
 sub getWorkingSet
+	# The regions currently shown on the map, in id order.
 {
 	_current();
-	_loadWorkspace() if !$workspace;
-
-	# A set may name a region whose file is gone.  The folder is the
-	# authority on existence, so a stale name is simply not returned.
-	#
-	# What comes back is the REGION'S id, not the set's spelling of it, so
-	# a set written before a re-casing still yields the current one.
-
-	return map { $regions{ _foldId($_) }{id} }
-		grep { $regions{ _foldId($_) } }
-		@{$workspace->{sets}{working}};
+	return grep { !$unchecked{ _checkKey($_) } } getRegionIds();
 }
 
 
 sub isChecked
 {
 	my ($id) = @_;
-	my $key = _foldId($id);
-	return scalar(grep { _foldId($_) eq $key } getWorkingSet()) ? 1 : 0;
+	return $unchecked{ _checkKey($id) } ? 0 : 1;
 }
 
 
@@ -1062,29 +1044,42 @@ sub setChecked
 		error("setChecked: no region with id '$id'");
 		return 0;
 	}
-	_loadWorkspace() if !$workspace;
-
-	my $key = _foldId($id);
-	my @set = grep { _foldId($_) ne $key } @{$workspace->{sets}{working}};
-	push @set,$reg->{id} if $on;
-	$workspace->{sets}{working} = \@set;
-	return _saveWorkspace();
+	if ($on)
+	{
+		delete $unchecked{ _checkKey($reg->{id}) };
+	}
+	else
+	{
+		$unchecked{ _checkKey($reg->{id}) } = 1;
+	}
+	_touch();
+	return 1;
 }
 
 
-sub getDefaultSource
+sub getUncheckedIds
+	# For the application layer to hand to the ini on a clean exit.  The
+	# HIDDEN ones, not the shown ones -- see the note on %unchecked.
 {
-	_loadWorkspace() if !$workspace;
-	return $workspace->{default_source} || '';
+	_current();
+	return grep { $unchecked{ _checkKey($_) } } getRegionIds();
 }
 
 
-sub setDefaultSource
+sub setUncheckedIds
+	# The other half, at startup.  Ids that name nothing are kept rather
+	# than dropped: a region temporarily moved out of the set folder and
+	# put back should come back hidden, as the user left it.
 {
-	my ($id) = @_;
-	_loadWorkspace() if !$workspace;
-	$workspace->{default_source} = $id // '';
-	return _saveWorkspace();
+	my (@ids) = @_;
+	my $prefix = lc(getActiveSet())."|";
+	for my $key (keys %unchecked)
+	{
+		delete $unchecked{$key} if index($key,$prefix) == 0;
+	}
+	$unchecked{ _checkKey($_) } = 1 for grep { defined && /\S/ } @ids;
+	_touch();
+	return 1;
 }
 
 

@@ -4,6 +4,10 @@
 #---------------------------------------------
 # Writes .tsd fixtures into temp subdirs, points $data_dir at each in
 # turn, and reports what loaded and what was refused.
+#
+# The fixtures go into <dir>/sources, because that is where dm_source
+# scans -- $data_dir itself holds sources/ and region_sets/ and no loose
+# files of either kind.
 
 use strict;
 use warnings;
@@ -28,7 +32,9 @@ sub putFile
 {
 	my ($dir,$leaf,$text) = @_;
 	mkdir $dir if !-d $dir;
-	open(my $fh,'>',"$dir/$leaf") or die "cannot write $dir/$leaf: $!";
+	mkdir "$dir/sources" if !-d "$dir/sources";
+	open(my $fh,'>',"$dir/sources/$leaf")
+		or die "cannot write $dir/sources/$leaf: $!";
 	print $fh $text;
 	close $fh;
 }

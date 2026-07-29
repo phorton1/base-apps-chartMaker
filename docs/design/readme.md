@@ -2,6 +2,9 @@
 
 **Design** --
 **[Regions](regions.md)** --
+**[Editing](editing.md)** --
+**[Map Editing](editing_leaflet.md)** --
+**[Tree Editing](editing_wx.md)** --
 **[TSD](tsd.md)** --
 **[Build](build.md)** --
 **[MBTiles](mbtiles.md)** --
@@ -27,6 +30,20 @@ and an **RCT card**. The fifth describes what happens in between.
   The coverage model on disk: the region file and its nested subregions, how depth is
   requested and where it is capped, the containment and overlap rules, and the workspace
   that holds regions without being a project file.
+
+- **[Editing](editing.md)** -
+  The rules for changing the coverage model, stated for no particular interface: the modes,
+  what dirty means, when an action is refused, and what the two authoring surfaces must
+  agree about.
+
+- **[Map Editing](editing_leaflet.md)** -
+  The Leaflet applet: right-click menus, drawing and editing bars, the create dialogs, and
+  the snap-to-grid that makes a shared boundary exact without anything having to track it.
+
+- **[Tree Editing](editing_wx.md)** -
+  The wx region tree: the three levels that each name something on disk, the zoom columns
+  that make a set's inconsistency visible, staged properties with Save and Revert, and what
+  it does while the map holds an edit.
 
 - **[TSD](tsd.md)** -
   The Tile Source Definition in full: every field, the closed placeholder set, the

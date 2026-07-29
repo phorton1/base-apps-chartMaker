@@ -2,6 +2,9 @@
 
 **[Design](readme.md)** --
 **Regions** --
+**[Editing](editing.md)** --
+**[Map Editing](editing_leaflet.md)** --
+**[Tree Editing](editing_wx.md)** --
 **[TSD](tsd.md)** --
 **[Build](build.md)** --
 **[MBTiles](mbtiles.md)** --
@@ -320,70 +323,85 @@ Each of these is absent for a reason, and each was considered:
 - **No coded region name for the card.** The exported file's stem is the id, uppercased at
   export if it needs to be. Carrying a second machine-readable copy of the region's identity
   would only be one more thing to disagree with the first. See [RCT](rct.md).
-- **No view state.** Whether a region is currently shown on the map is a fact about a
-  workspace, not about the region. See below.
+- **No view state.** Whether a region is currently shown on the map is a fact about this
+  machine, not about the region. See below.
 - **No parent reference.** Nesting is expressed by the file structure, so a region file can
   never refer to a parent the recipient does not have.
 
-## The workspace
+## Sets are folders
 
-chartMaker has **no project files and no File menu**. There is one workspace, it is
-`$data_dir`, and it is opened at startup.
+chartMaker has **no project files and no File menu**. That follows directly from the region
+being the unit of exchange: Open, Save As, recent files and unsaved-changes prompts exist to
+move documents between people and places, and if the thing people exchange is a region file,
+the container around it never needs to travel. The coverage model is refined over years - it
+is a body of work, not a document.
 
-That follows directly from the region being the unit of exchange. Open, Save As, recent
-files and unsaved-changes prompts exist to move documents between people and places; if the
-thing people exchange is a region file, the container around it never needs to travel, and
-none of that machinery earns its place. The coverage model is refined over years - it is a
-body of work, not a document.
-
-**Existence comes from the folder.** `$data_dir` is scanned for region files exactly as it
-is scanned for [TSD](tsd.md) files. Dropping a region somebody sent you into the folder is
-how you add it. There is no index to keep in agreement with the disk, and therefore no
-class of bug in which the two disagree.
-
-The workspace index holds only what a folder scan cannot answer:
+A **set** is the answer to "what travels together" - and it is a **folder**:
 
 ```
-    sets:
-      working:  [ bocas, popa00 ]
-      helm:     [ bocas ]
-    default_source:  <tsd id>
+    $data_dir/sources/*.tsd
+    $data_dir/region_sets/<set>/*.region
 ```
 
-## Sets
+**The files present ARE the set.** There is no index naming which regions belong to a card,
+exactly as there is none on the card itself, where the renderer enumerates the folder and
+merges every `.rct` it finds. A manifest is correct only by discipline and fails silently in
+both directions - naming a region that is gone, and missing one that is there. Dropping in a
+region somebody sent you is the whole of adding it, File Explorer is the set editor, and a
+set is a folder you can zip and mail.
 
-A **set** is a named list of region ids - the answer to "what travels together." It is the
-scope in which the containment and overlap rules matter, because that is the only time two
-regions' tiles land in the same output.
+**One set is active at a time.** The map shows one set, and one set builds, because a
+working set assembled across sets is one no card could express. It is also the scope in
+which the containment and overlap rules matter, since that is the only time two regions'
+tiles land in the same output.
 
-**The working set is the one you are looking at.** The checkbox column in the region tree
-is its membership, and nothing more: checking a region adds it to the working set, which
-makes it visible on the map. Saving that as a named set is then a naming operation rather
-than a new concept, and a build names a set rather than inventing its own idea of
-membership.
+**Ids are unique within a set, not globally.** A card is one folder; two sets that each
+contain a `Bocas` are two cards, not a conflict.
 
-This is why visibility is stored as membership in the workspace rather than as a flag on
-the region. A flag on a region would allow exactly one possible view forever, and would put
-one user's view state inside a file meant to be handed to somebody else. Membership in a
-list generalises for free, and deleting a region removes its membership along with it -
-there is no separate visibility store to reconcile, and nothing to prune.
+**One output folder per set.** A build writes to `<raster>/<set>`, and that folder is what
+is copied to the card - which makes the copy a copy rather than a decision about which files
+belong together. See [RCT](rct.md) for the `\RASTER\` contract on the consumer side.
 
-A region found in the folder but named by no set is simply not in the working set. It
-appears in the tree unchecked.
+## Existence comes from the folder, selection comes from the ini
 
-## Open questions
+Everything above is discovered by scanning. What cannot be discovered is which of the things
+found is *selected*, and there are exactly three such facts. None of them is data about the
+model, all three are per-machine, and all three live in the application's ini file, written
+on a clean exit alongside the frame rectangle and the open panes:
 
-- **Selection.** Exactly one region or subregion is selected at a time, or none, and it is
-  view state rather than model. What a click on the map selects where polygons nest is open:
-  innermost-containing is the obvious rule, but it leaves a parent unclickable wherever a
-  child covers it, so there has to be a way to walk up.
-- **Set management UX.** The working set needs none beyond the checkboxes. Named sets need
-  save-as, rename and delete.
-- **Map view state.** Which part of the world the map opens on is a fact about a machine,
-  not about a region or a workspace meant to be handed to somebody else. It belongs in
-  `$temp_dir` as a last-view-used, falling back to the checked regions' bounds and then to a
-  world view - which is also what removes the one hardcoded location from the shipped
-  applet.
+| Selection | Falls back to |
+| --------- | ------------- |
+| the active region set | the first set in tree order, then none |
+| the display source | the official default TSD, then the first in tree order, then none |
+| which regions are hidden | nothing hidden |
+
+Each is a **pointer into folder contents, resolved on every read and never cached**, because
+the folders are edited from outside the application by design. Deleting the active set's
+folder quietly leaves you in another set; deleting the selected `.tsd` quietly leaves the map
+on another source. A dangling pointer must degrade, never raise.
+
+**Checked means shown on the map, and nothing more.** It is not membership: the set is the
+folder, so every region in it is on the card whether or not you are currently looking at it.
+Unchecking one is how you get it out of your way while working on another. This is also why
+it is not a flag on the region file - one user's view state has no business inside a file
+meant to be handed to somebody else - and why losing it costs nothing.
+
+**The map's view is the browser's own state**, kept in `localStorage` rather than sent to
+the application: the application cannot ask a closed browser where it was looking, and
+nothing but the applet ever reads the answer. It falls back to the bounds of the regions on
+the map, and then to a world view. No location is hardcoded anywhere in the applet.
+
+## Selection and set management are editing concerns
+
+Exactly one region or subregion is selected at a time, or none, and the selection is shared
+by both authoring surfaces rather than owned by either. What a click selects where polygons
+nest, and how a parent covered by its child is reached, belong to the editing interfaces -
+see [Editing](editing.md) and [Map Editing](editing_leaflet.md).
+
+Set management starts and ends with **File Explorer**: a set is a folder, so renaming,
+deleting and copying one are things the operating system already does well. The application
+creates a set and chooses the active one, and nothing more. Additional set handling is added
+only if using Explorer for it turns out to hurt.
 
 ---
 

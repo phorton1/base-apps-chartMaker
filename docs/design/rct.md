@@ -2,6 +2,9 @@
 
 **[Design](readme.md)** --
 **[Regions](regions.md)** --
+**[Editing](editing.md)** --
+**[Map Editing](editing_leaflet.md)** --
+**[Tree Editing](editing_wx.md)** --
 **[TSD](tsd.md)** --
 **[Build](build.md)** --
 **[MBTiles](mbtiles.md)** --

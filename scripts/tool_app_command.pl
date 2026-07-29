@@ -13,7 +13,12 @@ use LWP::UserAgent;
 use JSON::PP;
 use URI::Escape;
 
-my $BASE = 'http://localhost:9884';
+# 127.0.0.1, NEVER localhost.  On Windows 'localhost' resolves to ::1
+# first, the server listens on IPv4 only, and every request pays for the
+# failed IPv6 attempt before falling back -- when it falls back at all.
+# This tool had it wrong and timed out against a perfectly healthy server.
+
+my $BASE = 'http://127.0.0.1:9884';
 my $ua   = LWP::UserAgent->new( timeout => 60 );
 
 sub api

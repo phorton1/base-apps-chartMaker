@@ -145,19 +145,12 @@ sub closeOK
 #---------------------------------------------
 
 sub _activeId
-	# The source the map is showing.  cm_state holds the choice and this
-	# module knows the choices, so the fallback lives here -- the same
-	# order /state uses, or the two surfaces would disagree about which
-	# source is active before anyone has picked one.
+	# The source the map is showing.  dm_source both holds the choice and
+	# resolves it against what the folder holds, so there is nothing left
+	# to decide here and no second fallback order that could disagree with
+	# what /state says.
 {
-	my @ids = getSourceIds();
-	my $active = getActiveSource();
-	return $active if $active && getSource($active);
-	for my $id (@ids)
-	{
-		return $id if grep { $_ eq 'build' } @{getSource($id)->{uses}};
-	}
-	return $ids[0];
+	return getDefaultSource();
 }
 
 
@@ -220,7 +213,7 @@ sub _use
 	return if !$id || !getSource($id);
 	return if _activeId() && $id eq _activeId();
 	display($dbg_win,0,"winSources: showing '$id'");
-	setActiveSource($id);
+	setDefaultSource($id);
 	$this->{seen_seq} = getStateSeq();
 	$this->populate();
 }

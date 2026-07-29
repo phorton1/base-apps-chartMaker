@@ -25,12 +25,14 @@ use Pub::WX::Main;
 use cm_defs;
 use cm_prefs;
 use cm_utils;
+use dm_set;
 use dm_source;
 use dm_region;
 use em_command;
 use em_server;
 use if ($^O eq 'MSWin32'), 'em_console';
 use w_resources;
+use w_ini;
 use w_frame;
 
 use base 'Wx::App';
@@ -49,10 +51,23 @@ display(0,0,"$appName.pm initializing");
 display(0,1,"data_dir = $data_dir");
 display(0,1,"temp_dir = $temp_dir");
 
-# Sources are loaded BEFORE the server starts, so that the threads it
-# spawns inherit them.  A later 'source rescan' reaches those threads
-# through dm_source's shared generation counter.
+# THE INI IS READ BEFORE ANYTHING IS SCANNED.  Pub::WX::Frame reads the
+# config file itself, but not until the frame is constructed, which is
+# long after the model has been loaded and the server has started.  The
+# selections are needed first -- which region set to load is the whole
+# question -- so the config is read here explicitly.  Reading it twice is
+# harmless; it is a file of lines and nothing has written to it yet.
 
+Pub::WX::AppConfig::initialize();
+readIniSelections();
+
+# Sets, then sources, then regions -- and all three BEFORE the server
+# starts, so that the threads it spawns inherit them.  Regions are last
+# because which folder they come from is a property of the active set.
+# A later rescan reaches the server threads through each module's shared
+# generation counter.
+
+loadSets();
 loadSources();
 loadRegions();
 
