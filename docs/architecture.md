@@ -357,14 +357,14 @@ Within the source itself, modules carry a **lexical prefix marking their layer**
 prefixes sort in layer order in a file browser or a tab bar, so the listing is the
 architecture:
 
-| Prefix       | Layer               | Modules (all `.pm`)                                                      |
-| ------------ | ------------------- | ------------------------------------------------------------------------ |
-| `chartMaker` | entry point         | application object, startup, wiring                                      |
-| `cm_`        | foundational        | `cm_defs`, `cm_utils`, `cm_prefs`, `cm_visibility`                       |
-| `dm_`        | data subsystems     | `dm_region`, `dm_source`, `dm_cache`, `dm_fetch`, `dm_mbtiles`, `dm_rct` |
-| `em_`        | active subsystems   | `em_command`, `em_console`, `em_server`                                  |
-| `w_`         | wx-aware, not panes | `w_resources`, `w_frame`, `w_dialogs`                                    |
-| `win`        | panes and subpanes  | `winRegions`, `winSources`                                               |
+| Prefix       | Layer               | Modules (all `.pm`)                                                                     |
+| ------------ | ------------------- | --------------------------------------------------------------------------------------- |
+| `chartMaker` | entry point         | application object, startup, wiring                                                     |
+| `cm_`        | foundational        | `cm_defs`, `cm_utils`, `cm_prefs`, `cm_state`                                           |
+| `dm_`        | data subsystems     | `dm_region`, `dm_source`, `dm_cache`, `dm_coverage`, `dm_fetch`, `dm_mbtiles`, `dm_rct` |
+| `em_`        | active subsystems   | `em_command`, `em_console`, `em_server`                                                 |
+| `w_`         | wx-aware, not panes | `w_resources`, `w_frame`                                                                |
+| `win`        | panes and subpanes  | `winRegions`, `winSources`                                                              |
 
 `chartMaker.pm` breaks the ordering deliberately, as the entry point that sits above every
 layer. Three rules govern the rest:

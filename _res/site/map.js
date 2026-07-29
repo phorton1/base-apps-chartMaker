@@ -1,42 +1,305 @@
 // map.js -- the chartMaker Leaflet applet.
 //
-// Scaffold only.  ONE hardwired tile source, no TSD machinery: this pass
-// exists to prove the console / wx / Leaflet triumvirate comes up together.
+// THE BROWSER NEVER CONTACTS A TILE SERVER.  Every tile comes from the
+// application's own proxy at /tile/<source>/{z}/{x}/{y}, which is what
+// keeps credentials out of this page and its network log, and what makes
+// displaying and building share one cache.  This file does not know, and
+// must not be told, where any imagery actually lives.
 //
-// The source is NASA GIBS, which is a US government work (not copyrighted)
-// and which publishes a bulk-download threshold rather than a prohibition.
-// The layer is the Landsat WELD global annual true-colour composite -- the
-// finest GLOBAL imagery GIBS carries, at 30 m, declared by its tile matrix
-// set to reach z12 and no further.
-//
-// Note the REST path order: {z}/{y}/{x}, row before column.
+// Which sources exist and which one is active comes from /state.
 
-const GIBS_ROOT  = 'https://gibs.earthdata.nasa.gov/wmts/epsg3857/best';
-const GIBS_LAYER = 'Landsat_WELD_CorrectedReflectance_TrueColor_Global_Annual';
-const GIBS_TIME  = '2000-12-01';        // the layer's own declared default
-const GIBS_SET   = 'GoogleMapsCompatible_Level12';
+// The map's zoom range is FIXED and belongs to the map, not to whatever
+// layer happens to be attached.  Leave map.maxZoom undefined and Leaflet
+// derives it from the current layer, so switching sources silently moves
+// the map's own range underneath it -- which is how a source swap turns
+// into a runaway inside Leaflet's tile pruning.  A source declares only
+// how deep it goes natively; how far the map may zoom is not its call.
 
-const GIBS_ATTRIB =
-    'Imagery courtesy of NASA/GSFC Earth Science Data and Information ' +
-    'System (<a href="https://nasa-gibs.github.io/gibs-api-docs/">GIBS</a>)';
-
-const imageryLayer = L.tileLayer(
-    GIBS_ROOT + '/' + GIBS_LAYER + '/default/' + GIBS_TIME + '/' +
-        GIBS_SET + '/{z}/{y}/{x}.jpeg',
-    {
-        attribution:   GIBS_ATTRIB,
-        maxNativeZoom: 12,      // declared by the tile matrix set
-        maxZoom:       16,      // overzoom past it, deliberately
-        tileSize:      256,
-    });
+const MAP_MAX_ZOOM = 22;
 
 const map = L.map('map', {
-    center: [9.33, -82.24],     // Bocas del Toro
-    zoom:   10,
-    layers: [imageryLayer],
+    maxZoom: MAP_MAX_ZOOM,
 });
+map.setView([9.33, -82.24], 10);    // Bocas del Toro
 
 L.control.scale({ imperial: true, metric: true }).addTo(map);
+
+let imageryLayer = null;
+let imagerySig   = null;    // what the current layer was built from
+
+function setImagerySource(src) {
+    // Rebuilding a tile layer throws away every tile it has drawn, so it
+    // happens only when something about the source actually changed.
+    const sig = src ? JSON.stringify(src) : null;
+    if (sig === imagerySig) return;
+    imagerySig = sig;
+
+    if (imageryLayer) {
+        map.removeLayer(imageryLayer);
+        imageryLayer = null;
+    }
+    if (!src) return;
+
+    imageryLayer = L.tileLayer('/tile/' + src.id + '/{z}/{x}/{y}', {
+        attribution:   src.attribution,
+        maxNativeZoom: src.zoom_max,
+        maxZoom:       MAP_MAX_ZOOM,
+        tileSize:      src.tile_size,
+    });
+    imageryLayer.addTo(map);
+}
+
+
+// ============================================================================
+// Regions
+// ============================================================================
+// Drawn read-only.  The application owns the model; this is a view of it.
+// Editing arrives later, and with it the rule that an object under the
+// user's hand leaves this layer until the edit commits.
+
+const regionLayer = L.layerGroup().addTo(map);
+let regionSig = null;
+
+const REGION_STYLE    = { color: '#ffcc00', weight: 2, fillOpacity: 0.05 };
+const SUBREGION_STYLE = { color: '#00e5ff', weight: 2, fillOpacity: 0.10 };
+
+function drawRegion(reg, style) {
+    // The model stores [lon,lat]; Leaflet wants [lat,lng].
+    reg.polygons.forEach(poly => {
+        L.polygon(poly.map(p => [p[1], p[0]]), style)
+            .bindTooltip(reg.name + '  (z' + reg.canonical_zoom + ')',
+                         { sticky: true })
+            .addTo(regionLayer);
+    });
+    (reg.subregions || []).forEach(sub => drawRegion(sub, SUBREGION_STYLE));
+}
+
+function setRegions(regions) {
+    const sig = JSON.stringify(regions);
+    if (sig === regionSig) return;
+    regionSig = sig;
+
+    regionLayer.clearLayers();
+    (regions || []).forEach(reg => drawRegion(reg, REGION_STYLE));
+}
+
+
+// ============================================================================
+// The coverage footprint
+// ============================================================================
+// The tiles that would actually be built, drawn AT THE ZOOM BEING VIEWED.
+// That is what keeps it both legible and honest: a tile is about 256
+// pixels on the screen at any zoom, and the outline really is the
+// coverage at the zoom being looked at.  Zoom in and the staircase along
+// the boundary refines.
+//
+// Only the viewport is asked for.  The full set at z16 is tens of
+// thousands of tiles, and an answer about tiles nobody can see is of no
+// use to anybody.
+
+const coverageLayer = L.layerGroup();
+let coverageOn  = false;
+let coverageSig = null;
+
+const COVERAGE_STYLE = {
+    color: '#ff3b30', weight: 1, opacity: 0.9,
+    fill: true, fillOpacity: 0.06, interactive: false,
+};
+
+async function refreshCoverage() {
+    if (!coverageOn) return;
+    const z = Math.round(map.getZoom());
+    const b = map.getBounds();
+    const q = '/coverage?z=' + z +
+        '&w=' + b.getWest()  + '&s=' + b.getSouth() +
+        '&e=' + b.getEast()  + '&n=' + b.getNorth();
+
+    // The view has not moved enough to change the answer.
+    const sig = q + '|' + renderedVersion;
+    if (sig === coverageSig) return;
+    coverageSig = sig;
+
+    let data;
+    try {
+        data = await fetchJson(q, STATE_TIMEOUT_MS);
+    } catch (e) {
+        console.warn('chartMaker: /coverage failed', e);
+        return;
+    }
+    if (!coverageOn) return;               // toggled off while in flight
+
+    coverageLayer.clearLayers();
+    const n = 1 << data.zoom;
+    data.tiles.forEach(t => {
+        const [x, y] = t;
+        const w = x / n * 360 - 180;
+        const e = (x + 1) / n * 360 - 180;
+        L.rectangle([[tileLat(y + 1, n), w], [tileLat(y, n), e]],
+                    COVERAGE_STYLE).addTo(coverageLayer);
+    });
+    coverageCount.textContent =
+        data.tiles.length + ' of ' + data.total + ' tiles at z' + data.zoom;
+}
+
+function tileLat(y, n) {
+    const t = Math.PI - 2 * Math.PI * y / n;
+    return 180 / Math.PI * Math.atan(0.5 * (Math.exp(t) - Math.exp(-t)));
+}
+
+// ---- the control ----
+
+const coverageBox = L.control({ position: 'topright' });
+let coverageCount;
+
+coverageBox.onAdd = function () {
+    const div = L.DomUtil.create('div', 'leaflet-bar cm-coverage');
+    div.style.background = 'rgba(255,255,255,0.85)';
+    div.style.padding    = '4px 8px';
+    div.style.font       = '12px sans-serif';
+    div.style.cursor     = 'default';
+
+    const label = document.createElement('label');
+    label.style.cursor = 'pointer';
+    const cb = document.createElement('input');
+    cb.type = 'checkbox';
+    label.appendChild(cb);
+    label.appendChild(document.createTextNode(' tile footprint'));
+    div.appendChild(label);
+
+    coverageCount = document.createElement('div');
+    coverageCount.style.color = '#555';
+    coverageCount.style.marginTop = '2px';
+    div.appendChild(coverageCount);
+
+    L.DomEvent.disableClickPropagation(div);
+    cb.addEventListener('change', () => {
+        coverageOn = cb.checked;
+        if (coverageOn) {
+            coverageLayer.addTo(map);
+            coverageSig = null;
+            refreshCoverage();
+        } else {
+            map.removeLayer(coverageLayer);
+            coverageLayer.clearLayers();
+            coverageCount.textContent = '';
+        }
+    });
+    return div;
+};
+coverageBox.addTo(map);
+
+map.on('moveend zoomend', refreshCoverage);
+
+
+// ============================================================================
+// The poll loop
+// ============================================================================
+// The application holds the truth.  /poll returns a cheap version number;
+// when it differs from what we last rendered, the WHOLE of /state is
+// refetched.  There is no delta protocol and no second channel -- every
+// later addition arrives in the same document behind the same counter.
+//
+// The server has no notion of a connected browser.  It answers questions.
+// That is what makes closing and reopening this page a non-event, and it
+// is why reconnect is entirely the client's business: on any failure we
+// forget what we rendered, so the next successful poll sees a mismatch
+// and resynchronises everything.
+//
+// The two timers are separate on purpose.  Polling has to stay on its own
+// cadence even while a render is in progress, because the moment it does
+// not, a slow render silently becomes a dropped connection.
+
+const POLL_INTERVAL_MS   = 1000;
+const RENDER_INTERVAL_MS = 250;
+const POLL_TIMEOUT_MS    = 2000;    // short - detect a dead server quickly
+const STATE_TIMEOUT_MS   = 10000;   // longer - the payload can be large
+
+let polledVersion   = -1;
+let renderedVersion = -1;
+let fetching        = false;
+let connected       = true;
+
+async function fetchJson(path, timeoutMs) {
+    const ctl = new AbortController();
+    const timer = setTimeout(() => ctl.abort(), timeoutMs);
+    try {
+        const res = await fetch(path, { signal: ctl.signal });
+        if (!res.ok) throw new Error(path + ' returned ' + res.status);
+        return await res.json();
+    } finally {
+        clearTimeout(timer);
+    }
+}
+
+function onDisconnected(what, e) {
+    if (connected) {
+        connected = false;
+        console.warn('chartMaker: lost the application (' + what + ')', e);
+    }
+    renderedVersion = -1;       // force a full resync when it comes back
+}
+
+function onConnected() {
+    if (!connected) {
+        connected = true;
+        console.info('chartMaker: reconnected');
+    }
+}
+
+async function pollVersion() {
+    try {
+        const poll = await fetchJson('/poll', POLL_TIMEOUT_MS);
+        polledVersion = poll.version;
+        onConnected();
+    } catch (e) {
+        onDisconnected('poll', e);
+    }
+}
+
+async function applyState() {
+    if (fetching || polledVersion === renderedVersion) return;
+    fetching = true;
+    const wanted = polledVersion;
+    try {
+        const state = await fetchJson('/state', STATE_TIMEOUT_MS);
+        onConnected();
+
+        // Mark it rendered BEFORE touching Leaflet.  A failure while
+        // building the layer must not leave us retrying every 250ms --
+        // each retry would add another layer, and enough of them make
+        // the tile pruner unable to finish.  A broken layer is a bug to
+        // read in the console, not a thing to attempt forever.
+
+        renderedVersion = wanted;
+
+        const src = (state.sources || [])
+            .find(s => s.id === state.active_source) || null;
+        if (!src) {
+            console.warn('chartMaker: /state names no active source');
+        }
+        try {
+            setImagerySource(src);
+        } catch (e) {
+            console.error('chartMaker: could not build the imagery layer', e);
+        }
+        try {
+            setRegions(state.regions);
+        } catch (e) {
+            console.error('chartMaker: could not draw the regions', e);
+        }
+        // The model changed, so any footprint on screen is now stale.
+        coverageSig = null;
+        refreshCoverage();
+    } catch (e) {
+        onDisconnected('state', e);
+    } finally {
+        fetching = false;
+    }
+}
+
+setInterval(pollVersion, POLL_INTERVAL_MS);
+setInterval(applyState,  RENDER_INTERVAL_MS);
+pollVersion();
 
 
 // ---- Cursor coordinates ----
@@ -50,15 +313,24 @@ function toDDM(dd, isLat) {
 }
 
 const coordsDiv = document.getElementById('cm-coords');
+let lastLatLng = null;
 
-map.on('mousemove', e => {
-    const lat = e.latlng.lat, lng = e.latlng.lng;
+function showCoords() {
+    // The zoom is redrawn on its own event as well as on mousemove.
+    // Reading it only when the pointer moves leaves a stale number on
+    // screen after a zoom, which is worse than showing none.
+    if (!lastLatLng) {
+        coordsDiv.textContent = 'zoom ' + map.getZoom();
+        return;
+    }
+    const lat = lastLatLng.lat, lng = lastLatLng.lng;
     coordsDiv.textContent =
         toDDM(lat, true) + '  ' + toDDM(lng, false) + '\n' +
         lat.toFixed(5)   + '  ' + lng.toFixed(5)    + '\n' +
         'zoom ' + map.getZoom();
-});
+}
 
-map.on('mouseout', () => {
-    coordsDiv.textContent = '';
-});
+map.on('mousemove', e => { lastLatLng = e.latlng; showCoords(); });
+map.on('mouseout',  ()  => { lastLatLng = null;   showCoords(); });
+map.on('zoomend',   showCoords);
+showCoords();

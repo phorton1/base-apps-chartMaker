@@ -20,14 +20,22 @@ BEGIN
 	use Exporter qw( import );
 	our @EXPORT = qw(
 		$appName
+		$appVersion
 		$app_dir
 
+		$WIN_REGIONS
+		$WIN_SOURCES
 		$COMMAND_OPEN_MAP
 	);
 }
 
 
 our $appName = 'chartMaker';
+
+# Identifies the application to tile servers in dm_fetch's User-Agent.
+# A client that fetches systematically should say who it is.
+
+our $appVersion = '0.1';
 
 our $app_dir = $^O eq 'MSWin32' ?
 	'C:\dat\openCPN\chartMaker' :
@@ -39,6 +47,11 @@ our $app_dir = $^O eq 'MSWin32' ?
 #---------------------------------------------
 # Pub::WX reserves everything below 200 for system use.
 # chartMaker uses the 10000 range, as navMate does.
+
+# Panes are 10001..10019, plain commands from 10020.
+
+our $WIN_REGIONS		= 10001;
+our $WIN_SOURCES		= 10002;
 
 our $COMMAND_OPEN_MAP	= 10021;
 

@@ -1,0 +1,18 @@
+{
+  "tsd_version": 1,
+  "id": "gibs_bluemarble",
+  "name": "NASA GIBS - Blue Marble shaded relief and bathymetry",
+  "notes": "A static global basemap - no acquisition date, no clouds, no gaps. Coarse (Level8) but complete everywhere, which makes it the sane thing to open on before a region has been chosen.",
+  "kind": "remote_xyz",
+  "url": "https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/BlueMarble_ShadedRelief_Bathymetry/default/default/GoogleMapsCompatible_Level8/{z}/{y}/{x}.jpeg",
+  "tile_format": "jpeg",
+  "tile_size": 256,
+  "crs": "EPSG:3857",
+  "zoom": { "min": 0, "max": 8 },
+  "attribution": "Imagery courtesy of NASA/GSFC Earth Science Data and Information System (GIBS)",
+  "terms_url": "https://www.earthdata.nasa.gov/engage/open-data-services-software/data-information-policy",
+  "license": "US Government work - not subject to copyright (17 USC 105)",
+  "redistributable": "yes",
+  "uses": ["display","build"],
+  "policy": { "max_concurrency": 4, "min_interval_ms": 0 }
+}

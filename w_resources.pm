@@ -30,6 +30,8 @@ BEGIN
 
 
 my @view_menu = (
+	$WIN_REGIONS,
+	$WIN_SOURCES,
 	$COMMAND_OPEN_MAP,
 	$ID_SEPARATOR,
 	$CLOSE_ALL_PANES,
@@ -42,7 +44,9 @@ my @main_menu = (
 
 my $command_data = {
 	%{$resources->{command_data}},
-	$COMMAND_OPEN_MAP	=> ['Map',	'Open the Leaflet map in a browser'],
+	$WIN_REGIONS		=> ['Regions',	'Show the region tree'],
+	$WIN_SOURCES		=> ['Sources',	'Show the tile source definitions'],
+	$COMMAND_OPEN_MAP	=> ['Map',		'Open the Leaflet map in a browser'],
 };
 
 

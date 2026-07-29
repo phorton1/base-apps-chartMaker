@@ -123,6 +123,7 @@ changes. Nothing outside the application should depend on them.
 | `/api/log?since=<seq>`    | drive   | Output-ring entries since a point.             |
 | `/poll`                   | applet  | A cheap version probe.                         |
 | `/state`                  | applet  | Everything currently visible, as one document. |
+| `/coverage?z&w&s&e&n`     | applet  | Tiles in coverage at one zoom, in view.        |
 | `/tile/<src>/<z>/<x>/<y>` | applet  | The tile proxy.                                |
 | `/edit`                   | applet  | A model mutation carrying structured data.     |
 

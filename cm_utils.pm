@@ -45,8 +45,16 @@ sub openMapBrowser
 	# precedes the URL -- e.g. 'firefox --new-window' to force a separate
 	# window; empty means the system default browser.
 {
+	# 127.0.0.1, NOT localhost.  On Windows 'localhost' resolves to ::1
+	# first, the server listens on IPv4 only, and every request pays for
+	# the failed IPv6 attempt before falling back -- measured at 220ms
+	# per request against 3.5ms by address.  It went unnoticed until the
+	# map started drawing its tiles through this application, at which
+	# point every tile paid it instead of just the page.  map.js uses
+	# relative urls, so the whole applet inherits whatever is used here.
+
 	my $browser = getPref($PREF_MAP_BROWSER) // '';
-	my $url     = 'http://localhost:'.getPref($PREF_HTTP_PORT).'/map.html';
+	my $url     = 'http://127.0.0.1:'.getPref($PREF_HTTP_PORT).'/map.html';
 	display(0,0,"openMapBrowser($url)");
 	if (is_win())
 	{

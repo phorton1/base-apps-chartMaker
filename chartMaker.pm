@@ -25,6 +25,8 @@ use Pub::WX::Main;
 use cm_defs;
 use cm_prefs;
 use cm_utils;
+use dm_source;
+use dm_region;
 use em_command;
 use em_server;
 use if ($^O eq 'MSWin32'), 'em_console';
@@ -46,6 +48,13 @@ init_prefs();
 display(0,0,"$appName.pm initializing");
 display(0,1,"data_dir = $data_dir");
 display(0,1,"temp_dir = $temp_dir");
+
+# Sources are loaded BEFORE the server starts, so that the threads it
+# spawns inherit them.  A later 'source rescan' reaches those threads
+# through dm_source's shared generation counter.
+
+loadSources();
+loadRegions();
 
 my $console = is_win() ? em_console->new(\&em_command::dispatchCommand) : undef;
 

@@ -37,12 +37,12 @@ author's document rather than a set of exchangeable pieces.
     name:             Bocas del Toro
     notes:            free text
     canonical_zoom:   15
-    geometry:         <polygon>
+    geometry:         [ <polygon>, <polygon>, ... ]
     subregions:
       - id:             bocas_town
         name:           Bocas Town approaches
         canonical_zoom: 17
-        geometry:       <polygon>
+        geometry:       [ <polygon> ]
         subregions:     [ ... ]
 ```
 
@@ -53,7 +53,7 @@ author's document rather than a set of exchangeable pieces.
 | `name`           | What a person calls it. Free to change at any time.                   |
 | `notes`          | Free text. The format is JSON and JSON has no comments.               |
 | `canonical_zoom` | The zoom at which this area's polygon meets the tile grid.            |
-| `geometry`       | A polygon in WGS84 decimal degrees.                                   |
+| `geometry`       | One or more polygons in WGS84 decimal degrees.                        |
 | `subregions`     | Zero or more regions nested inside this one, recursively.             |
 
 **A subregion is a region.** Same fields, same rules, nested. A subregion is simply a
@@ -65,6 +65,17 @@ unusual but expressible, and nothing special is needed to say it.
 **Subregion ids are unique within their file only.** Nothing outside a region file ever
 refers to a subregion, so there is no global namespace to collide in and no renaming
 required when two people exchange regions.
+
+**A region's geometry is one or more polygons, and this is not a generalisation for its
+own sake.** Bocas del Toro is a main body plus a detached area fifteen miles east; San Blas
+has a separate sliver. They are one region because they are one thing to the person who
+drew them. The alternatives both fail: separate regions lose the grouping, and subregions
+lose the coverage outright, since a subregion at its parent's canonical zoom has an empty
+band and contributes nothing.
+
+**There are no holes**, and not as a simplification. Coverage is a union and never
+subtracts, so an inner ring could not mean anything. A KML import ignores them for exactly
+that reason rather than as an omission.
 
 **The geometry itself is zoom-independent.** A polygon is an outline on the earth, not a
 set of tiles, and it is stored exactly as it was drawn - free coordinates in decimal
@@ -182,6 +193,54 @@ is most likely to be looking.
 Overlap between siblings needs no special handling for the same reason. Two adjacent
 subregions at the same canonical zoom will produce the same parent tiles in their shared
 band, and the union absorbs it.
+
+### Regions that touch
+
+Two regions that abut share a boundary, and the model has no opinion about it: each holds
+its own copy of those vertices, and rasterisation puts the same tiles in both. Overlap is
+free and a duplicate tile is harmless, so nothing needs to agree.
+
+**Editing is where it stops being free.** If a shared boundary is two independent copies of
+the same line, then dragging a vertex in one region opens a gap in the other - and a gap is
+the one failure the union rule cannot absorb, because coverage that nobody claims simply
+is not built. So the editor has to treat coincident vertices on touching regions as **one
+vertex, moved in both regions at once**, and that means an edit is not always confined to
+the region under the hand.
+
+This is a requirement on the editor rather than on the format. Nothing is written into a
+region file to record that a neighbour shares a vertex; the editor finds coincidence
+geometrically at the time of the drag. Recording it would be a cross-file reference, and a
+region that names its neighbours stops being self-contained - which is the one property the
+whole format is built to preserve.
+
+### Boundaries land on the grid
+
+**A shared boundary falls on a tile edge at the lesser of the two regions' canonical
+zooms.** A vertical boundary is one longitude, a horizontal one is one latitude, and that
+value is a tile edge on the coarser of the two grids.
+
+The reason it must be the *coarser* grid is that a tile edge at one zoom is also an edge at
+every finer zoom. Align to the finer region and the boundary still cuts a coarse tile in
+half, which is the thing being avoided.
+
+What it buys is not correctness - union ownership prevents gaps wherever the boundary
+falls. It is **duplication**: a boundary that runs through a tile puts that tile in both
+regions, so it is fetched once but shipped twice, once in each output. On a card measured
+in megabytes that is the difference worth having.
+
+This does not contradict geometry being stored as drawn. That rule forbids the application
+quantising a polygon behind the author's back; deciding to put a boundary on a grid line is
+a drawing decision, and "snap this boundary to the grid" is an editor command like any
+other.
+
+**Welding a boundary never changes coverage.** Moving a shared line moves the division
+between two regions, not the outer extent of their union, and the union is what reaches the
+water.
+
+**Open: three or more regions meeting at a point.** Each pair of them constrains the
+junction to its own grid, and those constraints can be jointly unsatisfiable - a point
+cannot sit on two different vertical tile edges at once. Nothing here solves that, and
+nothing in the current model needs it.
 
 ## What a region file does not contain
 
