@@ -204,17 +204,30 @@ sub _regionShape
 	# coordinate arriving as a string would be concatenated rather than
 	# added the first time any arithmetic touched it.
 {
-	my ($reg,$checked) = @_;
-	return {
-		id				=> $reg->{id},
-		name			=> $reg->{name},
-		canonical_zoom	=> 0 + $reg->{canonical_zoom},
-		checked			=> $checked ? JSON::PP::true : JSON::PP::false,
-		polygons		=> [ map { [ map { [ 0 + $_->[0], 0 + $_->[1] ] } @$_ ] }
-								@{$reg->{geometry}} ],
-		subregions		=> [ map { _regionShape($_,$checked) }
-								@{$reg->{subregions}} ],
+	my ($reg,$checked,$depth) = @_;
+	$depth ||= 0;
+
+	my $shape = {
+		id			=> $reg->{id},
+		name		=> $reg->{name},
+		zmax		=> 0 + $reg->{zmax},
+		checked		=> $checked ? JSON::PP::true : JSON::PP::false,
+		polygons	=> [ map { [ map { [ 0 + $_->[0], 0 + $_->[1] ] } @$_ ] }
+							@{$reg->{geometry}} ],
+		subregions	=> [ map { _regionShape($_,$checked,$depth+1) }
+							@{$reg->{subregions}} ],
 	};
+
+	# Only a region has an authored level and a floor.  A subregion sits
+	# inside an aperture its parent opened and carries neither, so sending
+	# them would be inventing values the model does not have.
+
+	if (!$depth)
+	{
+		$shape->{zauthor} = 0 + $reg->{zauthor};
+		$shape->{zmin}    = 0 + $reg->{zmin};
+	}
+	return $shape;
 }
 
 
@@ -319,7 +332,7 @@ sub _workingCoverage
 	{
 		my $reg = getRegion($id);
 		next if !$reg;
-		my $cov = regionCoverage($reg,{ zmin => 10, fill => 1 });
+		my $cov = regionCoverage($reg);
 		for my $z (keys %$cov)
 		{
 			$merged->{$z} ||= {};

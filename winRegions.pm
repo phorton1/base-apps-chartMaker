@@ -96,31 +96,77 @@ sub new
 	$this->{right} = $right;
 
 	my $CV  = wxALIGN_CENTER_VERTICAL;
-	my $LBL = 90;
+
+	# TWO COLUMNS.  The left one holds Save, then 'Name' and 'Zoom' under
+	# it; the right one starts at $COL and holds 'Id:', the name field
+	# itself, and 'Author:', all on the same edge.
+	#
+	# The button is only as wide as the word it surrounds, and the labels
+	# are inset by $PAD so it starts slightly LEFT of them - a button
+	# reads as a button rather than as a third label.
+
+	my $BTN = 50;		# the Save button
+	my $PAD = 6;		# the labels' inset from the button's left edge
+	my $COL = 64;		# where the right column starts
 
 	$this->{ctl_name} = Wx::TextCtrl->new($right,-1,'',
 		wxDefaultPosition,[220,-1],wxTE_PROCESS_ENTER);
-	$this->{ctl_zoom} = Wx::SpinCtrl->new($right,-1,'',
-		wxDefaultPosition,[70,-1],wxSP_ARROW_KEYS,0,24,15);
-	$this->{ctl_show} = Wx::CheckBox->new($right,-1,'show on the map');
+	$this->{ctl_id} = Wx::TextCtrl->new($right,-1,'',
+		wxDefaultPosition,[110,-1],wxTE_PROCESS_ENTER);
+	$this->{ctl_zauthor} = Wx::SpinCtrl->new($right,-1,'',
+		wxDefaultPosition,[60,-1],wxSP_ARROW_KEYS,0,24,15);
+	$this->{ctl_zmin} = Wx::SpinCtrl->new($right,-1,'',
+		wxDefaultPosition,[60,-1],wxSP_ARROW_KEYS,0,24,10);
+	$this->{ctl_zmax} = Wx::SpinCtrl->new($right,-1,'',
+		wxDefaultPosition,[60,-1],wxSP_ARROW_KEYS,0,24,16);
+	$this->{ctl_show} = Wx::CheckBox->new($right,-1,'show on map');
 	$this->{ctl_save} = Wx::Button->new($right,-1,'Save',
-		wxDefaultPosition,[$LBL,-1]);
+		wxDefaultPosition,[$BTN,-1]);
 	$this->{ctl_save}->Enable(0);
 
-	# Save sits in the label column, where 'Name' would otherwise be: a
-	# text field holding a name needs no label to say so, and this lines
-	# the button up with the zoom label below it.
+	# ROW 1 -- Save, the id, and the map checkbox.  The ID IS STRUCTURAL
+	# -- the file name, the key every set references, and the stem of the
+	# exported card file -- which is why it leads rather than the name,
+	# and why it has a field of its own: SanBlasE is not a slug of 'San
+	# Blas East', it is a decision.
+
+	my $id_row = Wx::BoxSizer->new(wxHORIZONTAL);
+	$id_row->Add($this->{ctl_save},0,$CV,0);
+	$id_row->AddSpacer($COL - $BTN);
+	$id_row->Add(Wx::StaticText->new($right,-1,'Id:',
+		wxDefaultPosition,[24,-1]),0,$CV,0);
+	$id_row->Add($this->{ctl_id},0,$CV,0);
+	$id_row->AddSpacer(20);
+	$id_row->Add($this->{ctl_show},0,$CV,0);
+
+	# ROW 2 -- the name.  Free text, and the only field here with no
+	# structural role at all.
 
 	my $name_row = Wx::BoxSizer->new(wxHORIZONTAL);
-	$name_row->Add($this->{ctl_save},0,$CV,0);
+	$name_row->AddSpacer($PAD);
+	$name_row->Add(Wx::StaticText->new($right,-1,'Name',
+		wxDefaultPosition,[$COL - $PAD,-1]),0,$CV,0);
 	$name_row->Add($this->{ctl_name},0,$CV,0);
 
+	# ROW 3 -- the three levels.  A subregion has zmax alone, and the
+	# other two are disabled for it rather than hidden, so the shape of
+	# the model stays visible.
+
 	my $zoom_row = Wx::BoxSizer->new(wxHORIZONTAL);
-	$zoom_row->Add(Wx::StaticText->new($right,-1,'Canonical zoom',
-		wxDefaultPosition,[$LBL,-1]),0,$CV,0);
-	$zoom_row->Add($this->{ctl_zoom},0,$CV,0);
-	$zoom_row->AddSpacer(20);
-	$zoom_row->Add($this->{ctl_show},0,$CV,0);
+	$zoom_row->AddSpacer($PAD);
+	$zoom_row->Add(Wx::StaticText->new($right,-1,'Zoom',
+		wxDefaultPosition,[$COL - $PAD,-1]),0,$CV,0);
+	$zoom_row->Add(Wx::StaticText->new($right,-1,'Author:',
+		wxDefaultPosition,[48,-1]),0,$CV,0);
+	$zoom_row->Add($this->{ctl_zauthor},0,$CV,0);
+	$zoom_row->AddSpacer(14);
+	$zoom_row->Add(Wx::StaticText->new($right,-1,'Min:',
+		wxDefaultPosition,[30,-1]),0,$CV,0);
+	$zoom_row->Add($this->{ctl_zmin},0,$CV,0);
+	$zoom_row->AddSpacer(14);
+	$zoom_row->Add(Wx::StaticText->new($right,-1,'Max:',
+		wxDefaultPosition,[32,-1]),0,$CV,0);
+	$zoom_row->Add($this->{ctl_zmax},0,$CV,0);
 
 	$this->{props} = Wx::TextCtrl->new($right,-1,'',
 		wxDefaultPosition,wxDefaultSize,
@@ -130,6 +176,8 @@ sub new
 
 	my $sizer = Wx::BoxSizer->new(wxVERTICAL);
 	$sizer->AddSpacer(8);
+	$sizer->Add($id_row,0,wxLEFT|wxRIGHT,8);
+	$sizer->AddSpacer(6);
 	$sizer->Add($name_row,0,wxLEFT|wxRIGHT,8);
 	$sizer->AddSpacer(6);
 	$sizer->Add($zoom_row,0,wxLEFT|wxRIGHT,8);
@@ -150,7 +198,11 @@ sub new
 
 	EVT_TEXT($this,$this->{ctl_name},\&onEdited);
 	EVT_TEXT_ENTER($this,$this->{ctl_name},\&onSave);
-	EVT_SPINCTRL($this,$this->{ctl_zoom},\&onEdited);
+	EVT_TEXT($this,$this->{ctl_id},\&onEdited);
+	EVT_TEXT_ENTER($this,$this->{ctl_id},\&onSave);
+	EVT_SPINCTRL($this,$this->{ctl_zauthor},\&onEdited);
+	EVT_SPINCTRL($this,$this->{ctl_zmin},\&onEdited);
+	EVT_SPINCTRL($this,$this->{ctl_zmax},\&onEdited);
 	EVT_BUTTON($this,$this->{ctl_save},\&onSave);
 	EVT_CHECKBOX($this,$this->{ctl_show},\&onShowToggled);
 
@@ -191,8 +243,8 @@ sub _addNode
 {
 	my ($this,$parent_item,$root_id,$reg,$is_root) = @_;
 
-	my $label = sprintf("%s   z%d",$reg->{name},$reg->{canonical_zoom});
-	my $item  = $this->{tree}->AppendItem($parent_item,$label);
+	my $item = $this->{tree}->AppendItem($parent_item,
+		_nodeLabel($reg,$is_root));
 
 	$this->{tree}->SetItemData($item,Wx::TreeItemData->new({
 		root_id	=> $root_id,
@@ -336,10 +388,18 @@ sub _selectedRegion
 sub _isDirty
 {
 	my ($this) = @_;
-	my ($reg) = $this->_selectedRegion();
+	my ($reg,undef,$node) = $this->_selectedRegion();
 	return 0 if !$reg;
 	return 1 if $this->{ctl_name}->GetValue() ne $reg->{name};
-	return 1 if $this->{ctl_zoom}->GetValue() != $reg->{canonical_zoom};
+	return 1 if $this->{ctl_id}->GetValue() ne $reg->{id};
+	return 1 if $this->{ctl_zmax}->GetValue() != $reg->{zmax};
+
+	# A subregion has no authored level and no floor, so there is nothing
+	# on those two controls that could be dirty.
+
+	return 0 if $node && !$node->{is_root};
+	return 1 if $this->{ctl_zauthor}->GetValue() != $reg->{zauthor};
+	return 1 if $this->{ctl_zmin}->GetValue() != $reg->{zmin};
 	return 0;
 }
 
@@ -354,16 +414,28 @@ sub onEdited
 }
 
 
+sub _nodeLabel
+	# A region shows the range it builds and the level it is authored at;
+	# a subregion has only a depth it reaches.  One function, so the tree
+	# cannot say two different things about the same node.
+{
+	my ($reg,$is_root) = @_;
+	return sprintf("%s   to z%d",$reg->{name},$reg->{zmax})
+		if !$is_root;
+	return sprintf("%s   z%d-%d @%d",$reg->{name},
+		$reg->{zmin},$reg->{zmax},$reg->{zauthor});
+}
+
+
 sub _relabelSelected
 	# Update the one tree label in place.  Rebuilding the tree here is
 	# what destroyed the selection and the focus, and there is no reason
 	# for it: one item changed.
 {
-	my ($this,$reg) = @_;
+	my ($this,$reg,$is_root) = @_;
 	my $item = $this->{tree}->GetSelection();
 	return if !$item || !$item->IsOk();
-	$this->{tree}->SetItemText($item,
-		sprintf("%s   z%d",$reg->{name},$reg->{canonical_zoom}));
+	$this->{tree}->SetItemText($item,_nodeLabel($reg,$is_root));
 }
 
 
@@ -374,8 +446,10 @@ sub onSave
 	my ($reg,$root,$node) = $this->_selectedRegion();
 	return if !$reg;
 
-	my $name = $this->{ctl_name}->GetValue();
-	my $zoom = $this->{ctl_zoom}->GetValue();
+	my $is_root = $node && $node->{is_root};
+	my $name    = $this->{ctl_name}->GetValue();
+	my $new_id  = $this->{ctl_id}->GetValue();
+	my $zmax    = $this->{ctl_zmax}->GetValue();
 
 	if ($name !~ /\S/)
 	{
@@ -386,27 +460,95 @@ sub onSave
 		$this->{ctl_save}->Enable($this->_isDirty() ? 1 : 0);
 		return;
 	}
+	if ($new_id !~ /^[A-Za-z0-9]+$/)
+	{
+		warning(0,0,"winRegions: an id must be [A-Za-z0-9] - ".
+			"no spaces, nothing that has to be escaped in a file name");
+		$this->{loading} = 1;
+		$this->{ctl_id}->SetValue($reg->{id});
+		$this->{loading} = 0;
+		$this->{ctl_save}->Enable($this->_isDirty() ? 1 : 0);
+		return;
+	}
 
-	# The NAME changes; the id never does.  The id is what the file is
-	# called and what sets refer to.
+	my $old_id = $reg->{id};
+	my $why    = "'$old_id'";
+	$why .= " renamed to '$name'"	if $name ne $reg->{name};
+	$why .= " zmax $zmax"			if $zmax != $reg->{zmax};
+	$reg->{name} = $name;
+	$reg->{zmax} = $zmax;
 
-	my $why = "'$reg->{id}'";
-	$why .= " renamed to '$name'"		if $name ne $reg->{name};
-	$why .= " zoom $zoom"				if $zoom != $reg->{canonical_zoom};
-	$reg->{name}			= $name;
-	$reg->{canonical_zoom}	= $zoom;
+	if ($is_root)
+	{
+		my $zauthor = $this->{ctl_zauthor}->GetValue();
+		my $zmin    = $this->{ctl_zmin}->GetValue();
+		$why .= " zauthor $zauthor"	if $zauthor != $reg->{zauthor};
+		$why .= " zmin $zmin"		if $zmin != $reg->{zmin};
+		$reg->{zauthor} = $zauthor;
+		$reg->{zmin}    = $zmin;
+	}
 
-	return if !saveRegion($root);
+	# An id change is not a field write.  For a region it moves the file
+	# and every set that names it, which is setRegionId's whole job; for a
+	# subregion, whose id nothing outside the file refers to, it IS just a
+	# field -- but it still has to stay unique among its siblings.
+
+	my $id_changed = $new_id ne $old_id;
+	if ($id_changed)
+	{
+		$why .= " id '$new_id'";
+		if ($is_root)
+		{
+			# setRegionId saves the file itself, so this is the write.
+
+			return if !setRegionId($old_id,$new_id);
+		}
+		else
+		{
+			if ((findSubregion($root,$new_id))[0])
+			{
+				warning(0,0,"winRegions: '$root->{id}' already has a subregion '$new_id'");
+				$this->{loading} = 1;
+				$this->{ctl_id}->SetValue($old_id);
+				$this->{loading} = 0;
+				return;
+			}
+			$reg->{id} = $new_id;
+			return if !saveRegion($root);
+		}
+	}
+	elsif (!saveRegion($root))
+	{
+		return;
+	}
 	display($dbg_win,0,"winRegions: saved $why");
 
-	# Tell the map, then move this pane's own idea of the version
-	# forward, so the next timer tick does not rebuild the tree over a
-	# change made here and take the selection with it.
-
 	bumpState($why);
-	$this->{seen_seq} = getStateSeq();
 
-	$this->_relabelSelected($reg);
+	# AN ID CHANGE INVALIDATES THE TREE'S NODE DATA, which holds the ids
+	# needed to find a node again.  Relabelling in place would leave every
+	# item pointing at an id that no longer resolves, so the tree is
+	# rebuilt -- after the selected item's data is moved to the new id, so
+	# populate() can still find what was selected.
+
+	if ($id_changed)
+	{
+		my $item = $this->{tree}->GetSelection();
+		$this->{tree}->SetItemData($item,Wx::TreeItemData->new({
+			root_id	=> $is_root ? $new_id : $root->{id},
+			id		=> $new_id,
+			is_root	=> $is_root ? 1 : 0,
+		})) if $item && $item->IsOk();
+		$this->populate();
+		return;
+	}
+
+	# Otherwise move this pane's own idea of the version forward, so the
+	# next timer tick does not rebuild the tree over a change made here
+	# and take the selection with it.
+
+	$this->{seen_seq} = getStateSeq();
+	$this->_relabelSelected($reg,$is_root);
 	$this->{ctl_save}->Enable(0);
 	$this->showProperties();
 }
@@ -455,7 +597,15 @@ sub _enableControls
 {
 	my ($this,$on,$is_root) = @_;
 	$this->{ctl_name}->Enable($on ? 1 : 0);
-	$this->{ctl_zoom}->Enable($on ? 1 : 0);
+	$this->{ctl_id}->Enable($on ? 1 : 0);
+	$this->{ctl_zmax}->Enable($on ? 1 : 0);
+
+	# A subregion has zmax alone -- no authored level, no floor.  The
+	# controls are disabled rather than hidden so the shape of the model
+	# is visible from the pane.
+
+	$this->{ctl_zauthor}->Enable(($on && $is_root) ? 1 : 0);
+	$this->{ctl_zmin}->Enable(($on && $is_root) ? 1 : 0);
 
 	# Only a whole region can be shown or hidden.  A subregion travels
 	# with its parent.
@@ -476,6 +626,7 @@ sub showProperties
 	{
 		$this->{loading} = 1;
 		$this->{ctl_name}->SetValue('');
+		$this->{ctl_id}->SetValue('');
 		$this->{ctl_show}->SetValue(0);
 		$this->_enableControls(0,0);
 		$this->{loading} = 0;
@@ -484,9 +635,16 @@ sub showProperties
 		return;
 	}
 
+	# A subregion has no zauthor or zmin of its own.  The controls show
+	# the PARENT'S, disabled -- blank fields would read as "zero" and a
+	# stale value from the last selection would read as this node's.
+
 	$this->{loading} = 1;
 	$this->{ctl_name}->SetValue($reg->{name});
-	$this->{ctl_zoom}->SetValue($reg->{canonical_zoom});
+	$this->{ctl_id}->SetValue($reg->{id});
+	$this->{ctl_zmax}->SetValue($reg->{zmax});
+	$this->{ctl_zauthor}->SetValue($root->{zauthor});
+	$this->{ctl_zmin}->SetValue($root->{zmin});
 	$this->{ctl_show}->SetValue(isChecked($node->{root_id}) ? 1 : 0);
 	$this->_enableControls(1,$node->{is_root});
 	$this->{loading} = 0;
@@ -497,9 +655,24 @@ sub showProperties
 	$text .= sprintf("%-16s %s\n",'kind',
 		$node->{is_root} ? 'region' : "subregion of $node->{root_id}");
 	$text .= sprintf("%-16s %s\n",'file',$root->{file});
-	$text .= sprintf("%-16s %d\n",'canonical_zoom',$reg->{canonical_zoom});
-	$text .= sprintf("%-16s %d  (the fill level)\n",'fill zoom',
-		$reg->{canonical_zoom} + 1);
+	if ($node->{is_root})
+	{
+		$text .= sprintf("%-16s %d  (the level the polygon is drawn at)\n",
+			'zauthor',$reg->{zauthor});
+		$text .= sprintf("%-16s %d\n",'zmin',$reg->{zmin});
+		$text .= sprintf("%-16s %d\n",'zmax',$reg->{zmax});
+		$text .= sprintf("%-16s %s.rct\n",'card file',$reg->{id});
+	}
+	else
+	{
+		# The band starts at the IMMEDIATE parent's zmax + 1, which is not
+		# the root's once subregions nest.
+
+		my (undef,$parent) = findSubregion($root,$reg->{id});
+		$parent ||= $root;
+		$text .= sprintf("%-16s %d  (its band is z%d-%d)\n",'zmax',
+			$reg->{zmax},$parent->{zmax}+1,$reg->{zmax});
+	}
 	$text .= sprintf("%-16s %s\n",'checked',
 		isChecked($node->{root_id}) ? 'yes' : 'no');
 	$text .= sprintf("%-16s %s\n",'notes',$reg->{notes}) if $reg->{notes};
@@ -536,8 +709,8 @@ sub showProperties
 		for my $sub (@{$reg->{subregions}})
 		{
 			my $sb = _bounds($sub->{geometry});
-			$text .= sprintf("    %-16s z%-2d  %d polygon(s)",
-				$sub->{id},$sub->{canonical_zoom},scalar(@{$sub->{geometry}}));
+			$text .= sprintf("    %-16s to z%-2d  %d polygon(s)",
+				$sub->{id},$sub->{zmax},scalar(@{$sub->{geometry}}));
 			$text .= sprintf("   lon %.6f..%.6f  lat %.6f..%.6f",@$sb) if $sb;
 			$text .= "\n";
 		}

@@ -22,22 +22,23 @@ server**, serving a **Leaflet** map applet to a browser window running alongside
 packaged by **Cava Packager** into a versioned Windows installer that bundles its own Perl,
 and is published as a GitHub Release asset.
 
-The application takes three kinds of input and produces two kinds of output:
+The application takes two kinds of input and produces two kinds of output:
 
 ```
-    regions ---------.                             .---> .mbtiles  (the hub)
-    (geometry,        \                           /           |
-     nesting, and      \                         /            +---> OpenCPN
-     the depth each     +---> build engine -----+             |
-     area deserves)    /      (queued, rate-     \            '---> other exporters
+    regions ---------.                             .---> .mbtiles ---> OpenCPN
+    (geometry,        \                           /
+     nesting, the      \                         /
+     levels each        +---> build engine -----+-----> .RCT
+     area carries)     /      (queued, rate-     \      (E-Series card)
                       /        limited, cached)   \
-    TSD -------------+                             '---> .RCT + INDEX.RCI
-    (the imagery     |                                   (E-Series card)
-     source)         |
-                     |
-    target ----------'
-    (which regions, how deep, which source, which output)
+    TSD -------------'                             '---> other exporters
+    (the imagery
+     source)
 ```
+
+**The region definition IS the build specification.** There is no separate target object
+holding which regions, how deep and which source; a region carries its own levels, a set
+names what travels together, and a build cap prunes the rest arithmetically.
 
 Four architectural facts account for most of what follows:
 
@@ -46,10 +47,10 @@ Four architectural facts account for most of what follows:
 2. **Sources are data, not code.** Every imagery source is described by a **TSD** file -
    one that ships with the app, or one the user supplies. chartMaker never ships tiles, and
    never ships credentials.
-3. **Depth is requested by a region and decided by a target.** The same coastline is built
+3. **Depth is requested by a region and capped by a build.** The same coastline is built
    shallow for a small card and deep for a large one, from one description of where it is.
-4. **mbtiles is the hub and the card is an export.** Everything the build engine produces
-   lands in `.mbtiles` first; every other output format is a converter reading from there.
+4. **Every output is an export, and none of them is the source.** The build engine's
+   outputs are peers over one seam; no output format is produced by converting another.
 
 ## Who chartMaker Is For
 
@@ -310,14 +311,17 @@ where it costs the most.
 
 ## Outputs
 
-**`.mbtiles` is the hub.** The build engine writes tiles into a standard MBTiles container
-and nothing else. It is read directly by OpenCPN, it is a well-specified format with a
-large ecosystem, and it is the input to every other output chartMaker produces.
+**Exporters are peers over one seam**, and the seam is the region's coverage enumerator plus
+the tile cache - not a file. An output format is not built by converting another output
+format.
+
+**`.mbtiles`** is a standard container read directly by OpenCPN: well specified, with a
+large ecosystem, and holding nothing chartMaker-specific.
 
 **`.RCT` is exporter number one.** The aerial photo overlay in the custom E-Series firmware
-reads a purpose-built on-card raster format - an `.RCT` file per region plus an `INDEX.RCI`
-selector - which a converter generates from a region's mbtiles. It is regenerable: the card
-is a deployment artifact, not a source of truth.
+reads a purpose-built on-card raster format - one `.RCT` file per region under `\RASTER\`,
+with no manifest, because the set of files present *is* the set of regions. It is
+regenerable: the card is a deployment artifact, not a source of truth.
 
 Further exporters plug into the same seam. A KAP/BSB writer is the obvious second, reaching
 a long tail of navigation software for very little work.

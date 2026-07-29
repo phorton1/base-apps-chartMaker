@@ -22,6 +22,7 @@ BEGIN
 		$appName
 		$appVersion
 		$app_dir
+		$RASTER_DIR
 
 		$WIN_REGIONS
 		$WIN_SOURCES
@@ -40,6 +41,28 @@ our $appVersion = '0.1';
 our $app_dir = $^O eq 'MSWin32' ?
 	'C:\dat\openCPN\chartMaker' :
 	'/dat/openCPN/chartMaker';
+
+# Where the .rct exporter writes a card.  THE FOLDER IS THE CARD: the
+# renderer enumerates it and merges every .rct it finds, so there is no
+# manifest and any subset of the files is a valid set.
+#
+# TWO DIFFERENT FACTS SHARE THE NAME 'RASTER' AND SHOULD NOT BE CONFUSED.
+# On the CF card the spec requires a single outer folder called \RASTER\
+# holding exactly one region set - that is the consumer's contract.  What
+# the folder is called on THIS machine is a local convenience, and its
+# current name and location are a vestige of the old chartMaker rather
+# than anything the format asks for.  The copy to the card is what bridges
+# them, and it is the same producer-side/consumer-side seam as the 8.3
+# short name.
+#
+# A constant for now.  It wants to become one folder per region set -
+# something like $data_dir/RCT_REGIONS/<set> - once sets are folders,
+# which is a natural upgrade rather than a rewrite, and it must not
+# survive into the installed product as a hardcoded path.
+
+our $RASTER_DIR = $^O eq 'MSWin32' ?
+	'C:/dat/openCPN/RASTER' :
+	'/dat/openCPN/RASTER';
 
 
 #---------------------------------------------

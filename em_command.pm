@@ -29,6 +29,7 @@ use dm_cache;
 use dm_fetch;
 use dm_region;
 use dm_coverage;
+use dm_rct;
 
 
 BEGIN
@@ -71,14 +72,18 @@ sub commandHelp
 		[ 'region <id>',		'show one region and its subregions'						],
 		[ 'region rescan',		're-read the .region files from the data dir'				],
 		[ 'region new <name> [z]',		'create an empty region'							],
-		[ 'region rename <id> <name>',	'change a region\'s name (its id never changes)'		],
-		[ 'region zoom <id> <z> [sub]',	'set a region or subregion\'s canonical zoom'		],
-		[ 'region count [id|all]',		'how many tiles a region would build, by zoom'		],
+		[ 'region rename <id> <name>',	'change a region\'s name (free text, no structural role)'],
+		[ 'region id <id> <new id>',	'change a region\'s id, its file and every set naming it'],
+		[ 'region zauthor <id> <z>',	'set the level the polygon is authored at'			],
+		[ 'region zmin <id> <z>',		'set the overview floor'							],
+		[ 'region zmax <id> <z> [sub]',	'set how deep a region or subregion goes'			],
+		[ 'region count [id|all] [zmax]','how many tiles a region would build, by zoom'		],
 		[ 'region delete <id>',			'delete a region and its file'						],
 		[ 'region import <file> [z]',	'import each KML folder as a region'				],
 		[ 'subregion new <region> <name> <lat> <lon> <half_nm> <z>',
 										'add a detail area by centre and half extent'		],
 		[ 'subregion delete <region> <id>',	'remove a detail area'							],
+		[ 'build rct <id|set> [zmax]',	'export region(s) as .rct card files'				],
 		[ 'check <id>',			'add a region to the working set (show it on the map)'		],
 		[ 'uncheck <id>',		'remove it from the working set'							],
 	];
@@ -326,11 +331,119 @@ sub _showSubregions
 	my ($reg,$level) = @_;
 	for my $sub (@{$reg->{subregions}})
 	{
-		display(0,$level,sprintf("%-16s z%-2d  %d polygon(s)  %s",
-			$sub->{id},$sub->{canonical_zoom},
+		display(0,$level,sprintf("%-16s to z%-2d  %d polygon(s)  %s",
+			$sub->{id},$sub->{zmax},
 			scalar(@{$sub->{geometry}}),$sub->{name}));
 		_showSubregions($sub,$level+1);
 	}
+}
+
+
+sub _buildCommand
+	# build rct <id|set|all> [zmax]
+	#
+	# 'set' means the working set, which is what a card is: the regions
+	# that travel together.  The output folder is one folder per card,
+	# because THE SET OF FILES PRESENT IS THE SET OF REGIONS - there is no
+	# manifest, so the folder IS the card.
+{
+	my ($rest) = @_;
+	my ($what,$which,$zmax) = split(/\s+/,$rest || '');
+
+	if (!defined($what) || $what ne 'rct')
+	{
+		warning(0,0,"build: usage is 'build rct <id|set|all> [zmax]'");
+		return;
+	}
+	$which = 'set' if !defined($which) || $which !~ /\S/;
+
+	my @ids = $which eq 'all' ? getRegionIds() :
+			  $which eq 'set' ? getWorkingSet() : ($which);
+	if (!@ids)
+	{
+		warning(0,0,"build rct: nothing to build");
+		return;
+	}
+
+	# The source you are LOOKING at is the one you build from - display
+	# and build share one cache, so previewing a region is what fills the
+	# cache the build reads.  Falling back to the workspace default keeps
+	# a fresh start working before anything has been selected.
+	#
+	# Once a region carries its own source this becomes the fallback
+	# rather than the answer.
+
+	my $src_id = getActiveSource() || getDefaultSource();
+	my $src    = $src_id ? getSource($src_id) : undef;
+	if (!$src)
+	{
+		warning(0,0,"build rct: no active source - try 'source use <id>'");
+		return;
+	}
+	display(0,1,"source '$src_id'");
+
+	if (!-d $RASTER_DIR)
+	{
+		warning(0,0,"build rct: $RASTER_DIR does not exist");
+		return;
+	}
+
+	# ALL RCTs ON ONE CARD MUST AGREE on zauthor and zmin - the firmware
+	# holds both on the chartset, not per file.  A disagreement is the one
+	# authoring error the format cannot absorb: whichever file is finer
+	# than the chosen outline level contributes no outline at all and its
+	# imagery is drawn but permanently invisible.
+
+	my (%zauthor,%zmin);
+	for my $id (@ids)
+	{
+		my $reg = getRegion($id) or next;
+		push @{$zauthor{$reg->{zauthor}}},$id;
+		push @{$zmin{$reg->{zmin}}},$id;
+	}
+	for my $pair ([\%zauthor,'zauthor'],[\%zmin,'zmin'])
+	{
+		my ($h,$name) = @$pair;
+		next if scalar(keys %$h) <= 1;
+		error("build rct: the regions disagree on $name, and every file on ".
+			"one card must carry the same value:");
+		display(0,1,"$name $_ : ".join(', ',@{$h->{$_}})) for sort keys %$h;
+		return;
+	}
+
+	display(0,0,"build rct -> $RASTER_DIR".(defined $zmax ? "   cap zmax=$zmax" : ''));
+	my $total = 0;
+	my $short = 0;
+
+	for my $id (@ids)
+	{
+		my $reg = getRegion($id);
+		if (!$reg)
+		{
+			warning(0,0,"build rct: no region with id '$id'");
+			next;
+		}
+		my $name = rctCardName($reg->{id});
+		if (!$name)
+		{
+			error("build rct: '$reg->{id}' is not a usable 8.3 stem");
+			next;
+		}
+
+		my $st = writeRct($reg,$src,"$RASTER_DIR/$name",
+			{ defined $zmax ? (zmax => int($zmax)) : () });
+		next if !$st;
+
+		$total += $st->{tiles};
+		$short += $st->{absent};
+		display(0,1,sprintf("%-12s z%d-%-2d %7d tiles %5d absent %2d blk %8.1f MB",
+			$st->{name},$st->{zoom_min},$st->{zoom_max},
+			$st->{tiles},$st->{absent},$st->{blocks},$st->{size}/1048576));
+	}
+
+	display(0,1,sprintf("%-12s %19d tiles %5d absent",'TOTAL',$total,$short));
+	warning(0,1,"$short tile(s) were not in the cache and are ABSENT from the ".
+		"card - the plotter will overzoom a coarser tile there") if $short;
 }
 
 
@@ -347,9 +460,9 @@ sub _regionsCommand
 	for my $id (@ids)
 	{
 		my $reg = getRegion($id);
-		display(0,1,sprintf("%s %-16s z%-2d %d poly %4d pts %s %s",
+		display(0,1,sprintf("%s %-16s z%d-%d/%-2d %d poly %4d pts %s %s",
 			isChecked($id) ? '[x]' : '[ ]',
-			$id,$reg->{canonical_zoom},
+			$id,$reg->{zmin},$reg->{zmax},$reg->{zauthor},
 			scalar(@{$reg->{geometry}}),
 			regionPointCount($reg),
 			scalar(@{$reg->{subregions}}) ?
@@ -392,8 +505,25 @@ sub _regionCommand
 		my $reg = newRegion($name,$zoom);
 		if ($reg)
 		{
-			display(0,0,"region new: created '$reg->{id}' at z$reg->{canonical_zoom}");
+			display(0,0,"region new: created '$reg->{id}' ".
+				"z$reg->{zmin}-$reg->{zmax} authored at z$reg->{zauthor}");
+			display(0,1,"'region id $reg->{id} <shorter>' if you want a shorter id");
 			bumpState("region '$reg->{id}' created");
+		}
+		return;
+	}
+	if ($verb eq 'id')
+	{
+		my ($id,$new_id) = split(/\s+/,$rest);
+		if (!defined($new_id) || $new_id !~ /\S/)
+		{
+			warning(0,0,"region id: usage is 'region id <id> <new id>'");
+			return;
+		}
+		if (setRegionId($id,$new_id))
+		{
+			display(0,0,"region id: '$id' is now '$new_id'");
+			bumpState("region '$id' is now '$new_id'");
 		}
 		return;
 	}
@@ -414,14 +544,15 @@ sub _regionCommand
 	}
 	if ($verb eq 'count')
 	{
-		my ($id,$zmin,$fill,$zmax) = split(/\s+/,$rest);
+		# The region carries its own levels now, so the only thing left to
+		# pass is the build's cap -- which is what 'build <id> --zmax 16'
+		# will hand it, and the reason this is still a parameter at all.
+
+		my ($id,$zmax) = split(/\s+/,$rest);
 		my @ids = (defined($id) && $id ne '' && $id ne 'all') ?
 			($id) : getRegionIds();
-		$zmin = 10 if !defined $zmin;
-		$fill = 1  if !defined $fill;
 
-		display(0,0,"region count   zmin=$zmin fill=$fill".
-			(defined $zmax ? " zmax=$zmax" : ''));
+		display(0,0,"region count".(defined $zmax ? "   cap zmax=$zmax" : ''));
 		my %grand;
 		my $total = 0;
 		for my $one (@ids)
@@ -432,8 +563,7 @@ sub _regionCommand
 				warning(0,0,"region count: no region with id '$one'");
 				next;
 			}
-			my $cov = regionCoverage($reg,
-				{ zmin => $zmin, fill => $fill, zmax => $zmax });
+			my $cov = regionCoverage($reg,{ zmax => $zmax });
 			my $counts = coverageCounts($cov);
 			my $sum = 0;
 			$sum += $counts->{$_} for keys %$counts;
@@ -451,18 +581,18 @@ sub _regionCommand
 		}
 		return;
 	}
-	if ($verb eq 'zoom')
+	if ($verb eq 'zauthor' || $verb eq 'zmin' || $verb eq 'zmax')
 	{
 		my ($id,$zoom,$sub_id) = split(/\s+/,$rest);
 		if (!defined($zoom) || $zoom !~ /^\d+$/)
 		{
-			warning(0,0,"region zoom: usage is 'region zoom <id> <zoom> [subregion]'");
+			warning(0,0,"region $verb: usage is 'region $verb <id> <zoom> [subregion]'");
 			return;
 		}
 		my $reg = getRegion($id);
 		if (!$reg)
 		{
-			warning(0,0,"region zoom: no region with id '$id'");
+			warning(0,0,"region $verb: no region with id '$id'");
 			return;
 		}
 		my $target = $reg;
@@ -471,14 +601,25 @@ sub _regionCommand
 			($target) = findSubregion($reg,$sub_id);
 			if (!$target)
 			{
-				warning(0,0,"region zoom: '$id' has no subregion '$sub_id'");
+				warning(0,0,"region $verb: '$id' has no subregion '$sub_id'");
+				return;
+			}
+
+			# A subregion has one level and it is zmax.  Accepting an
+			# authored level here would be inventing a field the model
+			# does not have and the exporter could not use.
+
+			if ($verb ne 'zmax')
+			{
+				warning(0,0,"region $verb: a subregion has zmax only - ".
+					"it never cuts a reveal contour");
 				return;
 			}
 		}
-		$target->{canonical_zoom} = int($zoom);
+		$target->{$verb} = int($zoom);
 		return if !saveRegion($reg);
-		display(0,0,"region zoom: '$target->{id}' canonical_zoom = $zoom");
-		bumpState("'$target->{id}' zoom $zoom");
+		display(0,0,"region $verb: '$target->{id}' $verb = $zoom");
+		bumpState("'$target->{id}' $verb $zoom");
 		return;
 	}
 	if ($verb eq 'delete')
@@ -519,10 +660,12 @@ sub _regionCommand
 		warning(0,0,"region: no region with id '$verb'");
 		return;
 	}
-	display(0,0,"region $verb");
+	display(0,0,"region $reg->{id}");
 	display(0,1,sprintf("%-16s %s",'name',$reg->{name}));
 	display(0,1,sprintf("%-16s %s",'file',$reg->{file}));
-	display(0,1,sprintf("%-16s %d",'canonical_zoom',$reg->{canonical_zoom}));
+	display(0,1,sprintf("%-16s %d",'zauthor',$reg->{zauthor}));
+	display(0,1,sprintf("%-16s %d",'zmin',$reg->{zmin}));
+	display(0,1,sprintf("%-16s %d",'zmax',$reg->{zmax}));
 	display(0,1,sprintf("%-16s %s",'checked',isChecked($verb) ? 'yes' : 'no'));
 	display(0,1,sprintf("%-16s %s",'notes',$reg->{notes})) if $reg->{notes};
 
@@ -668,6 +811,10 @@ sub dispatchCommand
 	elsif ($lpart eq 'subregion')
 	{
 		_subregionCommand($rpart);
+	}
+	elsif ($lpart eq 'build')
+	{
+		_buildCommand($rpart);
 	}
 	elsif ($lpart eq 'check')
 	{

@@ -32,35 +32,64 @@ author's document rather than a set of exchangeable pieces.
 ## The region file
 
 ```
-    region_version:   1
-    id:               bocas
+    region_version:   2
+    id:               Bocas
     name:             Bocas del Toro
     notes:            free text
-    canonical_zoom:   15
+    zauthor:          15
+    zmin:             10
+    zmax:             16
     geometry:         [ <polygon>, <polygon>, ... ]
     subregions:
-      - id:             bocas_town
-        name:           Bocas Town approaches
-        canonical_zoom: 17
-        geometry:       [ <polygon> ]
-        subregions:     [ ... ]
+      - id:           Popa00
+        name:         Popa anchorage
+        zmax:         18
+        geometry:     [ <polygon> ]
+        subregions:   [ ... ]
 ```
 
 | Field            | Meaning                                                               |
 | ---------------- | --------------------------------------------------------------------- |
 | `region_version` | Format version, so a future reader knows what it is holding.          |
-| `id`             | Stable identifier. Referenced by sets; unaffected by renaming.        |
+| `id`             | Stable identifier. Referenced by sets; the file name; the card stem.  |
 | `name`           | What a person calls it. Free to change at any time.                   |
 | `notes`          | Free text. The format is JSON and JSON has no comments.               |
-| `canonical_zoom` | The zoom at which this area's polygon meets the tile grid.            |
+| `zauthor`        | The zoom at which this region's polygon meets the tile grid.          |
+| `zmin`           | The overview floor - the coarsest level the region carries.           |
+| `zmax`           | The finest level the region itself carries.                           |
 | `geometry`       | One or more polygons in WGS84 decimal degrees.                        |
-| `subregions`     | Zero or more regions nested inside this one, recursively.             |
+| `subregions`     | Zero or more detail areas nested inside this one, recursively.        |
 
-**A subregion is a region.** Same fields, same rules, nested. A subregion is simply a
-smaller area within its parent that deserves more detail than the parent as a whole, and
-there may be any number of them. Because the structure is recursive, a subregion may itself
-contain a subregion - a square nautical mile at z17 with a single dock inside it at z20 is
-unusual but expressible, and nothing special is needed to say it.
+**A subregion is NOT quite a region: it has `zmax` alone.** No `zauthor`, no `zmin`. A
+region's authored level is the level its outline is cut at, and that outline is what the
+plotter opens its aperture to. A subregion never cuts an outline - it sits inside an
+aperture its parent already opened, purely to add resolution - so it has no authored level
+to carry and no floor of its own. It quantises its own polygon at its own `zmax` and that
+is the whole of it. Everything else is shared: same geometry rules, same recursion, so a
+square nautical mile at z18 with a single dock inside it at z20 is expressible and nothing
+special is needed to say it.
+
+### The id is structural
+
+**The id carries load and the name does not.** The id is the file name, the key every
+[set](#sets) references, and the stem of the exported [card file](rct.md). It is therefore
+restricted to `[A-Za-z0-9]` - no spaces, nothing that would have to be escaped somewhere,
+and the somewhere is never all the places.
+
+Ids are compared **case insensitively** but stored **with the case the author wrote**, which
+is exactly what the filesystem underneath does. `PortBelo` and `portbelo` cannot be two
+regions because they cannot be two files. The convention is CamelCase and short - `Bocas`,
+`PanCanal`, `PortBelo`, `SanBlas`, `SanBlasE` - because eight characters keeps the card file
+name a genuine FAT short name.
+
+**The id is not derived from the name.** A new region and a KML import both *suggest* one by
+CamelCasing the name, and the author is expected to shorten it. `SanBlasE` is not a slug of
+"San Blas East"; it is a decision, and a field that can hold a decision is the only kind
+that works. Changing an id afterwards moves three things that must move together - the file,
+the key, and every set that names it - which is why it is one operation rather than an
+edit.
+
+The **name** is free text with no structural role at all. Renaming is the cheap operation.
 
 **Subregion ids are unique within their file only.** Nothing outside a region file ever
 refers to a subregion, so there is no global namespace to collide in and no renaming
@@ -70,8 +99,8 @@ required when two people exchange regions.
 own sake.** Bocas del Toro is a main body plus a detached area fifteen miles east; San Blas
 has a separate sliver. They are one region because they are one thing to the person who
 drew them. The alternatives both fail: separate regions lose the grouping, and subregions
-lose the coverage outright, since a subregion at its parent's canonical zoom has an empty
-band and contributes nothing.
+lose the coverage outright, since a subregion at its parent's `zmax` has an empty band and
+contributes nothing.
 
 **There are no holes**, and not as a simplification. Coverage is a union and never
 subtracts, so an inner ring could not mean anything. A KML import ignores them for exactly
@@ -81,10 +110,39 @@ that reason rather than as an omission.
 set of tiles, and it is stored exactly as it was drawn - free coordinates in decimal
 degrees, never snapped to anything.
 
-`canonical_zoom` is a number attached to that geometry rather than a property of it. It
-says **where the polygon meets the grid**: the one zoom at which the outline is quantised
-into tiles. Everything else chartMaker knows about this area's coverage is derived from
-that one tile set.
+### zauthor, zmin and zmax
+
+`zauthor` is a number attached to that geometry rather than a property of it. It says
+**where the polygon meets the grid**: the one zoom at which the outline is quantised into
+tiles. Everything else chartMaker knows about this area's coverage is derived from that one
+tile set.
+
+It is the same single concept as the RCT header's `zoom_author` and the E-Series firmware's
+`MASK_Z` - the level the plotter's reveal contour is cut at. Three names for one number,
+because each matches the vocabulary of its own neighbours; they are not to be unified.
+
+`zmin` and `zmax` bound what the region actually carries. **The region is complete over
+`[zauthor..zmax]`**, and that completeness is not an optimisation to be traded away: the
+plotter cuts its aperture at `zauthor` and paints at whatever level the view scale calls
+for, so the painted set has to be a superset of the revealed set at every level on the card.
+A partly populated level opens a hole onto ground nothing painted.
+
+**Two of the three are properties of an output folder rather than of a region.** Every
+`.RCT` on one card must agree on `zauthor` and `zmin`, because the firmware holds them on
+the chartset rather than per file; only `zmax` varies freely. That does *not* make them
+belong somewhere else - it makes them a **check at build time**, which given the convention
+will almost never fire. See [Build](build.md).
+
+**There is no target.** The region definition *is* the specification of what to build. An
+earlier design put `zmax` and the output settings on a separate named target object; that
+was one more persistent thing to manage, in exchange for nothing. A build cap prunes
+arithmetically instead - a detail area whose band is entirely above the cap contributes
+nothing, with no special case anywhere:
+
+```
+    build Bocas            z10-16, plus Popa00's z17-18
+    build Bocas --zmax 16  z10-16.  The detail area is simply absent.
+```
 
 The editor shows the consequence rather than imposing it: **the tile footprint is drawn at
 the zoom being viewed.** That keeps it legible, since a tile is about 256 pixels on the
@@ -94,14 +152,14 @@ outline [preview](build.md#editor-and-preview-are-one-component-in-two-modes) cl
 
 ## How coverage is derived
 
-The polygon is used exactly once, at `canonical_zoom`, to produce a set of tiles. After
-that the polygon is out of the picture and everything follows from the tile set.
+The polygon is used exactly once, at `zauthor`, to produce a set of tiles. After that the
+polygon is out of the picture and everything follows from the tile set.
 
-**Coverage is the union of the included canonical tiles, not the polygon.** That
+**Coverage is the union of the included authored tiles, not the polygon.** That
 distinction is the whole of what follows.
 
-**Going coarser: the parents.** For any zoom above the canonical one, coverage is the
-parent tiles of the canonical set. This happens to be identical to intersecting the polygon
+**Going coarser: the parents.** For any zoom above the authored one, coverage is the
+parent tiles of the authored set. This happens to be identical to intersecting the polygon
 at that zoom - a parent contains its child, so if the child meets the polygon the parent
 does; and a coarse tile is exactly tiled by its descendants, so if it meets the polygon at
 least one descendant does. The two rules cannot disagree, and taking parents is both
@@ -111,39 +169,46 @@ The rule that has to be applied consistently is **positive-area intersection**. 
 edge lying exactly along a tile boundary is where two implementations of "does it intersect"
 give different answers, and that is precisely where seam tiles go missing.
 
-**Going finer: the fill.** Below the canonical zoom, coverage is the *complete* set of
-children of each included tile - not the tiles that intersect the polygon. A canonical tile
-is included because the polygon touches it, so the chart already claims that whole tile;
-leaving out the children that miss the polygon would put a resolution cliff inside an area
-the chart says it covers.
+**Going finer: complete children, up to `zmax`.** Below the authored zoom, coverage is the
+*complete* set of children of each included tile - not the tiles that intersect the polygon.
+An authored tile is included because the polygon touches it, so the chart already claims
+that whole tile; leaving out the children that miss the polygon would put a resolution
+cliff inside an area the chart says it covers.
 
-**Each level owns only the band its parent does not reach.** Because a subregion lies
-inside its parent, the subregion's tiles at the parent's canonical zoom are already in the
-parent's set, so the subregion contributes nothing there or coarser:
+**Each level owns only the band its parent does not reach: `parent.zmax + 1` up to its own
+`zmax`.** Equality at the start is the only value that neither gaps nor duplicates. Because
+a subregion lies inside its parent, its tiles at the parent's `zmax` are already in the
+parent's set, so it contributes nothing there or coarser:
 
 ```
-    region     canonical z15  ->  z15, and its parents up to the output's shallow limit
-    subregion  canonical z17  ->  z16 and z17 only; z15 and coarser belong to the parent
-    sub-sub    canonical z20  ->  z18, z19, z20
+    region     zauthor 15, zmax 16  ->  z16 and z15, and parents down to zmin
+    subregion  zmax 18              ->  z18 and z17; z16 and coarser belong to the parent
+    sub-sub    zmax 20              ->  z20, z19
 ```
+
+**A subregion is authored at its own `zmax`, not filled down to it.** It quantises its
+polygon at the finest level it carries and takes *parents* back to the band floor. Filling
+instead - quantising coarse and taking complete children - would cost four times as many
+tiles per level to describe the same ground, and it is unnecessary because the plotter
+already falls back per tile. This is what makes a deep detail area cheap: Popa00 reaches
+z18 for 182 tiles rather than 196.
 
 Nothing enforces that partition - it falls out of containment. It is also why a subregion
-whose canonical zoom equals or undercuts its parent's is harmless: its band is empty, so it
+whose `zmax` equals or undercuts its parent's is harmless: its band is empty, so it
 contributes nothing, which is what "meaningless, not harmful" means arithmetically.
 
-## Depth is requested here and capped elsewhere
+## Depth is requested here and capped at the build
 
-`canonical_zoom` says what an area **deserves**, not what any particular output will
-contain. Three things have an opinion about depth, and they are deliberately different
-kinds of thing:
+`zmax` says what an area **deserves**, not what any particular build will contain. Three
+things have an opinion about depth, and they are deliberately different kinds of thing:
 
 | Source of the opinion | What it says                              | Force        |
 | --------------------- | ----------------------------------------- | ------------ |
-| the **region**        | quantise this area at z17                 | a request    |
-| the **target**        | this output stops at z15                  | a hard cap   |
+| the **region**        | carry this area to z18                    | a request    |
+| the **build**         | this run stops at z16                     | a hard cap   |
 | the **imagery**       | this source has real detail to about z16  | advisory     |
 
-**The built depth is `min(region, target)`.** The imagery's real resolution never enters
+**The built depth is `min(region, cap)`.** The imagery's real resolution never enters
 that calculation. A source that upsamples past its native resolution still produces tiles
 worth carrying - a plotter is perfectly happy with them, and the alternative is a chart
 that stops abruptly at a boundary the user cannot see. So the application warns and builds.
@@ -156,7 +221,11 @@ preview is a tile that will be missing on the card.
 The reason for the split is a requirement that no single number can express: the same
 geography needs to be built at different depths for different destinations. A plotter with
 a small card wants a shallow chartset of Bocas; a unit with room to spare wants a deep one.
-One region, two targets, two cards, and no duplicated geometry.
+
+That does **not** require a second persistent object to hold the difference. It is one
+region and a shorter command: the cap prunes the deep bands arithmetically, so `build Bocas`
+and `build Bocas --zmax 16` produce the two cards from one definition, with no duplicated
+geometry and nothing extra to keep in step.
 
 It also produces a property worth stating out loud: **build deep once, export shallow as
 often as you like.** The tiles are already in the cache, so the small card costs no
@@ -191,8 +260,8 @@ owns a boundary tile, is how tiles go missing at precisely the boundaries where 
 is most likely to be looking.
 
 Overlap between siblings needs no special handling for the same reason. Two adjacent
-subregions at the same canonical zoom will produce the same parent tiles in their shared
-band, and the union absorbs it.
+subregions with the same `zmax` will produce the same parent tiles in their shared band,
+and the union absorbs it.
 
 ### Regions that touch
 
@@ -215,7 +284,7 @@ whole format is built to preserve.
 
 ### Boundaries land on the grid
 
-**A shared boundary falls on a tile edge at the lesser of the two regions' canonical
+**A shared boundary falls on a tile edge at the lesser of the two regions' authored
 zooms.** A vertical boundary is one longitude, a horizontal one is one latitude, and that
 value is a tile edge on the coarser of the two grids.
 
@@ -246,10 +315,11 @@ nothing in the current model needs it.
 
 Each of these is absent for a reason, and each was considered:
 
-- **No `zmin`.** Overview levels are a property of an output - a card wants them, the
-  mbtiles hub may not - so the shallow end of the range belongs to the target.
 - **No source.** A region says where and how deep, never from what. The same region built
   from two sources is the same region.
+- **No coded region name for the card.** The exported file's stem is the id, uppercased at
+  export if it needs to be. Carrying a second machine-readable copy of the region's identity
+  would only be one more thing to disagree with the first. See [RCT](rct.md).
 - **No view state.** Whether a region is currently shown on the map is a fact about a
   workspace, not about the region. See below.
 - **No parent reference.** Nesting is expressed by the file structure, so a region file can
@@ -289,7 +359,7 @@ regions' tiles land in the same output.
 **The working set is the one you are looking at.** The checkbox column in the region tree
 is its membership, and nothing more: checking a region adds it to the working set, which
 makes it visible on the map. Saving that as a named set is then a naming operation rather
-than a new concept, and a target names a set rather than inventing its own idea of
+than a new concept, and a build names a set rather than inventing its own idea of
 membership.
 
 This is why visibility is stored as membership in the workspace rather than as a flag on
@@ -303,18 +373,17 @@ appears in the tree unchecked.
 
 ## Open questions
 
-- **Targets** are named above but not yet specified. What a target contains, where it is
-  stored, and how it is edited are open. See [Build](build.md).
-- **How far the fill goes.** One level below the canonical zoom is what the predecessor
-  did - z15 quantised, z16 filled. Whether that one level is a constant, a per-region
-  number, or the target's business is the last place "how deep" is still ambiguous. The
-  working assumption is one level, bounded by the target's cap.
 - **Selection.** Exactly one region or subregion is selected at a time, or none, and it is
   view state rather than model. What a click on the map selects where polygons nest is open:
   innermost-containing is the obvious rule, but it leaves a parent unclickable wherever a
   child covers it, so there has to be a way to walk up.
 - **Set management UX.** The working set needs none beyond the checkboxes. Named sets need
-  save-as, rename and delete, which arrive with targets.
+  save-as, rename and delete.
+- **Map view state.** Which part of the world the map opens on is a fact about a machine,
+  not about a region or a workspace meant to be handed to somebody else. It belongs in
+  `$temp_dir` as a last-view-used, falling back to the checked regions' bounds and then to a
+  world view - which is also what removes the one hardcoded location from the shipped
+  applet.
 
 ---
 

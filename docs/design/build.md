@@ -102,6 +102,49 @@ once and never misread.
 Preview generates viewport-shaped traffic exactly as browsing does. It never walks the
 coverage; it fetches what is on the screen at the zoom being viewed.
 
+## What the build validates before it runs
+
+Two checks belong to the build rather than to a region, because neither is a property any
+single region can hold.
+
+**Every region in one output folder must agree on `zauthor` and `zmin`.** This is
+structural, not stylistic: the E-Series firmware holds those two on the chartset - it fuses
+every `.RCT` on a card into one pyramid and indexes it as `zdir[z - zmin]` - so they are
+properties of the *set*. Each file carries the set's values redundantly, which is exactly
+what lets a card be defined by which files are present rather than by a manifest, and lets
+the consumer check agreement instead of trusting a declaration.
+
+The failure it prevents is the one the format cannot absorb. The reveal aperture is cut at
+the coarsest `zauthor` on the card; if that level is finer than some file's `zmin`, that
+file has no tiles at the outline level, contributes no outline, and its imagery sits on the
+card fully built and permanently invisible. So the build reports which region disagrees and
+with what, rather than producing a card that is silently wrong. Given the convention it will
+almost never fire.
+
+`zmax` is genuinely per-region and must not be forced to match.
+
+**The exported card file name must be a genuine 8.3 short name.** Asserted at export, for
+reasons that are only visible from this side of the boundary - see
+[RCT](rct.md#two-constraints-only-chartmaker-can-see).
+
+## Block decomposition is a budget, not an optimisation
+
+The [RCT](rct.md) exporter groups each zoom's tiles into rectangular coverage blocks, and
+how it groups them is not free in either direction.
+
+Splitting saves disk: a block pays an index entry and a presence bit for every cell of its
+rectangle, present or not, so one block spanning two distant clusters pays for the empty
+span between them. Splitting costs elsewhere, and the expensive one is not disk. The
+firmware builds its reveal aperture as a list of screen rectangles closing one run per tile
+row, **closing runs at block edges as well as at absent cells**, out of a fixed budget
+shared across every file on the card. Fragmenting a zoom into many blocks spends that budget
+on seams rather than on coverage, and exhausting it makes the overlay reveal the whole
+plane - imagery spilling past the polygon at wide views.
+
+So the rule is **few, large blocks**, and a deep-detail area is one block rather than
+several. The disk cost of an empty cell is eight bytes; the cost of an exhausted rectangle
+budget is the aperture ceasing to mean anything.
+
 ## Still to specify
 
 - **How preview renders an absent tile.** A tile the source does not have has to be
@@ -113,11 +156,9 @@ coverage; it fetches what is on the screen at the zoom being viewed.
 - **Resume** - a run of thousands of tiles that is interrupted must continue rather than
   restart. The cache makes this nearly free; what is missing is the specification of what a
   run records about itself.
-- **Targets** - the named combination of a set, a source, depth caps, an exporter and a
-  destination, which is what makes an output reproducible instead of a remembered set of
-  flags. See [Regions](regions.md#depth-is-requested-here-and-capped-elsewhere).
-- **The exporter seam** - what an output format has to implement, and where mbtiles stops
-  being a file and starts being an interface.
+- **The exporter seam** - what an output format has to implement. The boundary is settled
+  (the coverage enumerator plus the cache, with [mbtiles](mbtiles.md) and
+  [RCT](rct.md) as peers over it); what an exporter has to provide is not.
 - **Progress reporting** - the build is long-running and reports into the application
   without blocking it.
 

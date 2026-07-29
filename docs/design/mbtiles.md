@@ -14,11 +14,34 @@ folders: **[Home](../readme.md)** --
 
 *This document is not yet written.*
 
-**`.mbtiles` is the hub.** The build engine writes tiles into a standard MBTiles container
-and nothing else; every other output chartMaker produces is a converter reading from one.
-It is read directly by OpenCPN, it is a well-specified format with a large ecosystem behind
-it, and making it the only thing the build engine knows how to write is what keeps the
-exporter seam honest.
+**`.mbtiles` is an output, not a hub.** It is one of the formats chartMaker writes: read
+directly by OpenCPN, well specified, with a large ecosystem behind it. It is not an
+intermediate that other exporters read.
+
+**Exporters are peers over one boundary.** That boundary is the region's own coverage
+enumerator and the tile cache - not a file:
+
+```
+    region + coverage enumerator + cache  --->  mbtiles
+                                          --->  RCT
+```
+
+An earlier version of this design made mbtiles the hub, with every other output a converter
+reading from one. The tell that it was wrong is what it would have cost: an RCT needs the
+region's authored level and the polygon expressed at that level, and neither is a fact about
+a container of tiles. Recovering them downstream would have meant writing chartMaker-specific
+fields into a standard format's metadata table so a converter could read back what the
+upstream step already had in its hand. Going to the cache directly means the presence
+information an [RCT](rct.md) carries *is* the coverage set, by construction, rather than
+inferred from what a container happened to contain.
+
+Two consequences worth stating because they are easy to miss:
+
+- **Building a card does not require building an mbtiles first.** The two are independent
+  outputs of the same model.
+- **Each exporter owns its own encoding question.** A source that returns PNG is the RCT
+  exporter's problem to transcode, because RCT is JPEG-only; mbtiles has no such constraint
+  and stores what the source sent.
 
 Intended scope:
 

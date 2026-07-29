@@ -20,6 +20,22 @@
 # NO HOLES, and not as a simplification: coverage is a union and never
 # subtracts, so an inner ring could not mean anything.
 #
+# THE ID IS STRUCTURAL AND THE NAME IS NOT.  The id is the file name, the
+# key every set references, and the stem of the exported card file, so it
+# is restricted to [A-Za-z0-9] -- no spaces, nothing needing an escape.
+# The name is free text and carries no load at all.  Ids are compared
+# case insensitively (the id IS a Windows file name, and PortBelo and
+# portbelo cannot be two regions) but stored with the case the author
+# wrote, which is what a CamelCase id is for.
+#
+# ZAUTHOR, ZMIN, ZMAX.  zauthor is the level the polygon is quantised at
+# -- the same number as the RCT header's zoom_author and the firmware's
+# MASK_Z.  The region is COMPLETE from zauthor up to zmax, which is what
+# lets the plotter's reveal mask be cut at zauthor safely.  zmin is the
+# overview floor.  A SUBREGION HAS ZMAX ONLY: it never cuts a contour, it
+# sits inside an aperture its parent already opened, so it quantises its
+# own polygon at its own zmax and there is no second authored level.
+#
 # THREADS.  Same shared generation counter as dm_source -- each thread
 # reloads when it notices it is behind, so a change made at the console is
 # seen by every server thread on its next request.
@@ -48,7 +64,9 @@ BEGIN
 		saveRegion
 		newRegion
 		renameRegion
+		setRegionId
 		deleteRegion
+		suggestRegionId
 
 		getWorkingSet
 		isChecked
@@ -73,13 +91,18 @@ our $dbg_region:shared = 0;
 	# -2 = geometry detail
 
 
-my $REGION_VERSION		= 1;
+my $REGION_VERSION		= 2;
 my $WORKSPACE_VERSION	= 1;
 my $WORKSPACE_FILE		= 'workspace.json';
 
-my @REGION_FIELDS		= qw( region_version id name notes canonical_zoom
+my @REGION_FIELDS		= qw( region_version id name notes zauthor zmin zmax
 							  geometry subregions );
-my @SUBREGION_FIELDS	= qw( id name notes canonical_zoom geometry subregions );
+my @SUBREGION_FIELDS	= qw( id name notes zmax geometry subregions );
+
+my $UPGRADE_ZMIN		= 10;
+	# The overview floor a version 1 file did not carry.  It lived in
+	# dm_coverage as a default; a version 2 region states it, and a file
+	# written before it existed is read as having meant the default.
 
 my $scan_seq:shared	= 1;
 my $my_seq			= 0;
@@ -103,6 +126,45 @@ sub _isInt
 {
 	my ($val) = @_;
 	return defined($val) && !ref($val) && $val =~ /^-?\d+$/;
+}
+
+
+sub _foldId
+	# The key an id is stored and compared under.  Every lookup, every
+	# uniqueness test and every set membership test goes through this, so
+	# there is exactly one answer to "are these the same region".
+{
+	my ($id) = @_;
+	return lc($id // '');
+}
+
+
+sub _suggestId
+	# A CamelCase candidate from a name, for the field the user then edits.
+	# It is a SUGGESTION and nothing more -- SanBlasEast is eleven
+	# characters and the author will want SanBlasE, which is precisely why
+	# the id is a field of its own rather than something derived.
+{
+	my ($name) = @_;
+	$name = '' if !defined $name;
+	$name =~ s/^\s+|\s+$//g;
+
+	# ALREADY AN ID -- leave it exactly alone.  Lowercasing and
+	# re-capitalising would turn the KML's own 'BocasDelToro' into
+	# 'Bocasdeltoro', destroying case the author put there on purpose.
+
+	return $name if $name =~ /^[A-Za-z0-9]+$/;
+
+	my @words = grep { /\S/ } split(/[^A-Za-z0-9]+/,$name);
+	return join('',map { ucfirst(lc($_)) } @words);
+}
+
+
+sub suggestRegionId
+	# _suggestId, for whoever is filling in the field the user will edit.
+{
+	my ($name) = @_;
+	return _suggestId($name);
 }
 
 
@@ -182,8 +244,8 @@ sub _numify
 			{
 				_numify($thing->{$key});
 			}
-			elsif ($key eq 'canonical_zoom' || $key eq 'region_version' ||
-				   $key eq 'workspace_version')
+			elsif ($key eq 'zauthor' || $key eq 'zmin' || $key eq 'zmax' ||
+				   $key eq 'region_version' || $key eq 'workspace_version')
 			{
 				$thing->{$key} = 0 + $thing->{$key} if _isNum($thing->{$key});
 			}
@@ -256,14 +318,39 @@ sub _validateRegion
 			if $reg->{region_version} > $REGION_VERSION;
 	}
 
-	return _err($where,"id is required and must be [a-z0-9_-]")
-		if !defined($reg->{id}) || $reg->{id} !~ /^[a-z0-9_-]+$/;
+	# The id is a file name and a card file stem.  Anything outside
+	# [A-Za-z0-9] would have to be escaped somewhere, and the somewhere is
+	# never all the places.
+
+	return _err($where,"id is required and must be [A-Za-z0-9]")
+		if !defined($reg->{id}) || $reg->{id} !~ /^[A-Za-z0-9]+$/;
 	return _err($where,"name is required and may not be empty")
 		if !defined($reg->{name}) || $reg->{name} !~ /\S/;
 
-	return _err($where,"canonical_zoom must be an integer from 0 to 24")
-		if !_isInt($reg->{canonical_zoom}) ||
-			$reg->{canonical_zoom} < 0 || $reg->{canonical_zoom} > 24;
+	if ($depth)
+	{
+		return _err($where,"subregion '$reg->{id}' zmax must be an integer from 0 to 24")
+			if !_isInt($reg->{zmax}) || $reg->{zmax} < 0 || $reg->{zmax} > 24;
+	}
+	else
+	{
+		for my $field (qw( zauthor zmin zmax ))
+		{
+			return _err($where,"$field must be an integer from 0 to 24")
+				if !_isInt($reg->{$field}) ||
+					$reg->{$field} < 0 || $reg->{$field} > 24;
+		}
+
+		# zmin <= zauthor <= zmax is not a style rule.  The reveal mask is
+		# cut at zauthor and the painted set must be a superset of it, so a
+		# zauthor outside the built range would open an aperture onto
+		# ground nothing painted.
+
+		return _err($where,"zmin $reg->{zmin} is above zauthor $reg->{zauthor}")
+			if $reg->{zmin} > $reg->{zauthor};
+		return _err($where,"zauthor $reg->{zauthor} is above zmax $reg->{zmax}")
+			if $reg->{zauthor} > $reg->{zmax};
+	}
 
 	# geometry is a LIST of polygons.  A region with no geometry at all is
 	# allowed -- that is what a newly created one looks like before
@@ -292,16 +379,17 @@ sub _validateRegion
 		# ever refers to a subregion.
 
 		return _err($where,"subregion id '$sub->{id}' appears twice under '$reg->{id}'")
-			if $seen{$sub->{id}}++;
+			if $seen{ _foldId($sub->{id}) }++;
 
-		# A subregion at or below its parent's canonical zoom contributes
-		# an empty band.  Harmless, because coverage is a union and never
-		# subtracts, but it is doing no work and the author should know.
+		# A subregion's band runs from its parent's zmax + 1 up to its own
+		# zmax, so a zmax at or below the parent's is an EMPTY band.
+		# Harmless, because coverage is a union and never subtracts, but it
+		# is doing no work and the author should know.
 
-		warning(0,0,"$where: subregion '$sub->{id}' has canonical_zoom ".
-			"$sub->{canonical_zoom}, at or below its parent '$reg->{id}' ".
-			"($reg->{canonical_zoom}) - it contributes nothing")
-			if $sub->{canonical_zoom} <= $reg->{canonical_zoom};
+		warning(0,0,"$where: subregion '$sub->{id}' has zmax $sub->{zmax}, ".
+			"at or below its parent '$reg->{id}' ($reg->{zmax}) - ".
+			"it contributes nothing")
+			if $sub->{zmax} <= $reg->{zmax};
 	}
 
 	return $reg;
@@ -311,6 +399,63 @@ sub _validateRegion
 #---------------------------------------------
 # loading
 #---------------------------------------------
+
+sub _upgradeRegion
+	# Version 1 -> 2, in memory, at load.
+	#
+	# A version 1 file carried one zoom per level, canonical_zoom, and got
+	# its floor and its depth from defaults living in dm_coverage: the
+	# floor was 10 and exactly one level above canonical was filled.  So
+	# the version 2 reading of a version 1 file is zauthor = canonical,
+	# zmin = 10, zmax = canonical + 1, and a subregion -- which had the
+	# same one-level fill -- becomes zmax = canonical + 1.
+	#
+	# THIS IS A READ, NOT A REWRITE.  Nothing is written back until the
+	# region is saved for some other reason, so an upgrade that is wrong
+	# about a file costs nothing until someone looks at it.  It is also
+	# why no migration script has to touch the user's folder.
+{
+	my ($reg,$depth) = @_;
+	return if ref($reg) ne 'HASH';
+	$depth ||= 0;
+
+	# Version 1 allowed [a-z0-9_-], so bocas_del_toro was a legal id and
+	# is not one now.  Such a file must still LOAD -- rejecting it would
+	# make every region anyone already has unreadable, and there would be
+	# no way to fix it from inside the application.  The converted id is
+	# a mechanical CamelCase of the old one and is expected to be
+	# shortened by hand; see setRegionId.
+
+	if (defined($reg->{id}) && !ref($reg->{id}) &&
+		$reg->{id} !~ /^[A-Za-z0-9]+$/)
+	{
+		my $was = $reg->{id};
+		$reg->{id} = _suggestId($was);
+		warning(0,0,"region id '$was' is not valid in version $REGION_VERSION ".
+			"- read as '$reg->{id}'")
+			if $reg->{id} =~ /^[A-Za-z0-9]+$/;
+	}
+
+	if (defined $reg->{canonical_zoom})
+	{
+		my $c = delete $reg->{canonical_zoom};
+		if ($depth)
+		{
+			$reg->{zmax} = $c + 1 if !defined $reg->{zmax};
+		}
+		else
+		{
+			$reg->{zauthor} = $c      if !defined $reg->{zauthor};
+			$reg->{zmin}    = $UPGRADE_ZMIN if !defined $reg->{zmin};
+			$reg->{zmax}    = $c + 1  if !defined $reg->{zmax};
+		}
+	}
+
+	_upgradeRegion($_,$depth+1) for @{$reg->{subregions} || []};
+
+	$reg->{region_version} = $REGION_VERSION if !$depth;
+}
+
 
 sub _loadFile
 {
@@ -328,19 +473,25 @@ sub _loadFile
 		return;
 	}
 
+	_upgradeRegion($reg,0)
+		if ref($reg) eq 'HASH' && _isInt($reg->{region_version}) &&
+			$reg->{region_version} < $REGION_VERSION;
+
 	$reg = _validateRegion($leaf,$reg,0);
 	return if !$reg;
 
-	if ($regions{$reg->{id}})
+	my $key = _foldId($reg->{id});
+	if ($regions{$key})
 	{
 		error("$leaf: id '$reg->{id}' is already defined by ".
-			$regions{$reg->{id}}{file}." - ignoring $leaf");
+			$regions{$key}{file}." - ignoring $leaf");
 		return;
 	}
 
 	$reg->{file} = $leaf;
-	$regions{$reg->{id}} = $reg;
-	display($dbg_region+1,1,"loaded $leaf as '$reg->{id}' (z$reg->{canonical_zoom}, ".
+	$regions{$key} = $reg;
+	display($dbg_region+1,1,"loaded $leaf as '$reg->{id}' (z$reg->{zauthor}, ".
+		"z$reg->{zmin}-$reg->{zmax}, ".
 		regionPolygonCount($reg)." polygon(s), ".
 		scalar(@{$reg->{subregions}})." subregion(s))");
 	return $reg;
@@ -407,13 +558,17 @@ sub _current
 
 
 sub getRegionIds
+	# The AUTHORED ids, not the folded keys -- everything that displays or
+	# writes an id wants the case the author chose.
+	#
 	# Returns a real array rather than 'sort keys' directly, because the
 	# behaviour of sort in scalar context is undefined in Perl -- so
 	# scalar(getRegionIds()) would be garbage rather than the count that
 	# any caller writing it would expect.
 {
 	_current();
-	my @ids = sort keys %regions;
+	my @ids = sort { lc($a) cmp lc($b) }
+		map { $regions{$_}{id} } keys %regions;
 	return @ids;
 }
 
@@ -422,7 +577,7 @@ sub getRegion
 {
 	my ($id) = @_;
 	_current();
-	return $regions{$id // ''};
+	return $regions{ _foldId($id) };
 }
 
 
@@ -478,7 +633,7 @@ sub saveRegion
 	return 0 if !_writeFile($path,$text);
 
 	$reg->{file} = "$reg->{id}.region";
-	$regions{$reg->{id}} = $reg;
+	$regions{ _foldId($reg->{id}) } = $reg;
 	_touch();
 	display($dbg_region,0,"saved $reg->{file}");
 	return 1;
@@ -486,16 +641,20 @@ sub saveRegion
 
 
 sub newRegion
-	# A new region has an id derived from its name, no geometry, and the
-	# canonical zoom the caller asks for.  Drawing comes later.
+	# A new region has no geometry and the levels the caller asks for.
+	# Drawing comes later.
+	#
+	# The id is SUGGESTED from the name when the caller does not give one.
+	# It is a starting point, not a derivation the model relies on -- the
+	# author is expected to shorten it, and setRegionId is how.
 {
-	my ($name,$zoom) = @_;
-	$zoom = 15 if !defined $zoom;
+	my ($name,$zauthor,$zmin,$zmax,$id) = @_;
+	$zauthor = 15 if !defined $zauthor;
+	$zmin    = $UPGRADE_ZMIN if !defined $zmin;
+	$zmax    = $zauthor + 1  if !defined $zmax;
 
-	my $id = lc($name);
-	$id =~ s/[^a-z0-9]+/_/g;
-	$id =~ s/^_+|_+$//g;
-	if ($id eq '')
+	$id = _suggestId($name) if !defined($id) || $id !~ /\S/;
+	if ($id !~ /^[A-Za-z0-9]+$/)
 	{
 		error("newRegion: '$name' does not yield a usable id");
 		return undef;
@@ -510,7 +669,9 @@ sub newRegion
 		region_version	=> $REGION_VERSION,
 		id				=> $id,
 		name			=> $name,
-		canonical_zoom	=> $zoom,
+		zauthor			=> $zauthor,
+		zmin			=> $zmin,
+		zmax			=> $zmax,
 		geometry		=> [],
 		subregions		=> [],
 	};
@@ -519,9 +680,9 @@ sub newRegion
 
 
 sub renameRegion
-	# The NAME changes; the id does not.  The id is what sets reference
-	# and what the file is called, and a rename that moved it would break
-	# every set that named it.
+	# The NAME changes; the id does not.  The name is free text with no
+	# structural role, so this is the cheap operation -- see setRegionId
+	# for the other one.
 {
 	my ($id,$name) = @_;
 	my $reg = getRegion($id);
@@ -540,6 +701,74 @@ sub renameRegion
 }
 
 
+sub setRegionId
+	# Changing the id moves three things that must move together: the file
+	# on disk, the key this module holds the region under, and every
+	# workspace set that names it.  Doing any one without the others
+	# leaves a region that is present but unreferenced, or referenced but
+	# absent.
+	#
+	# A CASE-ONLY CHANGE IS NOT A RENAME ON WINDOWS.  PortBelo.region and
+	# portbelo.region are the same file, so the id inside the file changes
+	# and the folder entry keeps whatever case it already had.  That is
+	# cosmetic and deliberately not corrected: the id in the file is the
+	# truth, and nothing reads the leaf.
+{
+	my ($id,$new_id) = @_;
+
+	my $reg = getRegion($id);
+	if (!$reg)
+	{
+		error("setRegionId: no region with id '$id'");
+		return 0;
+	}
+	if (!defined($new_id) || $new_id !~ /^[A-Za-z0-9]+$/)
+	{
+		error("setRegionId: an id must be [A-Za-z0-9] - '".
+			($new_id // '')."' is not");
+		return 0;
+	}
+
+	my $old_id = $reg->{id};
+	my $same   = _foldId($old_id) eq _foldId($new_id);
+
+	if (!$same && getRegion($new_id))
+	{
+		error("setRegionId: a region with id '$new_id' already exists");
+		return 0;
+	}
+
+	# WHERE IT CAME FROM, not where its id says it would be written.  An
+	# upgraded file has already had its id rewritten in memory, so
+	# _regionPath($old_id) names a file that never existed and the real
+	# one would be left behind as a duplicate.
+
+	my $old_path = $reg->{file} ?
+		"$data_dir/$reg->{file}" : _regionPath($old_id);
+	$reg->{id} = $new_id;
+
+	if (!saveRegion($reg))
+	{
+		$reg->{id} = $old_id;
+		return 0;
+	}
+
+	# Only now is the new file safely on disk.  A case-only change wrote
+	# THROUGH the old file, so there is nothing to remove.
+
+	if (!$same)
+	{
+		delete $regions{ _foldId($old_id) };
+		unlink($old_path) if -f $old_path;
+		_renameInSets($old_id,$new_id);
+		_touch();
+	}
+
+	display($dbg_region,0,"region '$old_id' is now '$new_id'");
+	return 1;
+}
+
+
 sub deleteRegion
 {
 	my ($id) = @_;
@@ -549,27 +778,25 @@ sub deleteRegion
 		error("deleteRegion: no region with id '$id'");
 		return 0;
 	}
-	my $path = _regionPath($id);
+	# Where it came from, for the same reason setRegionId uses it: an
+	# upgraded file's leaf and its id need not agree.
+
+	my $path = $reg->{file} ?
+		"$data_dir/$reg->{file}" : _regionPath($reg->{id});
 	if (-f $path && !unlink($path))
 	{
 		error("deleteRegion: could not delete $path: $!");
 		return 0;
 	}
-	delete $regions{$id};
+	delete $regions{ _foldId($reg->{id}) };
 	_touch();
 
 	# Membership leaves with the region.  There is no separate visibility
 	# store to reconcile and nothing to prune.
 
-	_loadWorkspace();
-	for my $set (keys %{$workspace->{sets}})
-	{
-		$workspace->{sets}{$set} =
-			[ grep { $_ ne $id } @{$workspace->{sets}{$set}} ];
-	}
-	_saveWorkspace();
+	_forgetInSets($reg->{id});
 
-	display($dbg_region,0,"deleted $id.region");
+	display($dbg_region,0,"deleted $reg->{id}.region");
 	return 1;
 }
 
@@ -583,9 +810,10 @@ sub findSubregion
 	# subregion and its parent, because most callers need both.
 {
 	my ($reg,$id) = @_;
+	my $key = _foldId($id);
 	for my $sub (@{$reg->{subregions} || []})
 	{
-		return ($sub,$reg) if $sub->{id} eq $id;
+		return ($sub,$reg) if _foldId($sub->{id}) eq $key;
 		my ($found,$parent) = findSubregion($sub,$id);
 		return ($found,$parent) if $found;
 	}
@@ -622,10 +850,14 @@ sub _boxAround
 sub addSubregion
 	# A detail area: the small piece of a region that deserves to go
 	# deeper than the rest of it.  Given as a centre, a half extent in
-	# nautical miles and the zoom it should be quantised at - which is how
-	# anyone actually thinks about an anchorage or a pass.
+	# nautical miles and the zoom it should reach - which is how anyone
+	# actually thinks about an anchorage or a pass.
+	#
+	# That zoom is its zmax, and it is also the level its own polygon is
+	# quantised at.  A subregion has no second authored level: it sits
+	# inside an aperture its parent already opened.
 {
-	my ($parent_id,$name,$lat,$lon,$half_nm,$zoom) = @_;
+	my ($parent_id,$name,$lat,$lon,$half_nm,$zmax) = @_;
 
 	my $reg = getRegion($parent_id);
 	if (!$reg)
@@ -643,16 +875,14 @@ sub addSubregion
 		error("addSubregion: lat, lon and a positive half_nm are required");
 		return undef;
 	}
-	if (!_isInt($zoom) || $zoom < 0 || $zoom > 24)
+	if (!_isInt($zmax) || $zmax < 0 || $zmax > 24)
 	{
-		error("addSubregion: canonical_zoom must be an integer from 0 to 24");
+		error("addSubregion: zmax must be an integer from 0 to 24");
 		return undef;
 	}
 
-	my $id = lc($name);
-	$id =~ s/[^a-z0-9]+/_/g;
-	$id =~ s/^_+|_+$//g;
-	if ($id eq '')
+	my $id = _suggestId($name);
+	if ($id !~ /^[A-Za-z0-9]+$/)
 	{
 		error("addSubregion: '$name' does not yield a usable id");
 		return undef;
@@ -664,11 +894,11 @@ sub addSubregion
 	}
 
 	my $sub = {
-		id				=> $id,
-		name			=> $name,
-		canonical_zoom	=> $zoom,
-		geometry		=> _boxAround($lat,$lon,$half_nm),
-		subregions		=> [],
+		id			=> $id,
+		name		=> $name,
+		zmax		=> $zmax,
+		geometry	=> _boxAround($lat,$lon,$half_nm),
+		subregions	=> [],
 	};
 	push @{$reg->{subregions}},$sub;
 
@@ -730,6 +960,20 @@ sub _loadWorkspace
 	$workspace->{sets} = $got->{sets}
 		if ref($got->{sets}) eq 'HASH';
 	$workspace->{sets}{working} ||= [];
+
+	# A set written under the version 1 id rules names regions that no
+	# longer fold to anything, and the working set would come back empty
+	# with no diagnostic -- the regions would simply stop being drawn.
+	# Convert exactly as _upgradeRegion converts the region itself, so
+	# the two agree by construction rather than by coincidence.
+
+	for my $set (keys %{$workspace->{sets}})
+	{
+		next if ref($workspace->{sets}{$set}) ne 'ARRAY';
+		$workspace->{sets}{$set} = [
+			map { /^[A-Za-z0-9]+$/ ? $_ : _suggestId($_) }
+			grep { defined && !ref } @{$workspace->{sets}{$set}} ];
+	}
 	$workspace->{default_source} = $got->{default_source}
 		if defined $got->{default_source};
 
@@ -750,6 +994,40 @@ sub _saveWorkspace
 }
 
 
+sub _forgetInSets
+	# Drop an id from every set.  Folded, because a set may have been
+	# written with a different spelling than the region carries now.
+{
+	my ($id) = @_;
+	_loadWorkspace();
+	my $key = _foldId($id);
+	for my $set (keys %{$workspace->{sets}})
+	{
+		$workspace->{sets}{$set} =
+			[ grep { _foldId($_) ne $key } @{$workspace->{sets}{$set}} ];
+	}
+	return _saveWorkspace();
+}
+
+
+sub _renameInSets
+	# Rewrite an id in place in every set, preserving each set's ordering.
+	# Membership is a property of the set and must survive a rename -- a
+	# region that was checked stays checked.
+{
+	my ($old_id,$new_id) = @_;
+	_loadWorkspace();
+	my $key = _foldId($old_id);
+	for my $set (keys %{$workspace->{sets}})
+	{
+		$workspace->{sets}{$set} =
+			[ map { _foldId($_) eq $key ? $new_id : $_ }
+				@{$workspace->{sets}{$set}} ];
+	}
+	return _saveWorkspace();
+}
+
+
 sub getWorkingSet
 {
 	_current();
@@ -757,30 +1035,38 @@ sub getWorkingSet
 
 	# A set may name a region whose file is gone.  The folder is the
 	# authority on existence, so a stale name is simply not returned.
+	#
+	# What comes back is the REGION'S id, not the set's spelling of it, so
+	# a set written before a re-casing still yields the current one.
 
-	return grep { $regions{$_} } @{$workspace->{sets}{working}};
+	return map { $regions{ _foldId($_) }{id} }
+		grep { $regions{ _foldId($_) } }
+		@{$workspace->{sets}{working}};
 }
 
 
 sub isChecked
 {
 	my ($id) = @_;
-	return scalar(grep { $_ eq $id } getWorkingSet()) ? 1 : 0;
+	my $key = _foldId($id);
+	return scalar(grep { _foldId($_) eq $key } getWorkingSet()) ? 1 : 0;
 }
 
 
 sub setChecked
 {
 	my ($id,$on) = @_;
-	if (!getRegion($id))
+	my $reg = getRegion($id);
+	if (!$reg)
 	{
 		error("setChecked: no region with id '$id'");
 		return 0;
 	}
 	_loadWorkspace() if !$workspace;
 
-	my @set = grep { $_ ne $id } @{$workspace->{sets}{working}};
-	push @set,$id if $on;
+	my $key = _foldId($id);
+	my @set = grep { _foldId($_) ne $key } @{$workspace->{sets}{working}};
+	push @set,$reg->{id} if $on;
 	$workspace->{sets}{working} = \@set;
 	return _saveWorkspace();
 }
@@ -851,8 +1137,10 @@ sub importKmlFile
 	#
 	# Returns the list of region ids created.
 {
-	my ($path,$zoom) = @_;
-	$zoom = 15 if !defined $zoom;
+	my ($path,$zauthor,$zmin,$zmax) = @_;
+	$zauthor = 15 if !defined $zauthor;
+	$zmin    = $UPGRADE_ZMIN if !defined $zmin;
+	$zmax    = $zauthor + 1  if !defined $zmax;
 
 	my $xml = _readFile($path);
 	return () if !defined $xml;
@@ -878,10 +1166,20 @@ sub importKmlFile
 			next;
 		}
 
-		my $id = lc($name);
-		$id =~ s/[^a-z0-9]+/_/g;
-		$id =~ s/^_+|_+$//g;
+		# The KML's bare token is the closest thing it has to an id, and it
+		# is already CamelCase where these files came from ('BocasDelToro
+		# (Bocas del Toro)').  It is still only a suggestion: BocasDelToro
+		# is twelve characters and the author will want Bocas.
 
+		my $token = $raw =~ /^\s*(\S+)\s*\(/ ? $1 : $name;
+		my $id = _suggestId($token);
+		$id = _suggestId($name) if $id !~ /^[A-Za-z0-9]+$/;
+
+		if ($id !~ /^[A-Za-z0-9]+$/)
+		{
+			warning(0,0,"importKml: folder '$raw' does not yield a usable id - skipped");
+			next;
+		}
 		if (getRegion($id))
 		{
 			warning(0,0,"importKml: a region with id '$id' already exists - skipped");
@@ -893,7 +1191,9 @@ sub importKmlFile
 			id				=> $id,
 			name			=> $name,
 			notes			=> "imported from ".($path =~ m{([^/\\]+)$})[0],
-			canonical_zoom	=> $zoom,
+			zauthor			=> $zauthor,
+			zmin			=> $zmin,
+			zmax			=> $zmax,
 			geometry		=> \@polys,
 			subregions		=> [],
 		};

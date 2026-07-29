@@ -66,9 +66,13 @@ const SUBREGION_STYLE = { color: '#00e5ff', weight: 2, fillOpacity: 0.10 };
 function drawRegion(reg, style) {
     // The model stores [lon,lat]; Leaflet wants [lat,lng].
     reg.polygons.forEach(poly => {
+        // A region labels its AUTHORED level; a subregion has none and
+        // labels the depth it reaches instead.
+        const label = reg.zauthor === undefined
+            ? reg.name + '  (to z' + reg.zmax + ')'
+            : reg.name + '  (z' + reg.zauthor + '-' + reg.zmax + ')';
         L.polygon(poly.map(p => [p[1], p[0]]), style)
-            .bindTooltip(reg.name + '  (z' + reg.canonical_zoom + ')',
-                         { sticky: true })
+            .bindTooltip(label, { sticky: true })
             .addTo(regionLayer);
     });
     (reg.subregions || []).forEach(sub => drawRegion(sub, SUBREGION_STYLE));

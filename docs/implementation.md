@@ -180,15 +180,29 @@ Output is not written to a file. `Pub::` supports it - it needs only the shared 
 variable set - which makes it a candidate for a preferences dialog later rather than
 something to design now.
 
+## There is no `cm_visibility`, and there will not be
+
+An earlier draft of this document promised one: an observer and batch mechanism keeping the
+native panes and the browser agreeing about what is checked. It was never built, because
+**the state version counter already does the job**. Both wx panes poll it on a timer and the
+browser polls it over HTTP, so a change made anywhere is picked up everywhere on the next
+tick.
+
+Polling is not a lazy substitute here, it is the only correct choice: a region can be
+changed from an HTTP thread, and a callback firing on that thread must not touch a wx
+widget. An observer would have to hop threads to be safe, which is a queue and a timer
+wearing a different name.
+
 ## Still To Come
 
 - **Module inventory by layer** - foundational utilities, portable logic, wx components,
   and the top-level wx panes, in the order they may depend on one another.
-- **`cm_visibility`** - the observer and batch mechanism that keeps the native panes and
-  the browser agreeing about what is checked, and where its state is written.
-- **The build engine and exporters** - which modules do the fetching, the assembly, and
-  the conversion to each output format, and whether the engine runs on a thread or in a
-  separate process.
+- **The fetch engine** - the queue, concurrency and interval limiting, retry policy, resume,
+  and the failure classification that keeps a lost connection from being cached as "the
+  source does not have this tile". See [Build](design/build.md).
+- **Whether the build runs on a thread or in a separate process** - it is long-running and
+  must report progress without blocking the application. The exporter itself
+  ([`dm_rct`](design/rct.md)) is synchronous and has no opinion about this.
 
 ---
 

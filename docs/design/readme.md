@@ -43,8 +43,8 @@ and an **RCT card**. The fifth describes what happens in between.
   metadata that carries provenance into everything downstream.
 
 - **[RCT](rct.md)** -
-  The E-Series card format: the `.RCT` file, the `INDEX.RCI` selector, and the
-  nested-coverage fallback the format depends on.
+  The E-Series card format: what chartMaker guarantees a card, the nested coverage the
+  format depends on, and the two constraints only the producer can see.
 
 ---
 

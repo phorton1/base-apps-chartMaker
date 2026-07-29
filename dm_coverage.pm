@@ -4,26 +4,36 @@
 #---------------------------------------------
 # Which tiles a region covers.  See docs/design/regions.md.
 #
-# The polygon meets the grid EXACTLY ONCE, at the region's canonical
-# zoom.  After that the polygon is out of the picture and everything is
-# derived from that one tile set:
+# The polygon meets the grid EXACTLY ONCE, at the region's AUTHORED zoom
+# (zauthor).  After that the polygon is out of the picture and everything
+# is derived from that one tile set:
 #
-#	coarser   the parents of the canonical set.  This is provably the
-#	          same set as intersecting the polygon at that zoom -- a
-#	          parent contains its child, and a coarse tile is exactly
-#	          tiled by its descendants -- so taking parents is simply
-#	          the cheap way to compute it.
+#	coarser   the parents of the authored set, down to zmin.  This is
+#	          provably the same set as intersecting the polygon at that
+#	          zoom -- a parent contains its child, and a coarse tile is
+#	          exactly tiled by its descendants -- so taking parents is
+#	          simply the cheap way to compute it.
 #
-#	finer     the COMPLETE set of children, not the ones the polygon
-#	          touches.  A canonical tile is included because the polygon
-#	          touches it, so the chart already claims the whole tile;
-#	          leaving out children that miss the polygon would put a
-#	          resolution cliff inside an area the chart says it covers.
+#	finer     the COMPLETE set of children, up to zmax -- not the ones
+#	          the polygon touches.  An authored tile is included because
+#	          the polygon touches it, so the chart already claims the
+#	          whole tile; leaving out children that miss the polygon
+#	          would put a resolution cliff inside an area the chart says
+#	          it covers.
 #
-# EACH LEVEL SUPPLIES ONLY THE BAND ITS PARENT DOES NOT REACH.  Because a
-# subregion lies inside its parent, its tiles at the parent's canonical
-# zoom are already in the parent's set.  Nothing enforces the partition;
-# it falls out of containment.
+# COMPLETENESS OVER [zauthor..zmax] IS NOT AN OPTION.  The plotter cuts
+# its reveal mask from the polygon at zauthor and paints at whatever
+# level the view scale calls for, so the painted set must be a superset
+# of the revealed set at every level the card carries.  A partially
+# populated level would open an aperture onto ground nothing painted.
+#
+# A SUBREGION SUPPLIES THE BAND ITS PARENT DOES NOT REACH: from the
+# parent's zmax + 1 up to its own zmax.  Equality at the start is the
+# only value that neither gaps nor duplicates.  It quantises its OWN
+# polygon at its OWN zmax and takes parents back down to the band's
+# floor, which is far cheaper than quantising coarse and filling: the
+# tiles it adds are the ones its polygon actually touches at the depth
+# it asked for.
 #
 # ONE COMPUTATION, TWO ENTRY POINTS.  regionCoverage() enumerates, and
 # coverageHas() asks about one tile.  Preview uses the second and the
@@ -51,6 +61,7 @@ BEGIN
 		lonLatToTile
 		tileBounds
 		regionCoverage
+		regionCoverageNodes
 		coverageHas
 		coverageCounts
 		coverageTotal
@@ -66,8 +77,7 @@ our $dbg_cover:shared = 1;
 
 my $PI = 3.14159265358979;
 
-my $DEF_ZMIN = 10;	# overview floor - an output property, defaulted here
-my $DEF_FILL = 1;	# levels below canonical that get filled completely
+my $DEF_ZMIN = 10;	# only for a region that somehow carries no zmin
 
 
 #---------------------------------------------
@@ -274,25 +284,50 @@ sub _addLevel
 sub _walk
 	# One region or subregion, then its children.
 	#
-	# $floor is the zoom below which this level contributes nothing --
-	# the parent's canonical zoom plus one, because the parent already
-	# covers its canonical zoom and everything coarser.
+	# $floor is the zoom below which this level contributes nothing.  For
+	# the region it is zmin; for a subregion it is the parent's zmax + 1,
+	# because the parent already covers its zmax and everything coarser.
+	#
+	# THE TWO ARE NOT THE SAME SHAPE, and that is the whole of the model.
+	# A region has an authored level with a band above it: it quantises at
+	# zauthor and fills complete children to zmax.  A subregion has no
+	# authored level at all -- it quantises at its own zmax, the finest
+	# thing it will carry, and only reaches back down to the floor.
+	#
+	# $nodes, when given, also collects each node's OWN contribution
+	# separately.  The merged coverage is what a build enumerates, but an
+	# exporter needs to know which tiles form one detail cluster -- a
+	# coverage block wants to wrap an actual cluster, and the merge has
+	# already thrown that away.  Same walk, so the two can never disagree.
 {
-	my ($cov,$reg,$floor,$opts) = @_;
+	my ($cov,$reg,$floor,$opts,$depth,$nodes) = @_;
+	$depth ||= 0;
 
-	my $c    = $reg->{canonical_zoom};
-	my $fill = $opts->{fill};
 	my $cap  = $opts->{zmax};
+	my $mine = {};
 
-	# The target's cap can pull the quantising zoom in.  min(region,
-	# target) -- the region asks, the target decides.
+	# The build's cap can pull the quantising zoom in.  min(region,
+	# build) -- the region asks, the build decides.
 
-	my $qz = defined($cap) && $cap < $c ? $cap : $c;
+	my $own = $depth ? $reg->{zmax} : $reg->{zauthor};
+	my $qz  = defined($cap) && $cap < $own ? $cap : $own;
+
+	# A band entirely above the cap contributes nothing.  This is how
+	# 'build --zmax 16' prunes a z17-18 detail area arithmetically,
+	# without anything having to know it is a detail area.
+
+	if ($qz < $floor)
+	{
+		display($dbg_cover,1,sprintf("%-16s band z%d-%d is above the cap - skipped",
+			$reg->{id},$floor,$own));
+		return;
+	}
 
 	my $set = _quantise($reg->{geometry},$qz);
-	display($dbg_cover,1,sprintf("%-16s canonical z%-2d quantised at z%-2d -> %d tiles",
-		$reg->{id},$c,$qz,scalar(keys %$set)));
+	display($dbg_cover,1,sprintf("%-16s %s z%-2d quantised at z%-2d -> %d tiles",
+		$reg->{id},$depth ? 'zmax   ' : 'zauthor',$own,$qz,scalar(keys %$set)));
 	_addLevel($cov,$qz,$set);
+	_addLevel($mine,$qz,$set);
 
 	# coarser: parents, down to this level's floor
 	my $up = $set;
@@ -300,40 +335,77 @@ sub _walk
 	{
 		$up = _parentsOf($up);
 		_addLevel($cov,$z,$up);
+		_addLevel($mine,$z,$up);
 	}
 
-	# finer: complete fill, bounded by the target's cap
-	my $down  = $set;
-	my $stop  = $qz + $fill;
-	$stop = $cap if defined($cap) && $cap < $stop;
-	for (my $z = $qz+1; $z <= $stop; $z++)
+	# finer: complete children to zmax, bounded by the cap.  A subregion
+	# has already quantised AT its zmax, so this loop is a region's alone.
+
+	if (!$depth)
 	{
-		$down = _childrenOf($down);
-		_addLevel($cov,$z,$down);
+		my $stop = $reg->{zmax};
+		$stop = $cap if defined($cap) && $cap < $stop;
+		my $down = $set;
+		for (my $z = $qz+1; $z <= $stop; $z++)
+		{
+			$down = _childrenOf($down);
+			_addLevel($cov,$z,$down);
+			_addLevel($mine,$z,$down);
+		}
 	}
 
-	# A subregion supplies only what this level does not reach.
-	_walk($cov,$_,$qz+1,$opts) for @{$reg->{subregions} || []};
+	push @$nodes,{ id => $reg->{id}, depth => $depth, levels => $mine }
+		if $nodes;
+
+	# A subregion supplies only the band above this level's zmax.
+	_walk($cov,$_,$reg->{zmax}+1,$opts,$depth+1,$nodes)
+		for @{$reg->{subregions} || []};
 }
 
 
 sub regionCoverage
 	# { zoom => { "x_y" => 1 } } for a whole region, subregions included.
 	#
-	# opts: zmin  the overview floor            (default 10)
-	#       fill  levels below canonical        (default 1)
-	#       zmax  a hard cap from the target    (default none)
+	# THE REGION CARRIES THE LEVELS.  zauthor, zmin and zmax are the
+	# region's own, because the region definition IS the specification of
+	# what to build -- there is no separate target object holding them.
+	#
+	# opts: zmax  a hard cap from the build     (default none)
+	#       zmin  override the region's floor   (default none)
 {
 	my ($reg,$opts) = @_;
 	$opts ||= {};
-	$opts->{zmin} = $DEF_ZMIN if !defined $opts->{zmin};
-	$opts->{fill} = $DEF_FILL if !defined $opts->{fill};
+
+	my $floor = defined $opts->{zmin} ? $opts->{zmin} :
+		defined $reg->{zmin} ? $reg->{zmin} : $DEF_ZMIN;
 
 	my $cov = {};
-	display($dbg_cover,0,"regionCoverage($reg->{id}) zmin=$opts->{zmin} ".
-		"fill=$opts->{fill}".(defined $opts->{zmax} ? " zmax=$opts->{zmax}" : ''));
-	_walk($cov,$reg,$opts->{zmin},$opts);
+	display($dbg_cover,0,"regionCoverage($reg->{id}) zauthor=".
+		($reg->{zauthor} // '?')." zmin=$floor zmax=".($reg->{zmax} // '?').
+		(defined $opts->{zmax} ? " cap=$opts->{zmax}" : ''));
+	_walk($cov,$reg,$floor,$opts,0,$opts->{nodes});
 	return $cov;
+}
+
+
+sub regionCoverageNodes
+	# The same walk, reported PER NODE instead of merged:
+	#
+	#	[ { id, depth, levels => { z => { "x_y" => 1 } } }, ... ]
+	#
+	# in walk order, so the region comes first and its subregions follow.
+	# The exporter needs this because a coverage block should wrap one
+	# actual cluster of tiles, and the merged answer has already lost
+	# which tiles belonged together.
+	#
+	# Returns ($merged,$nodes) so a caller that wants both pays for one
+	# walk.  They cannot disagree; there is only one implementation.
+{
+	my ($reg,$opts) = @_;
+	$opts ||= {};
+	my @nodes;
+	my $cov = regionCoverage($reg,{ %$opts, nodes => \@nodes });
+	return ($cov,\@nodes);
 }
 
 
