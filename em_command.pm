@@ -45,6 +45,32 @@ BEGIN
 
 my $mark_seq:shared = 0;
 
+my $cmd_failed = 0;
+	# WHETHER THE VERB JUST DISPATCHED REFUSED.  Not shared: it is reset at
+	# the top of every dispatch and read at the bottom of the same call, on
+	# the same thread.
+	#
+	# It exists because /edit has to tell the applet whether its commit was
+	# ACCEPTED.  The applet drops its local copy of a polygon on commit, so
+	# a refusal reported as success means the next poll quietly restores the
+	# old geometry and the user's work disappears with no explanation.
+	#
+	# A flag rather than a return value from every branch: the vocabulary is
+	# eighty branches deep and only the mutating ones can fail in a way the
+	# caller can act on.  A verb that never sets it reports success, which
+	# is what it did before this existed.
+
+
+sub _fail
+	# Report and mark.  Every refusal that a caller might need to know
+	# about goes through here rather than calling error() directly.
+{
+	my ($msg) = @_;
+	error($msg) if defined $msg;
+	$cmd_failed = 1;
+	return 0;
+}
+
 
 sub getMarkSeq
 	# The sequence number stamped by the last 'mark' command.
@@ -82,11 +108,13 @@ sub commandHelp
 		[ 'region zmin <id> <z>',		'set the overview floor'							],
 		[ 'region zmax <id> <z> [sub]',	'set how deep a region or subregion goes'			],
 		[ 'region count [id|all] [zmax]','how many tiles a region would build, by zoom'		],
+		[ 'select <id|none>',	'select a region or subregion, on every surface at once'	],
+		[ 'edit [mode] [id] [dirty]','what the map is doing: browse, shape, draw, end'	],
 		[ 'region geometry <id> [sub]',	'replace polygons - /edit only, the map supplies them'],
 		[ 'region delete <id>',			'delete a region and its file'						],
 		[ 'region import <file> [z]',	'import each KML folder as a region'				],
-		[ 'subregion new <region> <name> <lat> <lon> <half_nm> <z>',
-										'add a detail area by centre and half extent'		],
+		[ 'subregion new <parent> <zmax> <name>',
+										'add an empty detail area - draw it on the map'		],
 		[ 'subregion delete <region> <id>',	'remove a detail area'							],
 		[ 'build rct <id|set> [zmax]',	'export region(s) as .rct card files'				],
 		[ 'check <id>',			'show a region on the map'									],
@@ -531,46 +559,35 @@ sub _regionGeometry
 	my ($rest,$data) = @_;
 	my ($id,$sub_id) = split(/\s+/,$rest || '');
 
-	if (!defined($id) || $id !~ /\S/)
-	{
-		warning(0,0,"region geometry: which region?");
-		return;
-	}
-	if (ref($data) ne 'ARRAY')
-	{
-		warning(0,0,"region geometry: needs a polygon list, which only ".
-			"the map can supply - there is no way to type one");
-		return;
-	}
+	return _fail("region geometry: which region?")
+		if !defined($id) || $id !~ /\S/;
+	return _fail("region geometry: needs a polygon list, which only the map ".
+		"can supply - there is no way to type one")
+		if ref($data) ne 'ARRAY';
 
-	my $reg = getRegion($id);
-	if (!$reg)
-	{
-		warning(0,0,"region geometry: no region with id '$id'");
-		return;
-	}
+	my ($reg,$target) = findAnywhere($id);
+	return _fail("region geometry: nothing with id '$id'") if !$reg;
 
-	my $target = $reg;
 	if (defined($sub_id) && $sub_id =~ /\S/)
 	{
 		($target) = findSubregion($reg,$sub_id);
-		if (!$target)
-		{
-			warning(0,0,"region geometry: '$id' has no subregion '$sub_id'");
-			return;
-		}
+		return _fail("region geometry: '$id' has no subregion '$sub_id'")
+			if !$target;
 	}
 
 	my $was = scalar(@{$target->{geometry} || []});
+	my $old = $target->{geometry};
 	$target->{geometry} = $data;
 
 	# The whole REGION is saved, because a subregion is not a file - it
-	# lives inside its root's.  A failed save leaves the in-memory copy
-	# wrong, so the model is reloaded from disk rather than left guessing.
+	# lives inside its root's.  The old geometry is put back on refusal, so
+	# that a rejected commit leaves the model exactly as it was rather than
+	# holding a shape the validator would not accept.
 
 	if (!saveRegion($reg))
 	{
-		rescanRegions();
+		$target->{geometry} = $old;
+		$cmd_failed = 1;
 		return;
 	}
 
@@ -578,6 +595,84 @@ sub _regionGeometry
 	display(0,0,"region geometry: '$target->{id}' $was -> $now polygon(s), ".
 		regionPointCount($target)." point(s)");
 	bumpState("'$target->{id}' geometry");
+}
+
+
+sub _selectCommand
+	# select <id> | none
+	#
+	# The id may name a region or a subregion at any depth; the selection
+	# stores both the root and the node, because everything that writes
+	# needs the root and everything that displays wants the node.
+{
+	my ($rpart) = @_;
+	my ($id) = split(/\s+/,$rpart || '');
+	$id = '' if !defined $id;
+
+	if ($id eq '' || lc($id) eq 'none')
+	{
+		setSelection('','');
+		display(0,0,"select: nothing selected");
+		return;
+	}
+
+	my $lock = editLocks();
+	return _fail("select: $lock - Save or Revert first") if $lock;
+
+	my ($root,$node) = findAnywhere($id);
+	return _fail("select: nothing with id '$id'") if !$root;
+
+	my $sub = ($node != $root) ? $node->{id} : '';
+	setSelection($root->{id},$sub);
+	display(0,0,"select: '".($sub || $root->{id})."'".
+		($sub ? " (subregion of $root->{id})" : ''));
+}
+
+
+sub _editCommand
+	# edit <browse|shape|draw> [<id>] [dirty]
+	# edit end
+	#
+	# How the map tells the application what it is doing, so that the tree
+	# can refuse to delete what is under the user's hand and so that
+	# nobody renders an object from the model while it is being dragged.
+{
+	my ($rpart) = @_;
+	my ($mode,$id,$flag) = split(/\s+/,$rpart || '');
+	$mode = lc($mode // '');
+
+	if ($mode eq '' )
+	{
+		my $st = getEditState();
+		display(0,0,"edit: $st->{mode}".
+			($st->{region} ? " '".($st->{sub} || $st->{region})."'" : '').
+			($st->{dirty} ? " DIRTY" : ''));
+		return;
+	}
+	if ($mode eq 'end')
+	{
+		clearEditState();
+		display(0,0,"edit: browse");
+		return;
+	}
+	return _fail("edit: expected browse, shape, draw or end")
+		if $mode ne $EDIT_BROWSE && $mode ne $EDIT_SHAPE && $mode ne $EDIT_DRAW;
+
+	my ($root,$node) = (undef,undef);
+	if (defined($id) && $id =~ /\S/)
+	{
+		($root,$node) = findAnywhere($id);
+		return _fail("edit: nothing with id '$id'") if !$root;
+	}
+
+	my $sub = ($root && $node != $root) ? $node->{id} : '';
+	setEditState($mode,$root ? $root->{id} : '',$sub,
+		(defined($flag) && lc($flag) eq 'dirty') ? 1 : 0);
+
+	my $st = getEditState();
+	display(0,0,"edit: $st->{mode}".
+		($st->{region} ? " '".($st->{sub} || $st->{region})."'" : '').
+		($st->{dirty} ? " DIRTY" : ''));
 }
 
 
@@ -603,49 +698,73 @@ sub _regionCommand
 	}
 	if ($verb eq 'new')
 	{
-		my ($name,$zoom) = $rest =~ /^(.*?)\s+(\d+)\s*$/ ? ($1,$2) : ($rest,15);
-		if ($name !~ /\S/)
+		# TWO FORMS, because two callers want different things.  A person
+		# typing wants to name a region and get sensible zooms; an interface
+		# that has already asked for all five fields wants to state them:
+		#
+		#	region new <name...> [zauthor]
+		#	region new <id> <zauthor> <zmin> <zmax> <name...>
+		#
+		# The long form is recognised by its shape - an id followed by three
+		# integers - which nothing in the short form can look like, because a
+		# name ending in three numbers is not a name anybody types.
+
+		my ($name,$zoom,$id,$zmin,$zmax);
+		if ($rest =~ /^([A-Za-z0-9]+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\S.*)$/)
 		{
-			warning(0,0,"region new: a name is required");
+			($id,$zoom,$zmin,$zmax,$name) = ($1,$2,$3,$4,$5);
+			$name =~ s/\s+$//;
+		}
+		else
+		{
+			($name,$zoom) = $rest =~ /^(.*?)\s+(\d+)\s*$/ ? ($1,$2) : ($rest,15);
+		}
+		return _fail("region new: a name is required") if $name !~ /\S/;
+
+		my $reg = newRegion($name,$zoom,$zmin,$zmax,$id);
+		if (!$reg)
+		{
+			$cmd_failed = 1;
 			return;
 		}
-		my $reg = newRegion($name,$zoom);
-		if ($reg)
-		{
-			display(0,0,"region new: created '$reg->{id}' ".
-				"z$reg->{zmin}-$reg->{zmax} authored at z$reg->{zauthor}");
-			display(0,1,"'region id $reg->{id} <shorter>' if you want a shorter id");
-			bumpState("region '$reg->{id}' created");
-		}
+		display(0,0,"region new: created '$reg->{id}' ".
+			"z$reg->{zmin}-$reg->{zmax} authored at z$reg->{zauthor}");
+		display(0,1,"no geometry yet - draw it on the map");
+		bumpState("region '$reg->{id}' created");
 		return;
 	}
 	if ($verb eq 'id')
 	{
 		my ($id,$new_id) = split(/\s+/,$rest);
-		if (!defined($new_id) || $new_id !~ /\S/)
-		{
-			warning(0,0,"region id: usage is 'region id <id> <new id>'");
-			return;
-		}
+		return _fail("region id: usage is 'region id <id> <new id>'")
+			if !defined($new_id) || $new_id !~ /\S/;
+
 		if (setRegionId($id,$new_id))
 		{
 			display(0,0,"region id: '$id' is now '$new_id'");
 			bumpState("region '$id' is now '$new_id'");
+		}
+		else
+		{
+			$cmd_failed = 1;
 		}
 		return;
 	}
 	if ($verb eq 'rename')
 	{
 		my ($id,$name) = split(/\s+/,$rest,2);
-		if (!defined($name) || $name !~ /\S/)
-		{
-			warning(0,0,"region rename: usage is 'region rename <id> <new name>'");
-			return;
-		}
+		return _fail("region rename: usage is 'region rename <id> <new name>'")
+			if !defined($name) || $name !~ /\S/;
+
+		$name =~ s/\s+$//;
 		if (renameRegion($id,$name))
 		{
 			display(0,0,"region rename: '$id' is now called '$name'");
 			bumpState("region '$id' renamed");
+		}
+		else
+		{
+			$cmd_failed = 1;
 		}
 		return;
 	}
@@ -691,25 +810,19 @@ sub _regionCommand
 	if ($verb eq 'zauthor' || $verb eq 'zmin' || $verb eq 'zmax')
 	{
 		my ($id,$zoom,$sub_id) = split(/\s+/,$rest);
-		if (!defined($zoom) || $zoom !~ /^\d+$/)
-		{
-			warning(0,0,"region $verb: usage is 'region $verb <id> <zoom> [subregion]'");
-			return;
-		}
+		return _fail("region $verb: usage is 'region $verb <id> <zoom> [subregion]'")
+			if !defined($zoom) || $zoom !~ /^\d+$/;
+
 		my $reg = getRegion($id);
-		if (!$reg)
-		{
-			warning(0,0,"region $verb: no region with id '$id'");
-			return;
-		}
+		return _fail("region $verb: no region with id '$id'") if !$reg;
+
 		my $target = $reg;
 		if (defined $sub_id)
 		{
 			($target) = findSubregion($reg,$sub_id);
 			if (!$target)
 			{
-				warning(0,0,"region $verb: '$id' has no subregion '$sub_id'");
-				return;
+				return _fail("region $verb: '$id' has no subregion '$sub_id'");
 			}
 
 			# A subregion has one level and it is zmax.  Accepting an
@@ -718,13 +831,18 @@ sub _regionCommand
 
 			if ($verb ne 'zmax')
 			{
-				warning(0,0,"region $verb: a subregion has zmax only - ".
+				return _fail("region $verb: a subregion has zmax only - ".
 					"it never cuts a reveal contour");
-				return;
 			}
 		}
+		my $was = $target->{$verb};
 		$target->{$verb} = int($zoom);
-		return if !saveRegion($reg);
+		if (!saveRegion($reg))
+		{
+			$target->{$verb} = $was;
+			$cmd_failed = 1;
+			return;
+		}
 		display(0,0,"region $verb: '$target->{id}' $verb = $zoom");
 		bumpState("'$target->{id}' $verb $zoom");
 		return;
@@ -740,6 +858,10 @@ sub _regionCommand
 		{
 			display(0,0,"region delete: '$id' is gone");
 			bumpState("region '$id' deleted");
+		}
+		else
+		{
+			$cmd_failed = 1;
 		}
 		return;
 	}
@@ -805,21 +927,28 @@ sub _subregionCommand
 
 	if ($verb eq 'new')
 	{
-		my ($parent,$name,$lat,$lon,$half,$zoom) = split(/\s+/,$rest);
-		if (!defined($zoom))
+		# CREATED NAMED AND EMPTY.  The geometry comes from the map through
+		# 'region geometry', like every other polygon - see
+		# docs/design/editing.md on why nothing invents a shape here.
+
+		my ($parent,$zoom,$name) = split(/\s+/,$rest,3);
+		if (!defined($name) || $name !~ /\S/)
 		{
 			warning(0,0,"subregion new: usage is ".
-				"'subregion new <region> <name> <lat> <lon> <half_nm> <zoom>'");
+				"'subregion new <parent> <zmax> <name...>'");
+			$cmd_failed = 1;
 			return;
 		}
-		my $sub = addSubregion($parent,$name,$lat,$lon,$half,$zoom);
-		if ($sub)
+		$name =~ s/\s+$//;
+		my $sub = addSubregion($parent,$name,$zoom);
+		if (!$sub)
 		{
-			display(0,0,"subregion new: '$sub->{id}' under '$parent' at z$zoom");
-			display(0,1,sprintf("a %.1f nm square centred on %.6f %.6f",
-				$half*2,$lat,$lon));
-			bumpState("subregion '$sub->{id}' added");
+			$cmd_failed = 1;
+			return;
 		}
+		display(0,0,"subregion new: '$sub->{id}' under '$parent' to z$zoom");
+		display(0,1,"no geometry yet - draw it on the map");
+		bumpState("subregion '$sub->{id}' added");
 		return;
 	}
 	if ($verb eq 'delete')
@@ -834,6 +963,10 @@ sub _subregionCommand
 		{
 			display(0,0,"subregion delete: '$id' removed from '$parent'");
 			bumpState("subregion '$id' deleted");
+		}
+		else
+		{
+			$cmd_failed = 1;
 		}
 		return;
 	}
@@ -940,7 +1073,9 @@ sub dispatchCommand
 	my ($lpart,$rpart,$data) = @_;
 	$lpart = lc($lpart // '');
 	$rpart //= '';
-	return if !length($lpart);
+	return 0 if !length($lpart);
+
+	$cmd_failed = 0;
 
 	if ($lpart eq 'mark')
 	{
@@ -993,6 +1128,14 @@ sub dispatchCommand
 	{
 		_setCommand($rpart);
 	}
+	elsif ($lpart eq 'select')
+	{
+		_selectCommand($rpart);
+	}
+	elsif ($lpart eq 'edit')
+	{
+		_editCommand($rpart);
+	}
 	elsif ($lpart eq 'regions')
 	{
 		_regionsCommand();
@@ -1035,7 +1178,10 @@ sub dispatchCommand
 	else
 	{
 		warning(0,0,"unknown command '$lpart'  (try ? for help)");
+		$cmd_failed = 1;
 	}
+
+	return $cmd_failed ? 0 : 1;
 }
 
 

@@ -235,11 +235,19 @@ sub applet_edit
 	my $args = defined($edit->{args}) ? $edit->{args} : '';
 	display($dbg_request,0,"/edit $verb $args");
 
-	dispatchCommand($verb,$args,$edit->{data});
+	# THE STATUS IS THE POINT.  The applet drops its own copy of a polygon
+	# when it commits, so a refusal reported as success would let the next
+	# poll quietly restore the old geometry and the user's work would vanish
+	# with no explanation.  The seq is returned with it so a caller can pull
+	# the reason out of /api/log?since=<seq>.
+
+	my $seq = getOutputRingSeq();
+	my $ok  = dispatchCommand($verb,$args,$edit->{data}) ? 1 : 0;
 
 	return $this->api_json_response($request,{
-		ok		=> 1,
+		ok		=> $ok,
 		verb	=> $verb,
+		since	=> 0 + $seq,
 		version	=> 0 + getStateSeq(),
 	});
 }
@@ -350,6 +358,12 @@ sub applet_state
 	my $active = getDefaultSource();
 	$active = $fallback				if !$active   || !getSource($active);
 
+	# SELECTION AND EDIT STATE TRAVEL IN THE SAME DOCUMENT, behind the same
+	# version counter, so no surface can be out of step with another about
+	# what is selected or what is being edited.
+
+	my ($sel_region,$sel_sub) = getSelection();
+
 	return $this->api_json_response($request,{
 		version			=> 0 + getStateSeq(),
 		sources			=> \@sources,
@@ -357,6 +371,8 @@ sub applet_state
 		sets			=> [ getSetNames() ],
 		active_set		=> getActiveSet(),
 		regions			=> _regionsForState(),
+		selection		=> { region => $sel_region, sub => $sel_sub },
+		edit			=> getEditState(),
 	});
 }
 

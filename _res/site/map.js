@@ -17,8 +17,20 @@
 
 const MAP_MAX_ZOOM = 22;
 
+// WHEEL ZOOM IS DELIBERATELY SLOW.  Leaflet's default asks for 60 pixels of
+// scroll per zoom level, which on a chart means one flick of the wheel jumps
+// several levels and loses the place you were looking at.  Tripling it makes
+// the wheel a way to creep in and out rather than to teleport.
+//
+// Zoom is still snapped to whole levels.  A fractional zoom would put the
+// tile grid on fractional pixels and make the snap-to-grid dots blurry for
+// no gain.
+
+const WHEEL_PX_PER_ZOOM = 180;
+
 const map = L.map('map', {
     maxZoom: MAP_MAX_ZOOM,
+    wheelPxPerZoomLevel: WHEEL_PX_PER_ZOOM,
 });
 
 L.control.scale({ imperial: true, metric: true }).addTo(map);
@@ -139,7 +151,16 @@ let regionSig = null;
 const REGION_STYLE    = { color: '#ffcc00', weight: 2, fillOpacity: 0.05 };
 const SUBREGION_STYLE = { color: '#00e5ff', weight: 2, fillOpacity: 0.10 };
 
-function drawRegion(reg, style) {
+function drawRegion(reg, style, rootId) {
+    // AN OBJECT UNDER EDIT LEAVES THIS LAYER.  cmEdit draws it from its own
+    // copy while the user's hand is on it; drawing it from the model as well
+    // would hand the old geometry back mid-drag.
+    if (window.cmEditSuppresses && window.cmEditSuppresses(rootId, reg.id)) {
+        (reg.subregions || []).forEach(sub =>
+            drawRegion(sub, SUBREGION_STYLE, rootId));
+        return;
+    }
+
     // The model stores [lon,lat]; Leaflet wants [lat,lng].
     reg.polygons.forEach(poly => {
         // A region labels its AUTHORED level; a subregion has none and
@@ -151,18 +172,42 @@ function drawRegion(reg, style) {
             .bindTooltip(label, { sticky: true })
             .addTo(regionLayer);
     });
-    (reg.subregions || []).forEach(sub => drawRegion(sub, SUBREGION_STYLE));
+    (reg.subregions || []).forEach(sub => drawRegion(sub, SUBREGION_STYLE, rootId));
 }
 
 function setRegions(regions) {
-    const sig = JSON.stringify(regions);
+    // The suppression state is part of the signature, because an object
+    // entering or leaving an edit changes what should be drawn without the
+    // model having changed at all.
+    const sig = JSON.stringify(regions) + '|' + suppressionSig();
     if (sig === regionSig) return;
     regionSig = sig;
 
+    lastRegions = regions || [];
     regionLayer.clearLayers();
-    (regions || []).forEach(reg => drawRegion(reg, REGION_STYLE));
+    lastRegions.forEach(reg => drawRegion(reg, REGION_STYLE, reg.id));
     fitRegionsIfUnset(regions);
 }
+
+let lastRegions = [];
+
+function suppressionSig() {
+    // ASKED OF cmEdit DIRECTLY, never derived by walking the region list.
+    // Deriving it needed lastRegions, which is stale on exactly the call
+    // that matters -- entering an edit -- so the signature could match the
+    // previous one and setRegions would skip the redraw that was supposed
+    // to hide the object being edited.  The result was an edit whose
+    // handles sat on top of a polygon still drawn from the model.
+    return window.cmEditTargetKey ? window.cmEditTargetKey() : '';
+}
+
+// cmEdit calls this when it starts or finishes holding an object, so the
+// poll-rendered layer picks the change up without waiting for the model.
+function cmRedrawRegions() {
+    regionSig = null;
+    setRegions(lastRegions);
+}
+window.cmRedrawRegions = cmRedrawRegions;
 
 
 // ============================================================================
@@ -362,6 +407,11 @@ async function applyState() {
             setImagerySource(src);
         } catch (e) {
             console.error('chartMaker: could not build the imagery layer', e);
+        }
+        try {
+            if (window.cmEditOnState) cmEditOnState(state);
+        } catch (e) {
+            console.error('chartMaker: cmEdit choked on the state', e);
         }
         try {
             setRegions(state.regions);

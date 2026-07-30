@@ -65,6 +65,8 @@ BEGIN
 		coverageHas
 		coverageCounts
 		coverageTotal
+		polygonsContainPoint
+		outsideVertices
 	);
 }
 
@@ -153,6 +155,26 @@ sub _segsCross
 }
 
 
+our $EDGE_EPSILON = 1e-9;
+	# HOW CLOSE TO A TILE EDGE COUNTS AS BEING ON IT.  About four
+	# thousandths of an inch on the ground - five orders of magnitude
+	# above the float error it has to absorb, seven below the tile it
+	# protects.  See docs/design/editing.md.
+	#
+	# It exists because a tile corner's LATITUDE is an irrational value
+	# stored as a double and written to JSON at the platform's default
+	# precision, which loses the last few bits.  A vertex snapped to a
+	# grid intersection therefore comes back a hair off the true edge, and
+	# with an intersects predicate a polygon a hair over a boundary claims
+	# the whole tile beyond it - so a seam drawn perfectly on the grid
+	# would still contest a row of tiles.
+	#
+	# The rectangle is INSET by it, never expanded.  A polygon that
+	# reaches a tile by less than this is not covering it in any sense
+	# anybody means, and a boundary lying along a tile edge belongs to the
+	# tile it is inside, not to both.
+
+
 sub _ringHitsRect
 	# Positive-area intersection between a ring and a lon/lat rectangle.
 	#
@@ -162,6 +184,14 @@ sub _ringHitsRect
 	# passes through without either of the first two).
 {
 	my ($ring,$w,$s,$e,$n) = @_;
+
+	# Inset before any test, so all three agree about where the edge is.
+
+	my $eps = $EDGE_EPSILON;
+	if ($e - $w > 2*$eps && $n - $s > 2*$eps)
+	{
+		$w += $eps; $s += $eps; $e -= $eps; $n -= $eps;
+	}
 
 	for my $p (@$ring)
 	{
@@ -190,6 +220,49 @@ sub _ringHitsRect
 		}
 	}
 	return 0;
+}
+
+
+sub polygonsContainPoint
+	# Is a point inside ANY of these polygons?  Coverage is a union, so a
+	# region made of two disjoint bodies contains a point that is in
+	# either one.
+{
+	my ($polys,$lon,$lat) = @_;
+	for my $ring (@$polys)
+	{
+		next if scalar(@$ring) < 3;
+		return 1 if _pointInRing($lon,$lat,$ring);
+	}
+	return 0;
+}
+
+
+sub outsideVertices
+	# Which of the inner polygons' vertices fall outside the outer ones.
+	# Returns a list of [polygon index, vertex index, lon, lat].
+	#
+	# PER VERTEX, and deliberately not a true polygon-containment test.
+	# The editor refuses a vertex placed outside a parent, one click at a
+	# time, so a per-vertex check is exactly the same rule the user was
+	# already held to - and a stricter test would reject shapes the
+	# interface allowed them to build.
+{
+	my ($outer,$inner) = @_;
+	my @out;
+	my $pi = 0;
+	for my $ring (@{$inner || []})
+	{
+		my $vi = 0;
+		for my $pt (@$ring)
+		{
+			push @out,[$pi,$vi,$pt->[0],$pt->[1]]
+				if !polygonsContainPoint($outer,$pt->[0],$pt->[1]);
+			$vi++;
+		}
+		$pi++;
+	}
+	return @out;
 }
 
 

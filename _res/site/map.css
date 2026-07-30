@@ -12,9 +12,18 @@ html, body {
     right: 0;
 }
 
+/* THE BOTTOM OF THE WINDOW IS THREE COLUMNS, and every occupant keeps to
+   its own: the position readout and Leaflet's scale on the LEFT, the edit
+   bar in the CENTRE at whatever width it needs, the grid readout and
+   Leaflet's attribution on the RIGHT.  Nothing stretches across, so
+   nothing can land on top of anything else.
+
+   #cm-coords sits clear of the scale control, which Leaflet puts at
+   bottomleft with a 10px margin - they overlapped before this. */
+
 #cm-coords {
     position: absolute;
-    bottom: 24px;
+    bottom: 42px;
     left: 8px;
     z-index: 1000;
     background: rgba(0, 0, 0, 0.65);
@@ -25,4 +34,189 @@ html, body {
     pointer-events: none;
     white-space: pre;
     min-width: 16em;
+}
+
+/* ------------------------------------------------------------------ */
+/* editing -- see docs/design/editing_leaflet.md                      */
+/* ------------------------------------------------------------------ */
+
+/* The grid readout mirrors #cm-coords across the window, above the
+   Leaflet attribution.  Clickable, because it is also the toggle. */
+
+#cm-grid {
+    position: absolute;
+    bottom: 24px;
+    right: 8px;
+    z-index: 1000;
+    background: rgba(0, 0, 0, 0.65);
+    color: #ddd;
+    font: 11px/1.6 monospace;
+    padding: 3px 8px;
+    border-radius: 3px;
+    white-space: pre;
+    cursor: pointer;
+}
+
+/* Vertex and midpoint handles, following navMate's nm-vtx / nm-mid. */
+
+.cm-vtx {
+    background: #fff;
+    border: 2px solid #1c1c1c;
+    border-radius: 2px;
+    box-sizing: border-box;
+    cursor: move;
+}
+
+.cm-mid {
+    background: rgba(255, 255, 255, 0.35);
+    border: 1px solid #1c1c1c;
+    border-radius: 50%;
+    box-sizing: border-box;
+    cursor: crosshair;
+}
+
+/* The bar.  One bar, contents per mode. */
+
+#cm-bar {
+    position: absolute;
+    left: 50%;
+    transform: translateX(-50%);
+    bottom: 24px;
+    max-width: 62vw;
+    z-index: 1200;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    background: rgba(20, 20, 20, 0.92);
+    color: #eee;
+    font: 12px/1.5 sans-serif;
+    padding: 6px 8px;
+    border-radius: 4px;
+}
+
+#cm-bar .cm-bar-hint {
+    color: #bbb;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+#cm-bar button,
+#cm-ctx button,
+#cm-dlg button {
+    font: 12px/1.4 sans-serif;
+    padding: 3px 10px;
+    border: 1px solid #555;
+    border-radius: 3px;
+    background: #333;
+    color: #eee;
+    cursor: pointer;
+}
+
+#cm-bar button:disabled,
+#cm-ctx button:disabled {
+    color: #777;
+    border-color: #3a3a3a;
+    cursor: default;
+}
+
+.cm-btn-go {
+    background: #2b6b2b !important;
+    border-color: #3d8b3d !important;
+}
+
+/* The context menu. */
+
+#cm-ctx {
+    position: absolute;
+    z-index: 1300;
+    background: rgba(20, 20, 20, 0.96);
+    border: 1px solid #555;
+    border-radius: 4px;
+    padding: 4px;
+    min-width: 12em;
+}
+
+#cm-ctx button {
+    display: block;
+    width: 100%;
+    text-align: left;
+    border: none;
+    background: none;
+    padding: 4px 8px;
+}
+
+#cm-ctx button:hover:enabled {
+    background: #3a3a3a;
+}
+
+.cm-ctx-title {
+    color: #9ecbff;
+    font: bold 11px/1.6 monospace;
+    padding: 2px 8px 4px 8px;
+    border-bottom: 1px solid #444;
+    margin-bottom: 3px;
+    white-space: pre;
+}
+
+.cm-ctx-sep {
+    height: 1px;
+    background: #444;
+    margin: 3px 4px;
+}
+
+/* The create dialogs. */
+
+#cm-dlg {
+    position: absolute;
+    left: 50%;
+    top: 20%;
+    transform: translateX(-50%);
+    z-index: 1400;
+    background: rgba(20, 20, 20, 0.97);
+    border: 1px solid #666;
+    border-radius: 5px;
+    padding: 10px 12px;
+    color: #eee;
+    font: 12px/1.6 sans-serif;
+    min-width: 22em;
+}
+
+.cm-dlg-title {
+    font-weight: bold;
+    color: #9ecbff;
+    margin-bottom: 6px;
+}
+
+.cm-dlg-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin: 3px 0;
+}
+
+.cm-dlg-row label {
+    width: 5em;
+    color: #bbb;
+}
+
+.cm-dlg-row input {
+    background: #2a2a2a;
+    color: #eee;
+    border: 1px solid #555;
+    border-radius: 3px;
+    padding: 2px 5px;
+    font: 12px/1.4 monospace;
+}
+
+.cm-dlg-note {
+    color: #8a8a8a;
+    font: 11px/1.4 sans-serif;
+}
+
+.cm-dlg-btns {
+    display: flex;
+    justify-content: flex-end;
+    gap: 6px;
+    margin-top: 8px;
 }

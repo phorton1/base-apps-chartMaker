@@ -28,7 +28,8 @@ use warnings;
 use threads;
 use threads::shared;
 use Wx qw(:everything);
-use Wx::Event qw( EVT_TREE_SEL_CHANGED EVT_LEFT_DOWN EVT_TIMER
+use Wx::Event qw( EVT_TREE_SEL_CHANGED EVT_LEFT_DOWN EVT_RIGHT_DOWN
+				  EVT_TIMER EVT_MENU
 				  EVT_TEXT EVT_TEXT_ENTER EVT_SPINCTRL EVT_CHECKBOX
 				  EVT_BUTTON );
 use Pub::Utils;
@@ -46,6 +47,18 @@ our $dbg_win:shared = 1;
 
 
 my $TIMER_MS = 500;
+
+# Menu ids, in this pane's own range.  Pub::WX reserves everything below
+# 200; cm_defs uses the 10000s for panes and commands, so these sit clear
+# of both.
+
+my $MENU_NEW_SET	= 10501;
+my $MENU_USE_SET	= 10502;
+my $MENU_NEW_REGION	= 10503;
+my $MENU_NEW_SUB	= 10504;
+my $MENU_DELETE		= 10505;
+my $MENU_EXPLORE	= 10506;
+my $MENU_RESCAN		= 10507;
 
 
 sub _makeCheckBitmap
@@ -81,6 +94,13 @@ sub new
 	$this->{tree} = Wx::TreeCtrl->new($this,-1,wxDefaultPosition,wxDefaultSize,
 		wxTR_DEFAULT_STYLE | wxTR_HIDE_ROOT | wxTR_LINES_AT_ROOT);
 
+	# MONOSPACED, so the zoom numbers form a column that can be scanned.
+	# A proportional font puts them at a different x on every row, which
+	# defeats the entire reason for having them in the label.
+
+	$this->{tree}->SetFont(Wx::Font->new(8,wxFONTFAMILY_TELETYPE,
+		wxFONTSTYLE_NORMAL,wxFONTWEIGHT_NORMAL));
+
 	my $imgs = Wx::ImageList->new(13,13);
 	$imgs->Add(_makeCheckBitmap(0));
 	$imgs->Add(_makeCheckBitmap(1));
@@ -110,6 +130,12 @@ sub new
 	my $PAD = 6;		# the labels' inset from the button's left edge
 	my $COL = 64;		# where the right column starts
 
+	# REVERT SITS UNDER SAVE, in the left column, because the two are one
+	# pair: an object is dirty or it is not, and these are the only two
+	# ways out of dirty.  Revert is what makes refusing a selection change
+	# while dirty a reasonable behaviour rather than a trap - see
+	# docs/design/editing.md.
+
 	$this->{ctl_name} = Wx::TextCtrl->new($right,-1,'',
 		wxDefaultPosition,[220,-1],wxTE_PROCESS_ENTER);
 	$this->{ctl_id} = Wx::TextCtrl->new($right,-1,'',
@@ -124,6 +150,9 @@ sub new
 	$this->{ctl_save} = Wx::Button->new($right,-1,'Save',
 		wxDefaultPosition,[$BTN,-1]);
 	$this->{ctl_save}->Enable(0);
+	$this->{ctl_revert} = Wx::Button->new($right,-1,'Revert',
+		wxDefaultPosition,[$BTN,-1]);
+	$this->{ctl_revert}->Enable(0);
 
 	# ROW 1 -- Save, the id, and the map checkbox.  The ID IS STRUCTURAL
 	# -- the file name, the key every set references, and the stem of the
@@ -144,9 +173,10 @@ sub new
 	# structural role at all.
 
 	my $name_row = Wx::BoxSizer->new(wxHORIZONTAL);
-	$name_row->AddSpacer($PAD);
+	$name_row->Add($this->{ctl_revert},0,$CV,0);
+	$name_row->AddSpacer($COL - $BTN);
 	$name_row->Add(Wx::StaticText->new($right,-1,'Name',
-		wxDefaultPosition,[$COL - $PAD,-1]),0,$CV,0);
+		wxDefaultPosition,[24,-1]),0,$CV,0);
 	$name_row->Add($this->{ctl_name},0,$CV,0);
 
 	# ROW 3 -- the three levels.  A subregion has zmax alone, and the
@@ -191,6 +221,10 @@ sub new
 
 	EVT_TREE_SEL_CHANGED($this,$this->{tree},\&onSelect);
 	EVT_LEFT_DOWN($this->{tree},sub { $this->onTreeLeftDown($_[1]) });
+	EVT_RIGHT_DOWN($this->{tree},sub { $this->onTreeRightDown($_[1]) });
+	EVT_MENU($this,$_,\&onTreeMenu) for ($MENU_NEW_SET, $MENU_USE_SET,
+		$MENU_NEW_REGION, $MENU_NEW_SUB, $MENU_DELETE, $MENU_EXPLORE,
+		$MENU_RESCAN);
 	# Name and zoom are STAGED and committed by Save.  Applying them as
 	# they were typed meant saving the file on every spinner tick, and
 	# each save rebuilt the tree, which destroyed the very item being
@@ -205,6 +239,7 @@ sub new
 	EVT_SPINCTRL($this,$this->{ctl_zmin},\&onEdited);
 	EVT_SPINCTRL($this,$this->{ctl_zmax},\&onEdited);
 	EVT_BUTTON($this,$this->{ctl_save},\&onSave);
+	EVT_BUTTON($this,$this->{ctl_revert},\&onRevert);
 	EVT_CHECKBOX($this,$this->{ctl_show},\&onShowToggled);
 
 	# Set while the controls are being filled from the selection, so
@@ -259,9 +294,15 @@ sub _addNode
 	# matching only the region would silently drop the selection every
 	# time the tree was rebuilt with a subregion selected.
 
+	# Folded, because the shared selection may spell an id in whatever case
+	# the other surface had, and a case mismatch would silently drop the
+	# selection on every rebuild.
+
 	my $was = $this->{_restore};
 	$this->{_restore_item} = $item
-		if $was && $was->{root_id} eq $root_id && $was->{id} eq $reg->{id};
+		if $was && ($was->{kind} || '') ne 'set' &&
+			lc($was->{root_id} // '') eq lc($root_id) &&
+			lc($was->{id} // '') eq lc($reg->{id});
 
 	# Only a whole region can be checked.  A subregion travels with its
 	# parent -- it is part of what that region IS, not a thing to show
@@ -292,8 +333,27 @@ sub populate
 	my $tree = $this->{tree};
 
 	# Remember what was selected so a rebuild does not move the user.
+	#
+	# THE SHARED SELECTION WINS over what this tree had, when the two
+	# disagree - which is how a click on the map moves the tree.  A rebuild
+	# is the only moment the tree can follow, and it happens on the same
+	# poll that delivered the change.
+
 	$this->{_restore}      = $this->selectedIds();
 	$this->{_restore_item} = undef;
+
+	my ($sel_region,$sel_sub) = getSelection();
+	if ($sel_region)
+	{
+		my $want = { kind => 'region', root_id => $sel_region,
+					 id => ($sel_sub || $sel_region),
+					 is_root => ($sel_sub ? 0 : 1) };
+		my $have = $this->{_restore};
+		$this->{_restore} = $want
+			if !$have || ($have->{kind} || '') eq 'set' ||
+				lc($have->{root_id} // '') ne lc($sel_region) ||
+				lc($have->{id} // '') ne lc($want->{id});
+	}
 
 	$tree->DeleteAllItems();
 	my $root   = $tree->AddRoot('sets');
@@ -302,7 +362,8 @@ sub populate
 
 	for my $name (@names)
 	{
-		my $item = $tree->AppendItem($root,$name);
+		my $item = $tree->AppendItem($root,
+			_setLabel($name,$name eq $active));
 		$tree->SetItemData($item,Wx::TreeItemData->new({
 			kind	=> 'set',
 			set		=> $name,
@@ -379,6 +440,14 @@ sub onTreeLeftDown
 		if ($node && ($node->{kind} || '') eq 'set')
 		{
 			return if $node->{set} eq getActiveSet();
+
+			# CHANGING THE SET RELOADS THE WHOLE MODEL from another folder,
+			# so an edit in flight would be aimed at an object that may not
+			# exist afterwards.
+
+			return if $this->_refuseIfLocked(
+				"make '$node->{set}' active");
+
 			display($dbg_win,0,"winRegions: active set '$node->{set}'");
 			setActiveSet($node->{set});
 			bumpState("active set is '$node->{set}'");
@@ -409,10 +478,187 @@ sub onTreeLeftDown
 }
 
 
+sub onTreeRightDown
+	# THE TREE IS WHERE THINGS COME INTO AND GO OUT OF EXISTENCE, and this
+	# is that menu.  It deliberately does not draw: 'New region' creates the
+	# object and leaves the map to offer its Draw banner, because a mode
+	# must never be armed in a window the user is not looking at.
+	#
+	# See docs/design/editing_wx.md.
+{
+	my ($this,$event) = @_;
+	my ($item) = $this->{tree}->HitTest($event->GetPosition());
+	my $node;
+	if ($item && $item->IsOk())
+	{
+		$this->{tree}->SelectItem($item);
+		my $d = $this->{tree}->GetItemData($item);
+		$node = $d ? $d->GetData() : undef;
+	}
+
+	my $menu = Wx::Menu->new();
+	my $kind = $node ? ($node->{kind} || 'region') : '';
+
+	if (!$node)
+	{
+		$menu->Append($MENU_NEW_SET,'New region set...');
+		$menu->AppendSeparator();
+		$menu->Append($MENU_RESCAN,'Rescan');
+	}
+	elsif ($kind eq 'set')
+	{
+		$menu->Append($MENU_USE_SET,"Make '$node->{set}' active")
+			if $node->{set} ne getActiveSet();
+		$menu->Append($MENU_NEW_REGION,'New region...')
+			if $node->{set} eq getActiveSet();
+		$menu->AppendSeparator();
+		$menu->Append($MENU_EXPLORE,'Open folder in Explorer');
+		$menu->Append($MENU_RESCAN,'Rescan');
+	}
+	else
+	{
+		my $what = $node->{is_root} ? "region '$node->{root_id}'" :
+			"subregion '$node->{id}'";
+		$menu->Append($MENU_NEW_SUB,'New subregion...');
+		$menu->AppendSeparator();
+		$menu->Append($MENU_DELETE,"Delete $what...");
+	}
+
+	$this->{_menu_node} = $node;
+	$this->PopupMenu($menu,$event->GetPosition());
+}
+
+
+sub onTreeMenu
+{
+	my ($this,$event) = @_;
+	my $id   = $event->GetId();
+	my $node = $this->{_menu_node};
+
+	if ($id == $MENU_RESCAN)
+	{
+		rescanSets();
+		rescanRegions();
+		bumpState('rescanned');
+		$this->populate();
+		return;
+	}
+	if ($id == $MENU_EXPLORE)
+	{
+		my $dir = setDir($node->{set});
+		$dir =~ s|/|\\|g;
+		system(1,"explorer.exe \"$dir\"") if is_win();
+		return;
+	}
+	if ($id == $MENU_USE_SET)
+	{
+		return if $this->_refuseIfLocked("make '$node->{set}' active");
+		setActiveSet($node->{set});
+		bumpState("active set is '$node->{set}'");
+		$this->populate();
+		return;
+	}
+	if ($id == $MENU_NEW_SET)
+	{
+		my $name = Wx::GetTextFromUser(
+			"A set is a FOLDER of region files.\n".
+			"Letters and digits only - it becomes the name of the folder\n".
+			"copied to the card.",
+			'New region set','',$this);
+		return if !defined($name) || $name !~ /\S/;
+		return if !newSet($name);
+		bumpState("set '$name' created");
+		$this->populate();
+		return;
+	}
+	if ($id == $MENU_NEW_REGION)
+	{
+		return if $this->_refuseIfLocked('create a region');
+		my $name = Wx::GetTextFromUser(
+			"The region is created with NO geometry.\n".
+			"Draw its outline on the map afterwards.",
+			'New region','',$this);
+		return if !defined($name) || $name !~ /\S/;
+
+		# The zooms come from the regions already here, because every file
+		# on one card must agree on zauthor and zmin.  Offering what already
+		# works is how this stops making an unbuildable sibling.
+
+		my ($za,$zn,$zx) = (15,10,16);
+		my @ids = getRegionIds();
+		if (@ids)
+		{
+			my $sib = getRegion($ids[0]);
+			($za,$zn,$zx) = ($sib->{zauthor},$sib->{zmin},$sib->{zmax});
+		}
+		my $reg = newRegion($name,$za,$zn,$zx);
+		return if !$reg;
+		bumpState("region '$reg->{id}' created");
+		setSelection($reg->{id},'');
+		$this->populate();
+		return;
+	}
+	if ($id == $MENU_NEW_SUB)
+	{
+		return if $this->_refuseIfLocked('create a subregion');
+		my $parent = $node->{is_root} ? $node->{root_id} : $node->{id};
+		my $name = Wx::GetTextFromUser(
+			"A subregion adds resolution INSIDE its parent.\n".
+			"It is created with no geometry - draw it on the map.",
+			"New subregion of $parent",'',$this);
+		return if !defined($name) || $name !~ /\S/;
+
+		my (undef,$pnode) = findAnywhere($parent);
+		my $zmax = ($pnode ? $pnode->{zmax} : 16) + 2;
+		$zmax = 24 if $zmax > 24;
+
+		my $sub = addSubregion($parent,$name,$zmax);
+		return if !$sub;
+		bumpState("subregion '$sub->{id}' added");
+		$this->populate();
+		return;
+	}
+	if ($id == $MENU_DELETE)
+	{
+		return if $this->_refuseIfLocked('delete');
+		my $is_root = $node->{is_root};
+		my $what = $is_root ? "region '$node->{root_id}' and its file" :
+			"subregion '$node->{id}'";
+		return if Wx::MessageBox("Delete $what?",'chartMaker',
+			wxYES_NO | wxICON_QUESTION,$this) != wxYES;
+
+		my $ok = $is_root ? deleteRegion($node->{root_id}) :
+			deleteSubregion($node->{root_id},$node->{id});
+		return if !$ok;
+		bumpState('deleted');
+		$this->populate();
+		return;
+	}
+}
+
+
 sub onSelect
+	# ONE SELECTION, SHARED BY BOTH SURFACES.  Clicking here moves the
+	# map, because the two panes cannot agree about what 'delete' means if
+	# each keeps its own idea of what is selected.
+	#
+	# The seen_seq is advanced past our own bump, so this pane does not
+	# rebuild itself over a change it just made and lose the user's place.
 {
 	my ($this,$event) = @_;
 	$this->showProperties();
+
+	my $node = $this->selectedIds();
+	if (!$node || ($node->{kind} || '') eq 'set')
+	{
+		setSelection('','');
+	}
+	else
+	{
+		setSelection($node->{root_id},
+			$node->{is_root} ? '' : $node->{id});
+	}
+	$this->{seen_seq} = getStateSeq();
 }
 
 
@@ -457,12 +703,31 @@ sub _isDirty
 
 
 sub onEdited
-	# Nothing is written here.  The controls hold a staged edit and Save
-	# lights up; that is the whole of it.
+	# Nothing is written here.  The controls hold a staged edit, Save and
+	# Revert light up together; that is the whole of it.
 {
 	my ($this,$event) = @_;
 	return if $this->{loading};
-	$this->{ctl_save}->Enable($this->_isDirty() ? 1 : 0);
+	my $dirty = $this->_isDirty() ? 1 : 0;
+	$this->{ctl_save}->Enable($dirty);
+	$this->{ctl_revert}->Enable($dirty);
+}
+
+
+sub onRevert
+	# Discard back to what is on disk.  There is nothing to undo and
+	# nothing to remember: the controls are simply reloaded from the model,
+	# which is the only copy that was ever authoritative.
+	#
+	# It exists because staged editing without it leaves no way out of a
+	# half-made change except making it - and it is what lets a selection
+	# change be refused while dirty instead of silently discarding work.
+{
+	my ($this,$event) = @_;
+	my ($reg,undef,$node) = $this->_selectedRegion();
+	return if !$reg;
+	display($dbg_win,0,"winRegions: revert '$reg->{id}'");
+	$this->showProperties();
 }
 
 
@@ -470,12 +735,61 @@ sub _nodeLabel
 	# A region shows the range it builds and the level it is authored at;
 	# a subregion has only a depth it reaches.  One function, so the tree
 	# cannot say two different things about the same node.
+	#
+	# THE NUMBERS ARE A COLUMN, fixed width, because a set whose regions
+	# disagree about zauthor cannot be built onto one card - and a
+	# disagreement has to be visible at a glance rather than found by
+	# clicking five regions and remembering what each one said.  The tree
+	# is the only surface that can show it; see docs/design/editing_wx.md.
 {
 	my ($reg,$is_root) = @_;
-	return sprintf("%s   to z%d",$reg->{name},$reg->{zmax})
+
+	my $empty = scalar(@{$reg->{geometry} || []}) ? '' : '  (no geometry)';
+
+	return sprintf("%-14s      to z%-2d%s",$reg->{name},$reg->{zmax},$empty)
 		if !$is_root;
-	return sprintf("%s   z%d-%d @%d",$reg->{name},
-		$reg->{zmin},$reg->{zmax},$reg->{zauthor});
+	return sprintf("%-14s  %2d-%-2d \@%-2d%s",$reg->{name},
+		$reg->{zmin},$reg->{zmax},$reg->{zauthor},$empty);
+}
+
+
+sub _setLabel
+	# What a set row says, and it answers the card question outright rather
+	# than leaving it to be inferred from the column below.
+{
+	my ($name,$active) = @_;
+	my $dir = setDir($name);
+
+	if (!$active)
+	{
+		my @files = glob("$dir/*.region");
+		return sprintf("%-14s  %d region file(s)",$name,scalar(@files));
+	}
+
+	my @ids = getRegionIds();
+	return sprintf("%-14s  empty",$name) if !@ids;
+
+	my (%za,%zn);
+	for my $id (@ids)
+	{
+		my $reg = getRegion($id) or next;
+		$za{$reg->{zauthor}}++;
+		$zn{$reg->{zmin}}++;
+	}
+
+	my $n = scalar(@ids);
+	my $mixed = '';
+	for my $pair ([\%za,'zauthor'],[\%zn,'zmin'])
+	{
+		my ($h,$what) = @$pair;
+		next if scalar(keys %$h) <= 1;
+		$mixed = sprintf("  MIXED %s - %s",$what,
+			join(', ',map { "$h->{$_} at z$_" } sort { $a <=> $b } keys %$h));
+		last;
+	}
+	return sprintf("%-14s  %d region%s  %s",$name,$n,($n == 1 ? '' : 's'),
+		$mixed ? $mixed :
+			sprintf("z%d \@%d  all agree",(keys %zn)[0],(keys %za)[0]));
 }
 
 
@@ -645,6 +959,41 @@ sub _bounds
 }
 
 
+sub _mapHolds
+	# Is the map holding THIS object in a draw or an edit?  If so the
+	# properties here must not offer to change it: the map has an
+	# uncommitted copy, and a save from this side would be overwritten by
+	# the map's commit or would overwrite it, depending purely on order.
+	#
+	# See docs/design/editing.md - the mode, its target and the dirty flag
+	# are published precisely so that this pane can ask.
+{
+	my ($this,$node) = @_;
+	return 0 if !$node;
+	my $st = getEditState();
+	return 0 if $st->{mode} eq $EDIT_BROWSE && !$st->{dirty};
+
+	my $held = $st->{sub} || $st->{region};
+	return 0 if !$held;
+	my $mine = $node->{sub} || $node->{root_id};
+	return lc($held) eq lc($mine // '') ? 1 : 0;
+}
+
+
+sub _refuseIfLocked
+	# The single gate for anything structural this pane offers while the
+	# map has work in flight.  Says what is in the way and the two ways
+	# out, because a click that silently does nothing reads as broken.
+{
+	my ($this,$what) = @_;
+	my $lock = editLocks();
+	return 0 if !$lock;
+	warning(0,0,"winRegions: cannot $what - $lock");
+	warning(0,1,"Confirm or Cancel on the map first");
+	return 1;
+}
+
+
 sub _enableControls
 {
 	my ($this,$on,$is_root) = @_;
@@ -664,8 +1013,9 @@ sub _enableControls
 
 	$this->{ctl_show}->Enable(($on && $is_root) ? 1 : 0);
 
-	# Save is enabled by an edit, never by a selection.
+	# Save and Revert are enabled by an edit, never by a selection.
 	$this->{ctl_save}->Enable(0);
+	$this->{ctl_revert}->Enable(0);
 }
 
 
@@ -751,10 +1101,17 @@ sub showProperties
 	$this->{ctl_zauthor}->SetValue($root->{zauthor});
 	$this->{ctl_zmin}->SetValue($root->{zmin});
 	$this->{ctl_show}->SetValue(isChecked($node->{root_id}) ? 1 : 0);
-	$this->_enableControls(1,$node->{is_root});
+
+	# GREYED OUT WHILE THE MAP HOLDS IT.  Not merely advisory: an edit
+	# committed from here would race the map's own commit.
+
+	my $held = $this->_mapHolds($node);
+	$this->_enableControls($held ? 0 : 1,$node->{is_root});
 	$this->{loading} = 0;
 
 	my $text = '';
+	$text .= "*** BEING EDITED ON THE MAP - Confirm or Cancel there ***\n\n"
+		if $held;
 	$text .= sprintf("%-16s %s\n",'name',$reg->{name});
 	$text .= sprintf("%-16s %s\n",'id',$reg->{id});
 	$text .= sprintf("%-16s %s\n",'kind',

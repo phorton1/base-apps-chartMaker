@@ -65,6 +65,11 @@ use JSON::PP;
 use Pub::Utils;
 use cm_defs;
 use dm_set;
+use dm_coverage;
+	# For the polygon primitives only - outsideVertices, to enforce that a
+	# subregion stays inside its parent.  dm_coverage knows nothing about
+	# regions, so this is not a cycle: it owns the geometry, this owns the
+	# model.
 
 
 BEGIN
@@ -72,6 +77,7 @@ BEGIN
 	use Exporter qw( import );
 	our @EXPORT = qw(
 		loadRegions
+		findAnywhere
 		rescanRegions
 		getRegionIds
 		getRegion
@@ -420,6 +426,48 @@ sub _validateRegion
 }
 
 
+sub _checkContainment
+	# A SUBREGION'S GEOMETRY MAY NOT LEAVE ITS PARENT, and this is where
+	# that is enforced rather than merely reported.  A subregion adds
+	# resolution inside an aperture its parent already opened; ground
+	# outside that aperture has no parent detail to deepen, so asking for
+	# it is not an edit that needs permitting.  What the author wants there
+	# is another polygon on the parent, or another region.
+	#
+	# Checked PER VERTEX, which is exactly the rule the editor holds the
+	# user to as they click.  A stricter test would reject shapes the
+	# interface allowed them to build.
+	#
+	# A parent with NO geometry contains nothing, so its subregions cannot
+	# be checked yet - and must not be rejected either, since creating the
+	# parent and drawing it are two steps.  An empty subregion is likewise
+	# vacuously contained.
+{
+	my ($where,$reg,$depth) = @_;
+	$depth ||= 0;
+
+	my $mine = $reg->{geometry} || [];
+	for my $sub (@{$reg->{subregions} || []})
+	{
+		my $theirs = $sub->{geometry} || [];
+		if (@$mine && @$theirs)
+		{
+			my @out = outsideVertices($mine,$theirs);
+			if (@out)
+			{
+				my $first = $out[0];
+				return _err($where,"subregion '$sub->{id}' has ".scalar(@out).
+					" vertex(es) outside '$reg->{id}' - the first is polygon ".
+					"$first->[0] point $first->[1] at ".
+					sprintf("%.6f,%.6f",$first->[2],$first->[3]));
+			}
+		}
+		return undef if !_checkContainment($where,$sub,$depth+1);
+	}
+	return 1;
+}
+
+
 #---------------------------------------------
 # loading
 #---------------------------------------------
@@ -680,7 +728,22 @@ sub saveRegion
 	my %out = map { $_ => $reg->{$_} } grep { defined $reg->{$_} } @REGION_FIELDS;
 	$out{region_version} = $REGION_VERSION;
 
-	return 0 if !_validateRegion("save '".($reg->{id} // '?')."'",\%out,0);
+	# A REFUSAL RELOADS THE MODEL FROM DISK, and this is not belt and
+	# braces.  Callers mutate a region hash in place and then ask for it to
+	# be saved - and that hash is the SAME ONE %regions is holding, so a
+	# rejected save leaves the in-memory model carrying geometry the
+	# validator will not accept.  Every later save of that region then fails
+	# too, for a reason that has nothing to do with what the user just did.
+	#
+	# Reloading costs one directory scan and restores the only state that
+	# was ever authoritative: the files.
+
+	if (!_validateRegion("save '".($reg->{id} // '?')."'",\%out,0) ||
+		!_checkContainment("save '".($reg->{id} // '?')."'",\%out))
+	{
+		rescanRegions();
+		return 0;
+	}
 	_numify(\%out);
 
 	my $path = _regionPath($reg->{id});
@@ -909,30 +972,31 @@ sub _boxAround
 
 sub addSubregion
 	# A detail area: the small piece of a region that deserves to go
-	# deeper than the rest of it.  Given as a centre, a half extent in
-	# nautical miles and the zoom it should reach - which is how anyone
-	# actually thinks about an anchorage or a pass.
+	# deeper than the rest of it.
 	#
-	# That zoom is its zmax, and it is also the level its own polygon is
-	# quantised at.  A subregion has no second authored level: it sits
-	# inside an aperture its parent already opened.
+	# CREATED NAMED AND EMPTY.  Its geometry arrives from the map, like
+	# every other polygon.  Nothing generates a shape on the author's
+	# behalf - a box from a centre and an extent is a plausible-looking
+	# guess at an anchorage and is never the polygon anybody wanted.
+	#
+	# The zmax it is given is also the level its own polygon quantises at.
+	# A subregion has no second authored level: it sits inside an aperture
+	# its parent already opened.
+	#
+	# $parent_id may name a SUBREGION, not only a region - the model nests
+	# without limit, so 'add a subregion to this' has to work at any depth.
 {
-	my ($parent_id,$name,$lat,$lon,$half_nm,$zmax) = @_;
+	my ($parent_id,$name,$zmax) = @_;
 
-	my $reg = getRegion($parent_id);
+	my ($reg,$parent) = _findAnywhere($parent_id);
 	if (!$reg)
 	{
-		error("addSubregion: no region with id '$parent_id'");
+		error("addSubregion: nothing with id '$parent_id'");
 		return undef;
 	}
 	if (!defined($name) || $name !~ /\S/)
 	{
 		error("addSubregion: a name is required");
-		return undef;
-	}
-	if (!_isNum($lat) || !_isNum($lon) || !_isNum($half_nm) || $half_nm <= 0)
-	{
-		error("addSubregion: lat, lon and a positive half_nm are required");
 		return undef;
 	}
 	if (!_isInt($zmax) || $zmax < 0 || $zmax > 24)
@@ -947,9 +1011,9 @@ sub addSubregion
 		error("addSubregion: '$name' does not yield a usable id");
 		return undef;
 	}
-	if ((findSubregion($reg,$id))[0])
+	if ((findSubregion($reg,$id))[0] || _foldId($reg->{id}) eq _foldId($id))
 	{
-		error("addSubregion: '$parent_id' already has a subregion '$id'");
+		error("addSubregion: '$reg->{id}' already contains '$id'");
 		return undef;
 	}
 
@@ -957,12 +1021,39 @@ sub addSubregion
 		id			=> $id,
 		name		=> $name,
 		zmax		=> $zmax,
-		geometry	=> _boxAround($lat,$lon,$half_nm),
+		geometry	=> [],
 		subregions	=> [],
 	};
-	push @{$reg->{subregions}},$sub;
+	push @{$parent->{subregions}},$sub;
 
 	return saveRegion($reg) ? $sub : undef;
+}
+
+
+sub _findAnywhere
+	# Given an id that may name a region OR a subregion at any depth,
+	# return its ROOT region and the node itself.  Everything that writes
+	# needs the root, because the root is the file.
+{
+	my ($id) = @_;
+	my $reg = getRegion($id);
+	return ($reg,$reg) if $reg;
+
+	for my $key (keys %regions)
+	{
+		my $root = $regions{$key};
+		my ($found) = findSubregion($root,$id);
+		return ($root,$found) if $found;
+	}
+	return (undef,undef);
+}
+
+
+sub findAnywhere
+{
+	my ($id) = @_;
+	_current();
+	return _findAnywhere($id);
 }
 
 
