@@ -43,18 +43,21 @@ checks it. Early checking is a better error message, never a different rule.
 
 | Object | Created | Has geometry | Deleted |
 | ------ | ------- | ------------ | ------- |
-| region set | named, empty | never | outside the application |
+| region set | File - New Set | never | outside the application |
 | region | named, empty | one or more polygons | removes its file |
 | subregion | named, empty | one or more polygons | rewrites its parent's file |
 
 **Named-and-empty is a legitimate state** for a region and a subregion, not a half-created
-one. It is a real file on disk that survives everything closing, and it is what makes
-"create, then draw" recoverable: an interruption between the two costs a drawing, never a
-named thing.
+one, and it is what makes "create, then draw" recoverable: an interruption between the two
+costs a drawing, never a named thing.
 
-**The region file is the unit of persistence.** A subregion has no file of its own, so
-committing a change to one rewrites its root region's whole file. Commits can therefore
-never be finer-grained than a region, no matter which object is selected.
+**The region file is the unit of persistence.** A subregion has no file of its own, so a
+change to one is a change to its root region's whole file. Nothing written to disk can
+therefore be finer-grained than a region, no matter which object is selected.
+
+**And nothing is written until the set is saved** - see
+[Regions](regions.md#a-set-is-a-document). The two ideas compose: what an edit changes is a
+region, and what a Save writes is every region that changed.
 
 # Modes
 
@@ -70,8 +73,9 @@ BROWSE    A click SELECTS whatever is under it.
           Target: none.
 
 SHAPE     A click or drag manipulates the SELECTED POLYGON's vertices:
-          move one, insert one at a segment midpoint, delete one, or drag
-          the whole polygon.  Its handles are visible.
+          move one, insert one at a segment midpoint, delete one.  Its
+          handles are visible.  The polygon itself is never moved as a
+          whole - a drag on the map is always a PAN.
           Target: one polygon.
 
 DRAW      A click APPENDS a vertex to a polygon being created.  Ends by
@@ -130,7 +134,7 @@ an unfinished ring that any other action would strand.
 | Action | clean (BROWSE or SHAPE) | dirty (BROWSE or SHAPE) | DRAW |
 | ------ | ----------------------- | ----------------------- | ---- |
 | select something else | yes | **refused** | no |
-| change the active region set | yes | **refused** | no |
+| open, close or revert the set | yes | **asked**, naming what is lost | **asked** |
 | edit properties of the dirty object | yes | yes - staged with the rest | no |
 | delete the dirty object | yes | **refused** | no |
 | delete some *other* object | yes | yes | no |
@@ -222,11 +226,16 @@ undone by selecting something else - except while an object is dirty, where it i
 
 ## Three classes, and only three
 
-| Class | What | Reaches disk |
-| ----- | ---- | ------------ |
-| **Staged** | name, id, zauthor, zmin, zmax, geometry | on **Save** |
-| **Immediate** | show/hide on the map, active set, active source | on the action |
-| **Structural** | creating or deleting: set, region, subregion, polygon | the action IS the commit |
+| Class | What | Reaches the model | Reaches disk |
+| ----- | ---- | ----------------- | ------------ |
+| **Staged** | name, id, zauthor, zmin, zmax, geometry | on **Save** in the panel | on **Save** in the File menu |
+| **Immediate** | show/hide on the map, active source | on the action | never - it is not model data |
+| **Structural** | creating or deleting a region, subregion or polygon | the action IS the change | on **Save** in the File menu |
+
+**TWO SAVES, AND THEY ARE NOT THE SAME ONE.** The panel's Save takes a half-typed object
+into the document; the File menu's Save writes the document to the folder. The first is
+about one object and happens constantly; the second is about the whole set and happens when
+you decide it should.
 
 Geometry and properties are staged together because they belong to one object: an object is
 dirty or it is not, and **Save commits all of it**. There is never a half-saved object whose
@@ -235,12 +244,14 @@ two dirty states disagree.
 Visibility is immediate because it is not a change to the model at all - it is a statement
 about what is being looked at.
 
-Structural actions commit immediately because there is nothing to stage: a region that
-half-exists is not a state the model can hold.
+Structural actions reach the model immediately because there is nothing to stage: a region
+that half-exists is not a state the model can hold. They reach the disk with everything
+else.
 
 ## Save and Revert
 
-**Save** writes the dirty object. **Revert** discards back to what is on disk.
+**Save** writes the dirty object into the document. **Revert** discards it back to what the
+document last accepted.
 
 Revert is not a convenience. Staged geometry makes it necessary: after dragging five
 vertices and deciding it was wrong, the only other way back is dragging them individually to
@@ -254,9 +265,10 @@ Both appear on both surfaces and mean exactly the same thing.
 | What happens | Result |
 | ------------ | ------ |
 | select another object while dirty | refused, naming Save and Revert |
-| change the active set while dirty | refused, same |
-| the active set's folder is deleted while clean | falls through to another set; the model follows |
-| the active set's folder is deleted while dirty | the commit would target a folder that is gone - checked at Save, and reported plainly |
+| open, close or revert the set with unsaved work | asked, naming both kinds - what the document holds and what the map holds |
+| the open set's folder is deleted underneath it | the document is unaffected; it is in memory, and Save recreates what it can |
+| the map stops polling mid-edit | the edit is presumed gone, and the state it left is cleared |
+| the application disappears mid-edit | the map ends the edit and clears, because a mode it cannot publish is a mode nobody owns |
 
 # What the application must publish
 
@@ -266,7 +278,7 @@ Everything above reduces to three facts that every surface needs and none may ow
 2. **the mode** - and, for DRAW and EDIT, which object it applies to
 3. **the dirty flag** - so a surface that is not holding the edit still knows one exists
 
-They travel in the same state document as the regions, the sources and the active set,
+They travel in the same state document as the regions, the sources and the open set,
 behind the same version counter, so no two surfaces can be out of step about them.
 
 # Containment is enforced, not reported

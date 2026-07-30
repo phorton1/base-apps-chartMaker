@@ -14,9 +14,9 @@ html, body {
 
 /* THE BOTTOM OF THE WINDOW IS THREE COLUMNS, and every occupant keeps to
    its own: the position readout and Leaflet's scale on the LEFT, the edit
-   bar in the CENTRE at whatever width it needs, the grid readout and
-   Leaflet's attribution on the RIGHT.  Nothing stretches across, so
-   nothing can land on top of anything else.
+   bar in the CENTRE at whatever width it needs, Leaflet's attribution on
+   the RIGHT.  Nothing stretches across, so nothing can land on top of
+   anything else.
 
    #cm-coords sits clear of the scale control, which Leaflet puts at
    bottomleft with a 10px margin - they overlapped before this. */
@@ -40,21 +40,114 @@ html, body {
 /* editing -- see docs/design/editing_leaflet.md                      */
 /* ------------------------------------------------------------------ */
 
-/* The grid readout mirrors #cm-coords across the window, above the
-   Leaflet attribution.  Clickable, because it is also the toggle. */
+/* THE PALETTE -- everything the user SETS, on the left under Leaflet's
+   own zoom buttons.  White, because it is a control surface and reads as
+   part of Leaflet's furniture rather than as an annotation on the chart.
 
-#cm-grid {
-    position: absolute;
-    bottom: 24px;
-    right: 8px;
-    z-index: 1000;
-    background: rgba(0, 0, 0, 0.65);
-    color: #ddd;
+   Three columns per row: the checkbox, the label, and a value that is
+   text on one row and a control on another.  The value column is right
+   justified and monospaced so the numbers line up down the palette
+   whatever the labels do. */
+
+.cm-palette {
+    background: #fff;
+    padding: 3px 6px;
+    font: 12px/1.7 sans-serif;
+    color: #222;
+    cursor: pointer;
+    user-select: none;
+}
+
+.cm-pal-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.cm-pal-box {
+    margin: 0;
+    width: 13px;
+    height: 13px;
+    cursor: pointer;
+}
+
+.cm-pal-label {
+    flex: 1 1 auto;
+    white-space: nowrap;
+}
+
+.cm-pal-value {
+    flex: 0 0 auto;
+    min-width: 5ch;
+    text-align: right;
+    font-family: monospace;
+    color: #555;
+}
+
+.cm-pal-spin {
+    width: 4.5em;
+    font: 11px monospace;
+    cursor: auto;
+}
+
+/* THE INFO PANEL -- everything the map SAYS, top right.  White on
+   translucent grey, so it reads over imagery of any brightness without
+   hiding it.  The selected object is the one line in colour: it answers
+   "what am I working on", and everything around it is context. */
+
+.cm-info {
+    background: rgba(40, 40, 40, 0.72);
+    color: #fff;
     font: 11px/1.6 monospace;
-    padding: 3px 8px;
+    padding: 6px 12px;
+    margin: 12px 12px 0 0;   /* sits off the edge, as the palette does */
     border-radius: 3px;
     white-space: pre;
-    cursor: pointer;
+    min-width: 22ch;
+}
+
+.cm-info-row {
+    display: flex;
+    gap: 12px;
+}
+
+.cm-info-k {
+    flex: 0 0 9ch;
+    color: #c8c8c8;
+}
+
+/* The value column ENDS where the text ends.  Stretching it to the panel
+   edge put every value hard against the border and made the panel read as
+   crammed even where it was not. */
+
+.cm-info-v {
+    flex: 0 1 auto;
+}
+
+/* ONE COLOUR PER LEVEL OF NESTING.  The word 'subregion' stops telling
+   them apart once there is more than one, and each block's numbers only
+   mean something read against the level above it - so depth is what the
+   colour carries.  Four are defined; deeper reuses the last, which is
+   already past the zoom any imagery exists at. */
+
+.cm-info-d0 .cm-info-k, .cm-info-d0 .cm-info-v { color: #7fc4ff; font-weight: bold; }
+.cm-info-d1 .cm-info-k, .cm-info-d1 .cm-info-v { color: #7fe0a0; font-weight: bold; }
+.cm-info-d2 .cm-info-k, .cm-info-d2 .cm-info-v { color: #f09ce0; font-weight: bold; }
+.cm-info-d3 .cm-info-k, .cm-info-d3 .cm-info-v { color: #ffcf7f; font-weight: bold; }
+
+/* The level rows under a block are the same hue, unbolded, so a block
+   reads as one thing without competing with the line that names it. */
+
+.cm-info-d0-in .cm-info-v { color: #9fd4ff; }
+.cm-info-d1-in .cm-info-v { color: #9fe8bc; }
+.cm-info-d2-in .cm-info-v { color: #f4bbea; }
+.cm-info-d3-in .cm-info-v { color: #ffdfa6; }
+
+/* Indented, because these belong to the line above them. */
+
+.cm-info-in .cm-info-k {
+    padding-left: 1.5ch;
+    flex-basis: 7.5ch;
 }
 
 /* Vertex and midpoint handles, following navMate's nm-vtx / nm-mid. */

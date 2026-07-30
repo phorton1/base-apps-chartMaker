@@ -12,6 +12,7 @@ use FindBin;
 use lib "$FindBin::Bin/..";
 use Pub::Utils;
 use cm_defs;
+use dm_set;
 use dm_source;
 use dm_cache;
 use dm_region;
@@ -36,7 +37,7 @@ sub ok
 $dm_rct::dbg_rct = 0;
 
 loadSources();
-loadRegions();
+openSet(getActiveSet());
 my $src = getSource('esri_world_imagery') or die "no esri source\n";
 my $reg = getRegion('Bocas') or die "no Bocas\n";
 

@@ -89,10 +89,11 @@ print "\n=== containment is enforced ===\n";
 
 loadSets();
 newSet('Edit') or die "cannot make set\n";
+openSet('Edit');
 
 my $reg = newRegion('Parent',15,10,16,'Parent') or die "cannot make region\n";
 $reg->{geometry} = $BOX;
-ok(saveRegion($reg),"a region with geometry saves");
+ok(stageRegion($reg),"a region with geometry is accepted");
 
 # An empty parent contains nothing, and must not reject its subregions -
 # creating a parent and drawing it are two separate steps.
@@ -105,16 +106,18 @@ ok(!defined($sub->{zauthor}),"and carries no zauthor of its own");
 $reg = getRegion('Parent');
 my ($found) = findSubregion($reg,'Inside');
 $found->{geometry} = $IN;
-ok(saveRegion($reg),"a contained subregion saves");
+ok(stageRegion($reg),"a contained subregion is accepted");
+ok(saveSet(),"and the set can be written");
 
 $reg = getRegion('Parent');
 ($found) = findSubregion($reg,'Inside');
 $found->{geometry} = $OUT;
-ok(!saveRegion($reg),"a subregion OUTSIDE its parent is REFUSED");
+ok(!stageRegion($reg),"a subregion OUTSIDE its parent is REFUSED");
 
-# The refusal must not have written a broken file.
+# The refusal must leave neither the document nor the file holding
+# geometry the validator will not accept.
 
-rescanRegions();
+revertSet();
 $reg = getRegion('Parent');
 ($found) = findSubregion($reg,'Inside');
 ok($found && abs($found->{geometry}[0][0][0] - (-81.8)) < 1e-9,
@@ -123,7 +126,7 @@ ok($found && abs($found->{geometry}[0][0][0] - (-81.8)) < 1e-9,
 $reg = getRegion('Parent');
 ($found) = findSubregion($reg,'Inside');
 $found->{geometry} = $HALF;
-ok(!saveRegion($reg),"a subregion straddling the boundary is REFUSED too");
+ok(!stageRegion($reg),"a subregion straddling the boundary is REFUSED too");
 
 
 #---------------------------------------------
@@ -162,9 +165,10 @@ ok(!dispatchCommand('select','Nonesuch'),"a refused verb returns FALSE");
 my $NEW = [[ [-81.9,9.1],[-81.1,9.1],[-81.1,9.9],[-81.9,9.9] ]];
 ok(dispatchCommand('region','geometry Parent',$NEW),
 	"region geometry with a polygon list returns true");
-rescanRegions();
+ok(saveSet(),"and the set writes");
+revertSet();
 ok(abs(getRegion('Parent')->{geometry}[0][0][0] - (-81.9)) < 1e-9,
-	"and the new geometry is on disk");
+	"the new geometry is what comes back off the disk");
 
 ok(!dispatchCommand('region','geometry Parent'),
 	"region geometry with NO data returns false");
@@ -175,7 +179,7 @@ ok(!dispatchCommand('region','geometry Nonesuch',$NEW),
 
 ok(!dispatchCommand('region','geometry Parent',[[ [-81.5,9.5],[-81.4,9.5] ]]),
 	"a two-point polygon is refused");
-rescanRegions();
+revertSet();
 ok(abs(getRegion('Parent')->{geometry}[0][0][0] - (-81.9)) < 1e-9,
 	"and the good geometry SURVIVED the refusal");
 
@@ -242,7 +246,7 @@ ok(dispatchCommand('subregion','delete Longer DeepAnchorage'),"subregion delete"
 ok(!defined((findAnywhere('DeepAnchorage'))[0]),"and it is gone from the model");
 
 ok(dispatchCommand('region','delete ShortName'),"region delete");
-rescanRegions();
+revertSet();
 ok(!defined(getRegion('ShortName')),"and its file is gone");
 ok(!dispatchCommand('region','delete ShortName'),"deleting it twice is refused");
 
@@ -267,8 +271,17 @@ ok($sr eq '' && $ss eq '',"and nothing is selected");
 
 print "\n=== edit state ===\n";
 
+# AN EDIT BELONGS TO A BROWSER.  editLocks() reports nothing when no map has
+# polled recently, because an obstacle nobody can clear is not one - so a
+# headless test asserting the locks has to say a map is there.  Anything
+# below that takes longer than the grace period must call this again.
+
+notePoll();
+
 ok(getEditState()->{mode} eq $EDIT_BROWSE,"it starts in browse");
 ok(editLocks() eq '',"and locks nothing");
+
+ok(mapIsOpen(),"a poll just arrived, so the map counts as open");
 
 ok(dispatchCommand('edit','shape Parent'),"enter shape on a region");
 my $st = getEditState();

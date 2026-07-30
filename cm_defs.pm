@@ -27,7 +27,15 @@ BEGIN
 
 		$WIN_REGIONS
 		$WIN_SOURCES
+
 		$COMMAND_OPEN_MAP
+		$COMMAND_SET_OPEN
+		$COMMAND_SET_SAVE
+		$COMMAND_SET_SAVEAS
+		$COMMAND_SET_REVERT
+		$COMMAND_SET_CLOSE
+		$COMMAND_SET_NEW
+		$COMMAND_NEW_REGION
 	);
 }
 
@@ -103,6 +111,19 @@ our $WIN_REGIONS		= 10001;
 our $WIN_SOURCES		= 10002;
 
 our $COMMAND_OPEN_MAP	= 10021;
+
+# THE DOCUMENT'S OWN COMMANDS.  A region set is opened, saved and closed
+# like any other document, so these are a File menu rather than anything
+# chartMaker invented.
+
+our $COMMAND_SET_OPEN	= 10022;
+our $COMMAND_SET_SAVE	= 10023;
+our $COMMAND_SET_SAVEAS	= 10024;
+our $COMMAND_SET_REVERT	= 10027;
+our $COMMAND_SET_CLOSE	= 10025;
+our $COMMAND_SET_NEW	= 10026;
+
+our $COMMAND_NEW_REGION	= 10031;
 
 
 1;

@@ -52,8 +52,8 @@ my $TIMER_MS = 500;
 # 200; cm_defs uses the 10000s for panes and commands, so these sit clear
 # of both.
 
-my $MENU_NEW_SET	= 10501;
-my $MENU_USE_SET	= 10502;
+my $MENU_COMMIT		= 10501;
+my $MENU_REVERT		= 10502;
 my $MENU_NEW_REGION	= 10503;
 my $MENU_NEW_SUB	= 10504;
 my $MENU_DELETE		= 10505;
@@ -91,8 +91,30 @@ sub new
 	my $this = $class->SUPER::new($book,$id);
 	$this->MyWindow($frame,$book,$id,'Regions',$data);
 
-	$this->{tree} = Wx::TreeCtrl->new($this,-1,wxDefaultPosition,wxDefaultSize,
-		wxTR_DEFAULT_STYLE | wxTR_HIDE_ROOT | wxTR_LINES_AT_ROOT);
+	# THE LEFT SIDE IS A TITLED PANEL, not the tree alone.  The set is the
+	# document, and a document says what it is at the top of its window
+	# rather than by being a node inside itself.
+
+	my $left = Wx::Panel->new($this,-1);
+	$this->{left} = $left;
+
+	$this->{ctl_set} = Wx::StaticText->new($left,-1,'');
+	$this->{ctl_set}->SetFont(Wx::Font->new(9,wxFONTFAMILY_SWISS,
+		wxFONTSTYLE_NORMAL,wxFONTWEIGHT_BOLD));
+
+	# NO LINES AT THE ROOT.  The root is hidden, and the stub wxWidgets
+	# draws to it says the regions hang off something - which they did when
+	# the set was a node above them, and no longer do.
+
+	my $tree_style = (wxTR_DEFAULT_STYLE() & ~wxTR_LINES_AT_ROOT()) |
+		wxTR_HIDE_ROOT();
+	$this->{tree} = Wx::TreeCtrl->new($left,-1,wxDefaultPosition,wxDefaultSize,
+		$tree_style);
+
+	my $left_sizer = Wx::BoxSizer->new(wxVERTICAL);
+	$left_sizer->Add($this->{ctl_set},0,wxEXPAND|wxALL,4);
+	$left_sizer->Add($this->{tree},1,wxEXPAND,0);
+	$left->SetSizer($left_sizer);
 
 	# MONOSPACED, so the zoom numbers form a column that can be scanned.
 	# A proportional font puts them at a different x on every row, which
@@ -118,9 +140,13 @@ sub new
 
 	my $CV  = wxALIGN_CENTER_VERTICAL;
 
-	# TWO COLUMNS.  The left one holds Save, then 'Name' and 'Zoom' under
-	# it; the right one starts at $COL and holds 'Id:', the name field
-	# itself, and 'Author:', all on the same edge.
+	# THREE COLUMNS, AND EVERY FIELD STARTS ON THE THIRD.  The buttons and
+	# the row words are on the left; the labels that name a field are in the
+	# middle; the fields themselves - Id, Name and the zoom spinners - all
+	# begin at $COL + $LBL, so they form one vertical line down the panel.
+	#
+	# $LBL is wide enough for 'Author:', which is the longest of them, so
+	# nothing is clipped and nothing has to be measured by eye.
 	#
 	# The button is only as wide as the word it surrounds, and the labels
 	# are inset by $PAD so it starts slightly LEFT of them - a button
@@ -128,7 +154,8 @@ sub new
 
 	my $BTN = 50;		# the Save button
 	my $PAD = 6;		# the labels' inset from the button's left edge
-	my $COL = 64;		# where the right column starts
+	my $COL = 64;		# where the label column starts
+	my $LBL = 48;		# the label column's width - 'Author:' sets it
 
 	# REVERT SITS UNDER SAVE, in the left column, because the two are one
 	# pair: an object is dirty or it is not, and these are the only two
@@ -164,7 +191,7 @@ sub new
 	$id_row->Add($this->{ctl_save},0,$CV,0);
 	$id_row->AddSpacer($COL - $BTN);
 	$id_row->Add(Wx::StaticText->new($right,-1,'Id:',
-		wxDefaultPosition,[24,-1]),0,$CV,0);
+		wxDefaultPosition,[$LBL,-1]),0,$CV,0);
 	$id_row->Add($this->{ctl_id},0,$CV,0);
 	$id_row->AddSpacer(20);
 	$id_row->Add($this->{ctl_show},0,$CV,0);
@@ -176,7 +203,7 @@ sub new
 	$name_row->Add($this->{ctl_revert},0,$CV,0);
 	$name_row->AddSpacer($COL - $BTN);
 	$name_row->Add(Wx::StaticText->new($right,-1,'Name',
-		wxDefaultPosition,[24,-1]),0,$CV,0);
+		wxDefaultPosition,[$LBL,-1]),0,$CV,0);
 	$name_row->Add($this->{ctl_name},0,$CV,0);
 
 	# ROW 3 -- the three levels.  A subregion has zmax alone, and the
@@ -188,7 +215,7 @@ sub new
 	$zoom_row->Add(Wx::StaticText->new($right,-1,'Zoom',
 		wxDefaultPosition,[$COL - $PAD,-1]),0,$CV,0);
 	$zoom_row->Add(Wx::StaticText->new($right,-1,'Author:',
-		wxDefaultPosition,[48,-1]),0,$CV,0);
+		wxDefaultPosition,[$LBL,-1]),0,$CV,0);
 	$zoom_row->Add($this->{ctl_zauthor},0,$CV,0);
 	$zoom_row->AddSpacer(14);
 	$zoom_row->Add(Wx::StaticText->new($right,-1,'Min:',
@@ -216,13 +243,13 @@ sub new
 	$sizer->Add($this->{props},1,wxEXPAND|wxALL,4);
 	$right->SetSizer($sizer);
 
-	$this->SplitVertically($this->{tree},$right,320);
+	$this->SplitVertically($left,$right,320);
 	$this->SetMinimumPaneSize(160);
 
 	EVT_TREE_SEL_CHANGED($this,$this->{tree},\&onSelect);
 	EVT_LEFT_DOWN($this->{tree},sub { $this->onTreeLeftDown($_[1]) });
 	EVT_RIGHT_DOWN($this->{tree},sub { $this->onTreeRightDown($_[1]) });
-	EVT_MENU($this,$_,\&onTreeMenu) for ($MENU_NEW_SET, $MENU_USE_SET,
+	EVT_MENU($this,$_,\&onTreeMenu) for ($MENU_COMMIT, $MENU_REVERT,
 		$MENU_NEW_REGION, $MENU_NEW_SUB, $MENU_DELETE, $MENU_EXPLORE,
 		$MENU_RESCAN);
 	# Name and zoom are STAGED and committed by Save.  Applying them as
@@ -258,13 +285,35 @@ sub new
 
 
 sub closeOK
-	# Pub::WX::Window's close hook.  The timer MUST be stopped here: it
-	# fires into populate(), and populate() touches a tree that is about
-	# to be destroyed.
+	# Pub::WX::Window's close hook, and the only place a window can refuse
+	# to go away.
+	#
+	# THIS WINDOW IS THE DOCUMENT'S VIEW, so closing it closes the set -
+	# which means it is also the last chance to save.  The question is
+	# asked by the frame, because quitting the application asks exactly the
+	# same one and the two must not drift apart.
+	#
+	# The timer MUST be stopped here: it fires into populate(), and
+	# populate() touches a tree that is about to be destroyed.
 {
 	my ($this) = @_;
+	return 0 if !$this->{frame}->okToDiscard('closing the Regions window');
+
 	$this->{timer}->Stop() if $this->{timer};
+	$this->{frame}->closeDocument() if setIsOpen();
 	return 1;
+}
+
+
+sub _confirm
+	# A yes or no, asked in the application's own name.
+{
+	my ($this,$text,$title) = @_;
+	my $dlg = Wx::MessageDialog->new($this,$text,$title,
+		wxYES_NO | wxICON_EXCLAMATION);
+	my $answer = $dlg->ShowModal();
+	$dlg->Destroy();
+	return ($answer == wxID_YES) ? 1 : 0;
 }
 
 
@@ -311,26 +360,38 @@ sub _addNode
 	$this->{tree}->SetItemState($item,isChecked($root_id) ? 1 : 0)
 		if $is_root;
 
+	# EXPANDED AFTER THE TREE IS BUILT, NOT DURING.  Expanding while items
+	# are still being appended leaves the control's count of its own
+	# visible rows ahead of the list it actually holds, and it fills the
+	# difference by painting the tail of the list a second time - the
+	# ghost rows below the real ones.  The item is remembered instead, and
+	# populate() expands them all once the structure is complete.
+
 	$this->_addNode($item,$root_id,$_,0) for @{$reg->{subregions}};
-	$this->{tree}->Expand($item) if @{$reg->{subregions}};
+	push @{$this->{_expand}},$item if @{$reg->{subregions}};
 	return $item;
 }
 
 
 sub populate
-	# THE OUTER LEVEL IS THE REGION SET, and it is a real level rather than
-	# the fake 'regions' root it replaces -- every node in this tree now
-	# names something that exists on disk.  It is also where the active set
-	# is chosen, by the same state-icon click winSources uses for a source,
-	# so the two panes select a thing the same way.
-	#
-	# ONLY THE ACTIVE SET HAS CHILDREN.  dm_region loads one set at a time
-	# by design, so the others are shown as what they are -- folders that
-	# exist and could be made active -- rather than opened.  A set you are
-	# not working in has nothing to say.
+	# REGIONS ARE THE OUTER LEVEL.  The set is the document this window is
+	# a view of, so it is named in the title above the tree rather than
+	# being a node inside it - a document is not one of its own contents.
+	# Which set is open is chosen from the File menu, like any other
+	# document.
 {
 	my ($this) = @_;
 	my $tree = $this->{tree};
+
+	# NOT RE-ENTRANT, and it must not be entered again while it runs.
+	# Filling a tree raises focus events, the frame turns a focus event
+	# into an activation, and an activation asks for a rebuild - so a
+	# populate can arrive inside a populate and never come back.  One flag
+	# here is worth more than reasoning about which widget call fires
+	# what, on which platform.
+
+	return if $this->{populating};
+	$this->{populating} = 1;
 
 	# Remember what was selected so a rebuild does not move the user.
 	#
@@ -350,43 +411,59 @@ sub populate
 					 is_root => ($sel_sub ? 0 : 1) };
 		my $have = $this->{_restore};
 		$this->{_restore} = $want
-			if !$have || ($have->{kind} || '') eq 'set' ||
+			if !$have ||
 				lc($have->{root_id} // '') ne lc($sel_region) ||
 				lc($have->{id} // '') ne lc($want->{id});
 	}
 
+	# FROZEN FOR THE WHOLE REBUILD.  Nothing is drawn until the item list
+	# is finished, so the control computes its layout once, from a
+	# structure that is not still changing under it.
+
+	$tree->Freeze();
+
 	$tree->DeleteAllItems();
-	my $root   = $tree->AddRoot('sets');
-	my $active = getActiveSet();
-	my @names  = getSetNames();
+	my $root = $tree->AddRoot('regions');
+	my @ids  = getRegionIds();
 
-	for my $name (@names)
-	{
-		my $item = $tree->AppendItem($root,
-			_setLabel($name,$name eq $active));
-		$tree->SetItemData($item,Wx::TreeItemData->new({
-			kind	=> 'set',
-			set		=> $name,
-		}));
-		$tree->SetItemState($item,$name eq $active ? 1 : 0);
-
-		my $was = $this->{_restore};
-		$this->{_restore_item} = $item
-			if $was && ($was->{kind} || '') eq 'set' && $was->{set} eq $name;
-
-		next if $name ne $active;
-		$this->_addNode($item,$_,getRegion($_),1) for getRegionIds();
-		$tree->Expand($item);
-	}
+	$this->{_expand} = [];
+	$this->_addNode($root,$_,getRegion($_),1) for @ids;
+	$tree->Expand($_) for @{$this->{_expand}};
+	$this->{_expand} = undef;
 
 	$tree->SelectItem($this->{_restore_item})
 		if $this->{_restore_item} && $this->{_restore_item}->IsOk();
 	$this->{_restore} = undef;
 
+	$tree->Thaw();
+
+	# The tree is no longer the splitter's child but a panel's, so the
+	# panel is what has to be laid out before the tree can know how tall
+	# its client area is.
+
+	$this->{left}->Layout();
+	$this->showSetTitle();
+
 	$this->{seen_seq} = getStateSeq();
-	display($dbg_win,0,"winRegions::populate() ".scalar(@names)." set(s), ".
-		scalar(my @n = getRegionIds())." region(s) at state ".$this->{seen_seq});
+	display($dbg_win,0,"winRegions::populate() ".scalar(@ids).
+		" region(s) at state ".$this->{seen_seq});
 	$this->showProperties();
+	$this->{populating} = 0;
+}
+
+
+sub showSetTitle
+	# WHAT IS OPEN, AND WHETHER IT IS SAVED.  The same two facts the frame
+	# title carries, said again where the work is - a pane that can be
+	# floated or docked beside another window cannot rely on the title bar
+	# being anywhere near it.
+{
+	my ($this) = @_;
+	my $text = setIsOpen() ?
+		openSetName().(isSetDirty() ? ' *' : '').'    '._setSummary() :
+		'no region set open';
+	$this->{ctl_set}->SetLabel($text)
+		if $this->{ctl_set}->GetLabel() ne $text;
 }
 
 
@@ -402,8 +479,38 @@ sub onTimer
 
 	return if $this->{ctl_save}->IsEnabled();
 
+	# A PANE THAT IS NOT ON TOP DOES NOT TOUCH ITS WIDGETS.  Filling a
+	# tree that sits on a notebook page which is not showing drags the
+	# notebook to that page, and which pane is in front is the user's
+	# decision alone - not something a poll may take from them because
+	# some other surface changed the selection.  There is also nothing to
+	# see: the rebuild is for a window nobody is looking at.
+	#
+	# Nothing is lost by waiting.  What the tree shows is the shared
+	# state, not anything of its own, so it is correct the moment it is
+	# built - and it is built on the way in, by onActivate() below.
+
+	return if !$this->IsShown();
+
 	display($dbg_win,0,"winRegions: state changed to ".getStateSeq()." - rebuilding");
 	$this->populate();
+}
+
+
+sub onActivate
+	# THE WAY IN.  Pub::WX::Frame calls this as the pane becomes current,
+	# and everything a pane skipped while it was behind is picked up here,
+	# by the one path that decides whether a rebuild is wanted at all.
+	#
+	# NOT Pub::WX's pending_populate, which looks like it is for exactly
+	# this and is a trap: setCurrentPane() clears the flag AFTER calling
+	# populate(), so any focus event raised while the pane is filling
+	# re-enters setCurrentPane(), finds the flag still set, and populates
+	# again - without end.  It froze the application on the first tab
+	# switch and took it down with a segfault.
+{
+	my ($this) = @_;
+	$this->onTimer();
 }
 
 
@@ -432,28 +539,6 @@ sub onTreeLeftDown
 	{
 		my $d = $this->{tree}->GetItemData($item);
 		my $node = $d ? $d->GetData() : undef;
-
-		# On a set, the icon is a radio: it makes that set the active one.
-		# The whole tree is rebuilt afterwards, because changing the set
-		# changes which regions exist.
-
-		if ($node && ($node->{kind} || '') eq 'set')
-		{
-			return if $node->{set} eq getActiveSet();
-
-			# CHANGING THE SET RELOADS THE WHOLE MODEL from another folder,
-			# so an edit in flight would be aimed at an object that may not
-			# exist afterwards.
-
-			return if $this->_refuseIfLocked(
-				"make '$node->{set}' active");
-
-			display($dbg_win,0,"winRegions: active set '$node->{set}'");
-			setActiveSet($node->{set});
-			bumpState("active set is '$node->{set}'");
-			$this->populate();
-			return;
-		}
 
 		if ($node && $node->{is_root})
 		{
@@ -497,35 +582,72 @@ sub onTreeRightDown
 	}
 
 	my $menu = Wx::Menu->new();
-	my $kind = $node ? ($node->{kind} || 'region') : '';
+	return if !setIsOpen();
 
 	if (!$node)
 	{
-		$menu->Append($MENU_NEW_SET,'New region set...');
-		$menu->AppendSeparator();
-		$menu->Append($MENU_RESCAN,'Rescan');
-	}
-	elsif ($kind eq 'set')
-	{
-		$menu->Append($MENU_USE_SET,"Make '$node->{set}' active")
-			if $node->{set} ne getActiveSet();
-		$menu->Append($MENU_NEW_REGION,'New region...')
-			if $node->{set} eq getActiveSet();
+		$menu->Append($MENU_NEW_REGION,'New region...');
 		$menu->AppendSeparator();
 		$menu->Append($MENU_EXPLORE,'Open folder in Explorer');
-		$menu->Append($MENU_RESCAN,'Rescan');
+		$menu->Append($MENU_RESCAN,'Revert all...');
 	}
 	else
 	{
+		# COMMIT AND REVERT ACT ON THE REGION, whichever node was clicked.
+		# A subregion has no file of its own - it is part of the region
+		# that holds it - and a menu that implied otherwise would be
+		# offering to write something that does not exist.
+
 		my $what = $node->{is_root} ? "region '$node->{root_id}'" :
 			"subregion '$node->{id}'";
+		my $dirty = isRegionDirty($node->{root_id});
+
 		$menu->Append($MENU_NEW_SUB,'New subregion...');
+		$menu->AppendSeparator();
+		$menu->Append($MENU_COMMIT,"Commit '$node->{root_id}'");
+		$menu->Append($MENU_REVERT,"Revert '$node->{root_id}'...");
+		$menu->Enable($MENU_COMMIT,$dirty ? 1 : 0);
+		$menu->Enable($MENU_REVERT,$dirty ? 1 : 0);
 		$menu->AppendSeparator();
 		$menu->Append($MENU_DELETE,"Delete $what...");
 	}
 
 	$this->{_menu_node} = $node;
 	$this->PopupMenu($menu,$event->GetPosition());
+}
+
+
+sub newRegionDialog
+	# Reached from the Edit menu and from the tree's own menu, and it is
+	# the same act either way - which is why it is a method rather than a
+	# branch inside one of them.
+{
+	my ($this) = @_;
+	return if $this->_refuseIfLocked('create a region');
+
+	my $name = Wx::GetTextFromUser(
+		"The region is created with NO geometry.\n".
+		"Draw its outline on the map afterwards.",
+		'New region','',$this);
+	return if !defined($name) || $name !~ /\S/;
+
+	# The zooms come from the regions already here, because every file
+	# on one card must agree on zauthor and zmin.  Offering what already
+	# works is how this stops making an unbuildable sibling.
+
+	my ($za,$zn,$zx) = (15,10,16);
+	my @ids = getRegionIds();
+	if (@ids)
+	{
+		my $sib = getRegion($ids[0]);
+		($za,$zn,$zx) = ($sib->{zauthor},$sib->{zmin},$sib->{zmax});
+	}
+	my $reg = newRegion($name,$za,$zn,$zx);
+	return if !$reg;
+
+	bumpState("region '$reg->{id}' created");
+	setSelection($reg->{id},'');
+	$this->populate();
 }
 
 
@@ -537,65 +659,55 @@ sub onTreeMenu
 
 	if ($id == $MENU_RESCAN)
 	{
+		# REVERTING EVERYTHING, which is what re-reading the folder now
+		# means.  It is worth a question, because what it throws away is
+		# every unsaved change in the document.
+
+		return if $this->_refuseIfLocked('revert the set');
+		return if isSetDirty() && !$this->_confirm(
+			"Throw away every unsaved change to '".openSetName()."'\n".
+			"and re-read the folder?",'Revert All');
+
 		rescanSets();
-		rescanRegions();
-		bumpState('rescanned');
+		revertSet();
+		bumpState('set reverted');
 		$this->populate();
 		return;
 	}
 	if ($id == $MENU_EXPLORE)
 	{
-		my $dir = setDir($node->{set});
+		my $dir = setDir(openSetName());
 		$dir =~ s|/|\\|g;
 		system(1,"explorer.exe \"$dir\"") if is_win();
 		return;
 	}
-	if ($id == $MENU_USE_SET)
+	if ($id == $MENU_COMMIT)
 	{
-		return if $this->_refuseIfLocked("make '$node->{set}' active");
-		setActiveSet($node->{set});
-		bumpState("active set is '$node->{set}'");
+		commitRegion($node->{root_id});
+		bumpState("region '$node->{root_id}' committed");
 		$this->populate();
 		return;
 	}
-	if ($id == $MENU_NEW_SET)
+	if ($id == $MENU_REVERT)
 	{
-		my $name = Wx::GetTextFromUser(
-			"A set is a FOLDER of region files.\n".
-			"Letters and digits only - it becomes the name of the folder\n".
-			"copied to the card.",
-			'New region set','',$this);
-		return if !defined($name) || $name !~ /\S/;
-		return if !newSet($name);
-		bumpState("set '$name' created");
+		# A REGION THAT WAS NEVER SAVED HAS NOTHING TO GO BACK TO, and its
+		# saved state is absence - so reverting it is a delete, and it is
+		# asked as one.
+
+		my $id = $node->{root_id};
+		return if $this->_refuseIfLocked("revert '$id'");
+		return if !$this->_confirm(
+			"Throw away the unsaved changes to '$id'?\n".
+			"A region that has never been saved is removed.",'Revert');
+
+		revertRegion($id);
+		bumpState("region '$id' reverted");
 		$this->populate();
 		return;
 	}
 	if ($id == $MENU_NEW_REGION)
 	{
-		return if $this->_refuseIfLocked('create a region');
-		my $name = Wx::GetTextFromUser(
-			"The region is created with NO geometry.\n".
-			"Draw its outline on the map afterwards.",
-			'New region','',$this);
-		return if !defined($name) || $name !~ /\S/;
-
-		# The zooms come from the regions already here, because every file
-		# on one card must agree on zauthor and zmin.  Offering what already
-		# works is how this stops making an unbuildable sibling.
-
-		my ($za,$zn,$zx) = (15,10,16);
-		my @ids = getRegionIds();
-		if (@ids)
-		{
-			my $sib = getRegion($ids[0]);
-			($za,$zn,$zx) = ($sib->{zauthor},$sib->{zmin},$sib->{zmax});
-		}
-		my $reg = newRegion($name,$za,$zn,$zx);
-		return if !$reg;
-		bumpState("region '$reg->{id}' created");
-		setSelection($reg->{id},'');
-		$this->populate();
+		$this->newRegionDialog();
 		return;
 	}
 	if ($id == $MENU_NEW_SUB)
@@ -646,10 +758,21 @@ sub onSelect
 	# rebuild itself over a change it just made and lose the user's place.
 {
 	my ($this,$event) = @_;
+
+	# A REBUILD IS NOT A SELECTION.  Deleting and refilling the tree makes
+	# the control announce a selection change for whatever item it happens
+	# to land on as items disappear - five of them for five regions - and
+	# each one was being published as if the user had clicked it.  What the
+	# tree ends up selected on is what populate() put it on, which came
+	# from the shared selection to begin with, so there is nothing here to
+	# report.
+
+	return if $this->{populating};
+
 	$this->showProperties();
 
 	my $node = $this->selectedIds();
-	if (!$node || ($node->{kind} || '') eq 'set')
+	if (!$node)
 	{
 		setSelection('','');
 	}
@@ -668,12 +791,6 @@ sub _selectedRegion
 	my ($this) = @_;
 	my $node = $this->selectedIds();
 	return (undef,undef,undef) if !$node;
-
-	# A set node names a folder, not a region.  Every caller already
-	# handles "nothing selected", so a set selects as nothing rather than
-	# as a region with no fields, which is what would crash the panel.
-
-	return (undef,undef,$node) if ($node->{kind} || '') eq 'set';
 
 	my $root = getRegion($node->{root_id});
 	return (undef,undef,$node) if !$root;
@@ -753,21 +870,14 @@ sub _nodeLabel
 }
 
 
-sub _setLabel
-	# What a set row says, and it answers the card question outright rather
-	# than leaving it to be inferred from the column below.
+sub _setSummary
+	# WHAT THE SET IS, AND WHETHER IT COULD BUILD.  Every file on one card
+	# must agree on zauthor and zmin, so a set that does not agree with
+	# itself is worth saying at the top of the window rather than leaving
+	# to be discovered by a build.
 {
-	my ($name,$active) = @_;
-	my $dir = setDir($name);
-
-	if (!$active)
-	{
-		my @files = glob("$dir/*.region");
-		return sprintf("%-14s  %d region file(s)",$name,scalar(@files));
-	}
-
 	my @ids = getRegionIds();
-	return sprintf("%-14s  empty",$name) if !@ids;
+	return 'empty' if !@ids;
 
 	my (%za,%zn);
 	for my $id (@ids)
@@ -783,13 +893,13 @@ sub _setLabel
 	{
 		my ($h,$what) = @$pair;
 		next if scalar(keys %$h) <= 1;
-		$mixed = sprintf("  MIXED %s - %s",$what,
+		$mixed = sprintf("MIXED %s - %s",$what,
 			join(', ',map { "$h->{$_} at z$_" } sort { $a <=> $b } keys %$h));
 		last;
 	}
-	return sprintf("%-14s  %d region%s  %s",$name,$n,($n == 1 ? '' : 's'),
+	return sprintf("%d region%s  %s",$n,($n == 1 ? '' : 's'),
 		$mixed ? $mixed :
-			sprintf("z%d \@%d  all agree",(keys %zn)[0],(keys %za)[0]));
+			sprintf("z%d \@%d",(keys %zn)[0],(keys %za)[0]));
 }
 
 
@@ -1020,45 +1130,55 @@ sub _enableControls
 
 
 sub _setProperties
-	# What a region set is, said plainly, because the folder IS the answer
-	# to "what is on the card" and the user should be able to read it here
-	# rather than infer it.
-	#
-	# The active set is described from the loaded model; any other set is
-	# described from its FOLDER, because its regions are not loaded and
-	# counting the files is both cheap and exactly the right question.
+	# THE DOCUMENT, said plainly.  The folder IS the answer to "what is on
+	# the card", so it is readable here rather than inferred - and what is
+	# unsaved is part of that answer, because a card built now would be
+	# built from the files rather than from what is on screen.
 {
-	my ($this,$name) = @_;
-	my $dir    = setDir($name);
-	my $active = $name eq getActiveSet();
+	my ($this) = @_;
 
-	my $text = '';
-	$text .= sprintf("%-16s %s\n",'region set',$name);
-	$text .= sprintf("%-16s %s\n",'folder',$dir);
-	$text .= sprintf("%-16s %s\n",'active',$active ? 'yes' : 'no');
+	return "no region set open
 
-	if ($active)
-	{
-		my @ids = getRegionIds();
-		my @on  = getWorkingSet();
-		$text .= sprintf("%-16s %d\n",'regions',scalar(@ids));
-		$text .= sprintf("%-16s %d of %d\n",'shown',scalar(@on),scalar(@ids));
-		$text .= "\n";
-		$text .= sprintf("    %s %-16s z%d-%d \@%d\n",
-			isChecked($_) ? '[x]' : '[ ]',$_,
-			getRegion($_)->{zmin},getRegion($_)->{zmax},
-			getRegion($_)->{zauthor}) for @ids;
-	}
-	else
-	{
-		my @files = glob("$dir/*.region");
-		$text .= sprintf("%-16s %d\n",'region files',scalar(@files));
-		$text .= "\n    click the icon to make this the active set\n";
-	}
+".
+		"File - Open Set, or File - New Set.
+"
+		if !setIsOpen();
 
-	$text .= "\nEVERY region in a set is on the card it builds.  The files\n".
-		"present in the folder ARE the set - there is no manifest, and\n".
-		"hiding a region here does not take it off the card.\n";
+	my $name = openSetName();
+	my @ids  = getRegionIds();
+	my @on   = getWorkingSet();
+	my @bad  = dirtyRegionIds();
+
+	my $text = "";
+	$text .= sprintf("%-16s %s
+","region set",$name);
+	$text .= sprintf("%-16s %s
+","folder",setDir($name));
+	$text .= sprintf("%-16s %s
+","unsaved",isSetDirty() ? "yes" : "no");
+	$text .= sprintf("%-16s %d
+","regions",scalar(@ids));
+	$text .= sprintf("%-16s %d of %d
+","shown",scalar(@on),scalar(@ids));
+	$text .= "
+";
+	$text .= sprintf("    %s %s %-16s z%d-%d \@%d
+",
+		isChecked($_) ? "[x]" : "[ ]",
+		isRegionDirty($_) ? "*" : " ",$_,
+		getRegion($_)->{zmin},getRegion($_)->{zmax},
+		getRegion($_)->{zauthor}) for @ids;
+
+	$text .= "
+EVERY region in a set is on the card it builds.  The files
+".
+		"present in the folder ARE the set - there is no manifest, and
+".
+		"hiding a region here does not take it off the card.
+";
+	$text .= "
+Nothing is written until the set is saved.
+" if isSetDirty();
 	return $text;
 }
 
@@ -1077,16 +1197,12 @@ sub showProperties
 		$this->_enableControls(0,0);
 		$this->{loading} = 0;
 
-		my $kind = $node ? ($node->{kind} || 'region') : '';
-		if ($kind eq 'set')
-		{
-			$this->{props}->SetValue($this->_setProperties($node->{set}));
-		}
-		else
-		{
-			$this->{props}->SetValue($node ?
-				"region '$node->{root_id}' is gone\n" : "nothing selected\n");
-		}
+		# WITH NOTHING SELECTED THE PANEL DESCRIBES THE DOCUMENT, which is
+		# the only thing there is to say when no one region has been asked
+		# about - and answers "what is on the card" without a click.
+
+		$this->{props}->SetValue($node ?
+			"region '$node->{root_id}' is gone\n" : $this->_setProperties());
 		return;
 	}
 

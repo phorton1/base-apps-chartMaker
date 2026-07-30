@@ -157,6 +157,14 @@ sub _activeId
 sub populate
 {
 	my ($this) = @_;
+
+	# NOT RE-ENTRANT - see winRegions::populate().  Filling the tree
+	# raises focus events, and the frame turns those into activations that
+	# ask for another rebuild.
+
+	return if $this->{populating};
+	$this->{populating} = 1;
+
 	my $tree = $this->{tree};
 	my $was  = $this->selectedId();
 
@@ -182,6 +190,7 @@ sub populate
 	$tree->SelectItem($sel) if $sel && $sel->IsOk();
 	$this->{seen_seq} = getStateSeq();
 	$this->showProperties();
+	$this->{populating} = 0;
 }
 
 
@@ -189,7 +198,25 @@ sub onTimer
 {
 	my ($this,$event) = @_;
 	return if getStateSeq() == $this->{seen_seq};
+
+	# A PANE THAT IS NOT ON TOP DOES NOT TOUCH ITS WIDGETS - see the same
+	# rule in winRegions::onTimer.  This pane is where it showed: every
+	# selection anywhere bumps the state counter, the counter brought this
+	# tree to life behind the user's back, and filling it took the
+	# notebook with it.  Which pane is in front is the user's decision.
+
+	return if !$this->IsShown();
 	$this->populate();
+}
+
+
+sub onActivate
+	# Pub::WX::Frame calls this as the pane becomes the current one, which
+	# is where a pane that sat out a change catches up - see the note in
+	# winRegions::onActivate about why this and not pending_populate.
+{
+	my ($this) = @_;
+	$this->onTimer();
 }
 
 

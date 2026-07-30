@@ -362,6 +362,48 @@ contain a `Bocas` are two cards, not a conflict.
 is copied to the card - which makes the copy a copy rather than a decision about which files
 belong together. See [RCT](rct.md) for the `\RASTER\` contract on the consumer side.
 
+## A set is a document
+
+**One set is open at a time, and it is opened, saved and closed.** File - Open Set, New Set,
+Save, Save As, Revert, Close: a region set is the document this application edits, and the
+Regions window is its view rather than something to be shown and hidden on its own.
+
+**The open set is read into memory, and only Save writes.** Editing, creating and deleting
+change the document; the folder is untouched until you say so. Three things follow, and they
+are why it is worth the machinery:
+
+- **Killing the application is a real choice.** Quit gracefully and you are asked; kill it,
+  or lose it, and the folder stands exactly as it was. The difference between the two
+  becomes a decision the user makes rather than an accident of timing.
+- **A test can drive the whole application against a fixture** and leave the fixture byte
+  for byte identical, because the only writer is the save path.
+- **A session of experiments can be thrown away** by closing without saving - the coarse
+  undo that per-object Revert cannot give.
+
+**Save makes the folder equal the model.** Every changed region is written, and then the
+files of regions the model no longer has are removed - which is how a delete and an id
+change reach the disk without either being tracked as an operation of its own. Only files
+that were **present when the set was opened** can be removed: a `.region` that appeared
+underneath you belongs to somebody else, and Save is not the thing that deletes it.
+
+**Dirty is per region, and the set is dirty if any region is** - plus the case a region
+cannot carry: a deleted one leaves nothing behind to hold a flag, so the set is also dirty
+when the files it would write no longer match the files it opened. That is derived rather
+than tracked, and therefore cannot drift out of step with what Save would actually do.
+
+**Two previous states are kept per region, and they are not the same one.** *Baseline* is
+what was last written, and it is what Revert goes back to. *Accepted* is what the document
+last took, and it is what a refused edit falls back to - because an editor mutates a region
+before asking whether it is legal, so by the time the validator says no, the model is
+already holding what it refused. Falling back to the baseline instead would delete an hour
+of work on a region that has never been saved, whose baseline is absence.
+
+**Which set is OPEN is not the same question as which set is ACTIVE.** The active set is a
+pointer remembered in the ini and resolved against the folder on every read, so it degrades
+to some other set when the one it names is gone - the right answer for "what should be
+opened at startup" and the wrong one for "what is open now", which must be able to say
+nothing at all.
+
 ## Existence comes from the folder, selection comes from the ini
 
 Everything above is discovered by scanning. What cannot be discovered is which of the things
@@ -376,9 +418,13 @@ on a clean exit alongside the frame rectangle and the open panes:
 | which regions are hidden | nothing hidden |
 
 Each is a **pointer into folder contents, resolved on every read and never cached**, because
-the folders are edited from outside the application by design. Deleting the active set's
-folder quietly leaves you in another set; deleting the selected `.tsd` quietly leaves the map
-on another source. A dangling pointer must degrade, never raise.
+the folders are edited from outside the application by design. Deleting a set's folder
+quietly changes what the next Open would land on; deleting the selected `.tsd` quietly leaves
+the map on another source. A dangling pointer must degrade, never raise.
+
+The open document does **not** follow the pointer. It cannot: it may hold unsaved work, and
+a folder disappearing underneath it is not a reason to throw that away. What degrades is
+where the next Open lands.
 
 **Checked means shown on the map, and nothing more.** It is not membership: the set is the
 folder, so every region in it is on the card whether or not you are currently looking at it.

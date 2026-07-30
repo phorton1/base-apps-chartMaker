@@ -76,12 +76,24 @@ BEGIN
 {
 	use Exporter qw( import );
 	our @EXPORT = qw(
-		loadRegions
+		openSet
+		closeSet
+		revertSet
+		saveSet
+		saveSetAs
+		setIsOpen
+		openSetName
+
+		isSetDirty
+		isRegionDirty
+		dirtyRegionIds
+		commitRegion
+		revertRegion
+
 		findAnywhere
-		rescanRegions
 		getRegionIds
 		getRegion
-		saveRegion
+		stageRegion
 		newRegion
 		renameRegion
 		setRegionId
@@ -122,10 +134,54 @@ my $UPGRADE_ZMIN		= 10;
 	# dm_coverage as a default; a version 2 region states it, and a file
 	# written before it existed is read as having meant the default.
 
+#---------------------------------------------
+# THE OPEN DOCUMENT
+#---------------------------------------------
+# A SET IS A DOCUMENT: opened, edited in memory, and written on Save.
+# Nothing else writes a .region file.  That is what makes killing the
+# application a real choice rather than an accident - the folder stands as
+# it was - and it is what lets a test drive the whole application against
+# a fixture and leave the fixture byte for byte identical.
+#
+# WHICH SET IS OPEN IS NOT THE SAME QUESTION AS WHICH SET IS ACTIVE.
+# dm_set's active set is a pointer remembered in the ini and resolved
+# against the folder on every read, so it falls through to some other set
+# when the one it names is gone - the right answer for "what should we
+# open at startup" and the wrong one for "what is open now", which must be
+# able to say NOTHING.  $doc_set answers the second, and it is the only
+# thing that decides where a region is read from or written to.
+#
+# THE MODEL TRAVELS BETWEEN THREADS AS A DOCUMENT, NOT AS A FOLDER.  Every
+# thread holds its own copy and learns it is stale from the shared
+# counter, exactly as before - but it refills from $doc_json rather than
+# from disk, because the disk no longer holds what the user is looking at.
+# Publishing is a serialise of a few tens of kilobytes on the thread that
+# made the change; the alternative, a deeply shared structure, is not
+# something Perl does well.
+#
+# TWO PREVIOUS STATES ARE KEPT PER REGION, and they are not the same one.
+# BASELINE is what was last SAVED, and it is what Revert goes back to.
+# ACCEPTED is what was last taken into the document, and it is what a
+# refused edit goes back to - because a caller mutates the region hash in
+# place before asking for it to be staged, so by the time the validator
+# says no, the model is already holding what it refused.
+#
+# Falling back to the baseline instead would be wrong for a region that
+# has never been saved: it has no baseline, and one bad edit would delete
+# an hour of work that was never in question.  Both travel in the document,
+# so a refusal on an HTTP thread restores what the wx thread would have.
+
 my $scan_seq:shared	= 1;
 my $my_seq			= 0;
-my %regions;		# id => region hash, for the ACTIVE set only
+my %regions;		# folded id => region hash, for the OPEN set only
+my %baseline;		# folded id => the region as it was last saved
+my %accepted;		# folded id => the region as it was last staged
 my $loaded_set		= '';	# the set %regions was filled from
+
+my $doc_json:shared	= '';	# regions + baseline, as every thread sees them
+my $doc_set:shared	= '';	# the open set, '' when none is
+my %dirty:shared;			# folded id => 1
+my @open_files:shared;		# the .region leaves present when it was opened
 
 my %unchecked:shared;
 	# "<set>|<folded id>" => 1 for the regions NOT shown on the map.
@@ -571,29 +627,53 @@ sub _loadFile
 
 
 sub _regionDir
-	# The folder of the ACTIVE set, or '' when there is none.  Every read
-	# and every write goes through this, so "which folder" is answered in
-	# exactly one place and changing the active set changes all of them.
+	# The folder of the OPEN set, or '' when none is open.  Every read and
+	# every write goes through this, so "which folder" is answered in
+	# exactly one place.
 {
-	return setDir(getActiveSet());
+	return setDir($doc_set);
 }
 
 
-sub loadRegions
+sub openSetName
 {
-	%regions = ();
-	$loaded_set = getActiveSet();
+	return $doc_set;
+}
 
-	# NO ACTIVE SET IS A LEGITIMATE STATE, not an error.  It is what a
-	# brand new installation looks like, and what deleting the last set
-	# folder leaves behind.  Everything downstream sees an empty model,
-	# which is exactly true.
+
+sub setIsOpen
+{
+	return $doc_set ne '' ? 1 : 0;
+}
+
+
+sub openSet
+	# Read a set off the disk and make it the document.  Everything the
+	# previous document held is gone, which is why every caller asks
+	# isSetDirty() first - this module refuses nothing and destroys what it
+	# is told to destroy.
+	#
+	# NO SET OPEN IS A LEGITIMATE STATE, not an error.  It is what a brand
+	# new installation looks like, what Close leaves behind, and what
+	# deleting the last set folder means.  Everything downstream sees an
+	# empty model, which is exactly true.
+{
+	my ($name) = @_;
+	$name = '' if !defined $name;
+
+	%regions    = ();
+	%baseline   = ();
+	%accepted   = ();
+	%dirty      = ();
+	@open_files = ();
+	$doc_set    = $name;
+	$loaded_set = $name;
 
 	my $dir = _regionDir();
 	if (!$dir)
 	{
-		display($dbg_region,0,"loadRegions() - no region set");
-		$my_seq = $scan_seq;
+		display($dbg_region,0,"openSet() - no set");
+		_publish();
 		return 0;
 	}
 
@@ -601,29 +681,112 @@ sub loadRegions
 	if (!opendir($dh,$dir))
 	{
 		error("could not read $dir: $!");
-		$my_seq = $scan_seq;
+		$doc_set = '';
+		_publish();
 		return 0;
 	}
 	my @leaves = sort grep { /\.region$/i && -f "$dir/$_" } readdir($dh);
 	closedir $dh;
 
-	display($dbg_region,0,"loadRegions() scanning $dir");
+	display($dbg_region,0,"openSet('$name') scanning $dir");
 	_loadFile("$dir/$_",$_) for @leaves;
+
+	# WHAT WAS THERE WHEN IT WAS OPENED, so that Save can remove the file
+	# of a region that has since been deleted - and remove nothing else.
+	# A .region that appeared underneath us belongs to somebody else.
+
+	@open_files = @leaves;
+	%baseline = map { $_ => _copy($regions{$_}) } keys %regions;
+	%accepted = map { $_ => _copy($regions{$_}) } keys %regions;
 
 	my $found = scalar(keys %regions);
 	display($dbg_region,1,"$found region".($found == 1 ? '' : 's').
 		" loaded from ".scalar(@leaves)." file".(@leaves == 1 ? '' : 's').
-		" in set '$loaded_set'");
+		" in set '$name'");
 
-	$my_seq = $scan_seq;
+	_publish();
 	return $found;
 }
 
 
-sub rescanRegions
+sub closeSet
+	# The document is gone and nothing is open.  Unsaved work is discarded,
+	# which is the caller's decision to have made.
 {
-	$scan_seq++;
-	return loadRegions();
+	%regions    = ();
+	%baseline   = ();
+	%accepted   = ();
+	%dirty      = ();
+	@open_files = ();
+	$doc_set    = '';
+	$loaded_set = '';
+	display($dbg_region,0,"closeSet()");
+	_publish();
+	return 1;
+}
+
+
+sub revertSet
+	# Every region back to what is on disk, in one step.  The same thing as
+	# closing without saving and opening again, which is exactly how it is
+	# implemented.
+{
+	return openSet($doc_set);
+}
+
+
+sub _copy
+	# A deep copy, by the shortest route that is certainly deep.  Regions
+	# are a few kilobytes of plain data; this is not a hot path.
+{
+	my ($thing) = @_;
+	return undef if !defined $thing;
+	return JSON::PP->new->decode(JSON::PP->new->encode($thing));
+}
+
+
+sub _regionText
+	# One region as the bytes that would be written for it - the only
+	# comparison that answers "would saving this change the file".
+{
+	my ($reg) = @_;
+	my %out = map { $_ => $reg->{$_} } grep { defined $reg->{$_} } @REGION_FIELDS;
+	$out{region_version} = $REGION_VERSION;
+	_numify(\%out);
+	return JSON::PP->new->canonical->encode(\%out);
+}
+
+
+sub _publish
+	# Hand this thread's model to every other thread, and advance the
+	# counter that tells them to take it.
+{
+	$doc_json = JSON::PP->new->canonical->encode({
+		regions  => \%regions,
+		baseline => \%baseline,
+		accepted => \%accepted });
+	_touch();
+}
+
+
+sub _thaw
+	# Take the published document.  Numbers are forced back to numbers for
+	# the reason _numify() gives: a JSON round trip is one more place a
+	# zoom can come back as a string, and every arithmetic use of one is
+	# downstream of here.
+{
+	my $doc = $doc_json ? eval { JSON::PP->new->decode($doc_json) } : undef;
+	%regions  = ();
+	%baseline = ();
+	%accepted = ();
+	if ($doc)
+	{
+		%regions  = %{ _numify($doc->{regions}  || {}) };
+		%baseline = %{ _numify($doc->{baseline} || {}) };
+		%accepted = %{ _numify($doc->{accepted} || {}) };
+	}
+	$loaded_set = $doc_set;
+	$my_seq     = $scan_seq;
 }
 
 
@@ -647,14 +810,12 @@ sub _touch
 
 
 sub _current
-	# TWO reasons to be stale, not one.  The shared counter catches a
-	# change another thread made to the files; $loaded_set catches a change
-	# to WHICH FOLDER those files should come from, which the counter
-	# cannot, because the active set lives in dm_set and its own counter is
-	# not this one.  Comparing the names directly is cheaper than trying to
-	# keep two counters in step, and cannot drift.
+	# ONE reason to be stale now: somebody published a newer document.
+	# Which folder it came from is part of the document rather than a
+	# second thing to keep in step, because opening a different set
+	# publishes it like any other change.
 {
-	loadRegions() if $my_seq != $scan_seq || $loaded_set ne getActiveSet();
+	_thaw() if $my_seq != $scan_seq || $loaded_set ne $doc_set;
 }
 
 
@@ -714,9 +875,22 @@ sub _regionPath
 }
 
 
-sub saveRegion
+sub stageRegion
+	# ACCEPT A CHANGE INTO THE DOCUMENT.  Every mutation ends here, and
+	# nothing here touches the disk: the region is validated, taken into
+	# the model, marked dirty, and published to the other threads.
+	#
+	# VALIDATION HAPPENS NOW RATHER THAN AT SAVE, so a refusal lands on the
+	# action that caused it.  A Save that reported the geometry of an edit
+	# made twenty minutes ago would be a report nobody could act on.
 {
 	my ($reg) = @_;
+
+	if (!$doc_set)
+	{
+		error("stageRegion: no region set is open");
+		return 0;
+	}
 
 	# Build the clean copy FIRST and validate that, not the in-memory
 	# region.  A loaded region carries a 'file' field recording where it
@@ -728,39 +902,279 @@ sub saveRegion
 	my %out = map { $_ => $reg->{$_} } grep { defined $reg->{$_} } @REGION_FIELDS;
 	$out{region_version} = $REGION_VERSION;
 
-	# A REFUSAL RELOADS THE MODEL FROM DISK, and this is not belt and
-	# braces.  Callers mutate a region hash in place and then ask for it to
-	# be saved - and that hash is the SAME ONE %regions is holding, so a
-	# rejected save leaves the in-memory model carrying geometry the
-	# validator will not accept.  Every later save of that region then fails
-	# too, for a reason that has nothing to do with what the user just did.
+	# A REFUSAL PUTS THE REGION BACK, and this is not belt and braces.
+	# Callers mutate a region hash in place and then ask for it to be
+	# staged - and that hash is the SAME ONE %regions is holding, so a
+	# rejected change leaves the model carrying geometry the validator will
+	# not accept, and every later save of that region fails too, for a
+	# reason that has nothing to do with what the user just did.
 	#
-	# Reloading costs one directory scan and restores the only state that
-	# was ever authoritative: the files.
+	# It goes back to the LAST ACCEPTED state, which for a region that has
+	# been saved is at worst its file, and for one that has not is the work
+	# done since it was created.  Only a region that has never been
+	# accepted at all can be dropped, and dropping it is right: it was
+	# never in the document.
 
-	if (!_validateRegion("save '".($reg->{id} // '?')."'",\%out,0) ||
-		!_checkContainment("save '".($reg->{id} // '?')."'",\%out))
+	my $key = _foldId($reg->{id} // '');
+	if (!_validateRegion("edit '".($reg->{id} // '?')."'",\%out,0) ||
+		!_checkContainment("edit '".($reg->{id} // '?')."'",\%out))
 	{
-		rescanRegions();
+		if ($accepted{$key})
+		{
+			# Dirty is then whether what came back differs from the file,
+			# asked rather than remembered - the flag before the refusal
+			# described the geometry that was just thrown away.
+
+			$regions{$key} = _copy($accepted{$key});
+			if ($baseline{$key} &&
+				_regionText($accepted{$key}) eq _regionText($baseline{$key}))
+			{
+				delete $dirty{$key};
+			}
+			else
+			{
+				$dirty{$key} = 1;
+			}
+		}
+		else
+		{
+			delete $regions{$key};
+			delete $dirty{$key};
+		}
+		_publish();
 		return 0;
 	}
+	_numify(\%out);
+
+	$out{file}      = $reg->{file} || "$reg->{id}.region";
+	$regions{$key}  = \%out;
+	$accepted{$key} = _copy(\%out);
+	$dirty{$key}    = 1;
+
+	_publish();
+	display($dbg_region,0,"staged '$reg->{id}'");
+	return 1;
+}
+
+
+#---------------------------------------------
+# dirt, and writing it out
+#---------------------------------------------
+
+sub isRegionDirty
+{
+	my ($id) = @_;
+	_current();
+	return $dirty{ _foldId($id // '') } ? 1 : 0;
+}
+
+
+sub dirtyRegionIds
+	# The authored ids of the regions with unsaved changes.
+{
+	_current();
+	return sort { lc($a) cmp lc($b) }
+		map { $regions{$_}{id} } grep { $dirty{$_} && $regions{$_} } keys %regions;
+}
+
+
+sub _modelLeaves
+{
+	return sort map { lc("$regions{$_}{id}.region") } keys %regions;
+}
+
+
+sub isSetDirty
+	# UNSAVED EDITS OR A DIFFERENT SET OF FILES.  A created region is
+	# dirty on its own account - none of it is on disk - but a DELETED one
+	# leaves nothing behind to carry a flag, and an id change leaves a file
+	# that no longer belongs to anybody.  Both show up here as the folder
+	# no longer matching the model: derived rather than tracked, so it
+	# cannot drift out of step with what Save would actually do.
+{
+	_current();
+	return 0 if !$doc_set;
+	return 1 if keys %dirty;
+
+	my @now  = _modelLeaves();
+	my @then = sort map { lc($_) } @open_files;
+	return 1 if scalar(@now) != scalar(@then);
+	for my $i (0..$#now)
+	{
+		return 1 if $now[$i] ne $then[$i];
+	}
+	return 0;
+}
+
+
+sub _writeRegion
+	# One region to its file.  The only writer of a .region file.
+{
+	my ($reg) = @_;
+
+	my %out = map { $_ => $reg->{$_} } grep { defined $reg->{$_} } @REGION_FIELDS;
+	$out{region_version} = $REGION_VERSION;
 	_numify(\%out);
 
 	my $path = _regionPath($reg->{id});
 	if (!$path)
 	{
-		error("saveRegion: there is no active region set to save '".
-			($reg->{id} // '?')."' into");
+		error("_writeRegion: no region set is open");
 		return 0;
 	}
 	my $text = JSON::PP->new->pretty->canonical->encode(\%out);
 	return 0 if !_writeFile($path,$text);
 
-	$reg->{file} = "$reg->{id}.region";
-	$regions{ _foldId($reg->{id}) } = $reg;
-	_touch();
-	display($dbg_region,0,"saved $reg->{file}");
+	my $key = _foldId($reg->{id});
+	$reg->{file}    = "$reg->{id}.region";
+	$baseline{$key} = _copy($reg);
+	$accepted{$key} = _copy($reg);
+	delete $dirty{$key};
+
+	display($dbg_region,0,"wrote $reg->{file}");
 	return 1;
+}
+
+
+sub commitRegion
+	# One region written now, the rest of the document left alone.  A
+	# partial Save, and the other half of the pair with revertRegion().
+{
+	my ($id) = @_;
+	_current();
+
+	my $reg = getRegion($id);
+	if (!$reg)
+	{
+		error("commitRegion: no region with id '$id'");
+		return 0;
+	}
+	return 0 if !_writeRegion($reg);
+
+	# The file list has to learn about a region that had never been written
+	# before, or Save would delete what was just committed.
+
+	my $leaf = lc("$reg->{id}.region");
+	push @open_files,"$reg->{id}.region"
+		if !grep { lc($_) eq $leaf } @open_files;
+
+	_publish();
+	return 1;
+}
+
+
+sub revertRegion
+	# Back to what is on disk.  A region that has never been written has no
+	# saved state to go back to, and its absence IS its saved state - so
+	# reverting it removes it.  The caller is told which of the two
+	# happened, because one of them wants a confirmation and the other
+	# does not.
+	#
+	# Returns 'reverted', 'removed', or '' for no such region.
+{
+	my ($id) = @_;
+	_current();
+
+	my $reg = getRegion($id);
+	if (!$reg)
+	{
+		error("revertRegion: no region with id '$id'");
+		return '';
+	}
+	my $key = _foldId($reg->{id});
+
+	if ($baseline{$key})
+	{
+		$regions{$key}  = _copy($baseline{$key});
+		$accepted{$key} = _copy($baseline{$key});
+		delete $dirty{$key};
+		display($dbg_region,0,"reverted '$reg->{id}'");
+		_publish();
+		return 'reverted';
+	}
+
+	delete $regions{$key};
+	delete $accepted{$key};
+	delete $dirty{$key};
+	delete $unchecked{ _checkKey($reg->{id}) };
+	display($dbg_region,0,"'$reg->{id}' had never been saved - removed");
+	_publish();
+	return 'removed';
+}
+
+
+sub saveSet
+	# THE FOLDER IS MADE EQUAL TO THE MODEL.  Every dirty region is
+	# written, and then the file of every region that is no longer in the
+	# model is removed - which is how a delete and an id change reach the
+	# disk without either being tracked as an operation of its own.
+	#
+	# ONLY FILES THAT WERE THERE WHEN IT WAS OPENED are removed.  A
+	# .region that appeared underneath us is somebody else's, and Save is
+	# not the thing that deletes it.
+{
+	_current();
+	if (!$doc_set)
+	{
+		error("saveSet: no region set is open");
+		return 0;
+	}
+
+	my $written = 0;
+	for my $key (sort keys %regions)
+	{
+		next if !$dirty{$key};
+		return 0 if !_writeRegion($regions{$key});
+		$written++;
+	}
+
+	my %keep = map { lc("$regions{$_}{id}.region") => 1 } keys %regions;
+	my $dir  = _regionDir();
+	my $removed = 0;
+	for my $leaf (@open_files)
+	{
+		next if $keep{ lc($leaf) };
+		my $path = "$dir/$leaf";
+		next if !-f $path;
+		if (!unlink($path))
+		{
+			error("saveSet: could not delete $path: $!");
+			return 0;
+		}
+		display($dbg_region,0,"removed $leaf");
+		$removed++;
+	}
+
+	@open_files = map { "$regions{$_}{id}.region" } sort keys %regions;
+	%dirty = ();
+	_publish();
+
+	display($dbg_region,0,"saved set '$doc_set' - $written written, ".
+		"$removed removed");
+	return 1;
+}
+
+
+sub saveSetAs
+	# The same document in a new folder, which then becomes the open one.
+	# Every region is written whether it was dirty or not: the new folder
+	# has nothing in it, and half a set is not a set.
+{
+	my ($name) = @_;
+
+	if (!$doc_set)
+	{
+		error("saveSetAs: no region set is open");
+		return 0;
+	}
+	return 0 if !newSet($name);
+
+	$doc_set    = $name;
+	$loaded_set = $name;
+	@open_files = ();
+	$dirty{ _foldId($regions{$_}{id}) } = 1 for keys %regions;
+
+	return saveSet();
 }
 
 
@@ -799,7 +1213,7 @@ sub newRegion
 		geometry		=> [],
 		subregions		=> [],
 	};
-	return saveRegion($reg) ? $reg : undef;
+	return stageRegion($reg) ? $reg : undef;
 }
 
 
@@ -821,7 +1235,7 @@ sub renameRegion
 		return 0;
 	}
 	$reg->{name} = $name;
-	return saveRegion($reg);
+	return stageRegion($reg);
 }
 
 
@@ -861,30 +1275,26 @@ sub setRegionId
 		return 0;
 	}
 
-	# WHERE IT CAME FROM, not where its id says it would be written.  An
-	# upgraded file has already had its id rewritten in memory, so
-	# _regionPath($old_id) names a file that never existed and the real
-	# one would be left behind as a duplicate.
+	# THE FILE IS NOT TOUCHED HERE.  The id moves in the model, and Save
+	# reconciles the folder against it - writing <new id>.region and
+	# removing the file the region was opened from, because that file is
+	# no longer one the model accounts for.
 
-	my $old_path = $reg->{file} ?
-		_regionDir()."/$reg->{file}" : _regionPath($old_id);
-	$reg->{id} = $new_id;
+	$reg->{id}   = $new_id;
+	$reg->{file} = "$new_id.region";
 
-	if (!saveRegion($reg))
+	if (!stageRegion($reg))
 	{
 		$reg->{id} = $old_id;
 		return 0;
 	}
 
-	# Only now is the new file safely on disk.  A case-only change wrote
-	# THROUGH the old file, so there is nothing to remove.
-
 	if (!$same)
 	{
 		delete $regions{ _foldId($old_id) };
-		unlink($old_path) if -f $old_path;
+		delete $dirty{ _foldId($old_id) };
 		_renameChecked($old_id,$new_id);
-		_touch();
+		_publish();
 	}
 
 	display($dbg_region,0,"region '$old_id' is now '$new_id'");
@@ -901,25 +1311,22 @@ sub deleteRegion
 		error("deleteRegion: no region with id '$id'");
 		return 0;
 	}
-	# Where it came from, for the same reason setRegionId uses it: an
-	# upgraded file's leaf and its id need not agree.
+	# OUT OF THE MODEL, NOT OFF THE DISK.  The file goes when the set is
+	# saved, which is also what makes this undoable by closing without
+	# saving.
 
-	my $path = $reg->{file} ?
-		_regionDir()."/$reg->{file}" : _regionPath($reg->{id});
-	if (-f $path && !unlink($path))
-	{
-		error("deleteRegion: could not delete $path: $!");
-		return 0;
-	}
 	delete $regions{ _foldId($reg->{id}) };
-	_touch();
+	delete $dirty{ _foldId($reg->{id}) };
+	delete $baseline{ _foldId($reg->{id}) };
+	delete $accepted{ _foldId($reg->{id}) };
 
 	# Visibility leaves with the region.  There is no separate store to
 	# reconcile and nothing to prune.
 
 	delete $unchecked{ _checkKey($reg->{id}) };
 
-	display($dbg_region,0,"deleted $reg->{id}.region");
+	_publish();
+	display($dbg_region,0,"deleted region '$reg->{id}'");
 	return 1;
 }
 
@@ -1026,7 +1433,7 @@ sub addSubregion
 	};
 	push @{$parent->{subregions}},$sub;
 
-	return saveRegion($reg) ? $sub : undef;
+	return stageRegion($reg) ? $sub : undef;
 }
 
 
@@ -1073,7 +1480,7 @@ sub deleteSubregion
 		return 0;
 	}
 	$parent->{subregions} = [ grep { $_->{id} ne $id } @{$parent->{subregions}} ];
-	return saveRegion($reg);
+	return stageRegion($reg);
 }
 
 
@@ -1092,9 +1499,13 @@ sub deleteSubregion
 # ini around a session, and which costs nothing if it is lost.
 
 sub _checkKey
+	# Keyed by the OPEN set, not the active one.  Checked-ness is a fact
+	# about the document on screen, and the active set is only a pointer to
+	# what the next Open would land on - which is a different set for as
+	# long as it takes to open it.
 {
 	my ($id) = @_;
-	return lc(getActiveSet())."|"._foldId($id);
+	return lc($doc_set)."|"._foldId($id);
 }
 
 
@@ -1284,7 +1695,7 @@ sub importKmlFile
 			subregions		=> [],
 		};
 
-		if (saveRegion($reg))
+		if (stageRegion($reg))
 		{
 			push @made,$id;
 			display($dbg_region,1,sprintf("%-16s %d polygon(s), %d points",

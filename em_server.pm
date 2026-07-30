@@ -33,6 +33,7 @@ use cm_state;
 use dm_set;
 use dm_source;
 use dm_fetch;
+use dm_cache;
 use dm_region;
 use dm_coverage;
 use em_command;
@@ -110,6 +111,10 @@ sub handle_request
 	}
 	elsif ($uri eq '/poll')
 	{
+		# THE ONE PLACE THE APPLICATION LEARNS THE MAP IS THERE.  Nothing
+		# else is recorded and no session is created - see cm_state.
+
+		notePoll();
 		return $this->api_json_response($request,{ version => 0 + getStateSeq() })
 	}
 	elsif ($uri eq '/state')
@@ -119,6 +124,10 @@ sub handle_request
 	elsif ($uri eq '/coverage')
 	{
 		return $this->applet_coverage($request)
+	}
+	elsif ($uri eq '/counts')
+	{
+		return $this->applet_counts($request)
 	}
 	elsif ($uri eq '/edit')
 	{
@@ -369,7 +378,13 @@ sub applet_state
 		sources			=> \@sources,
 		active_source	=> $active,
 		sets			=> [ getSetNames() ],
-		active_set		=> getActiveSet(),
+
+		# THE OPEN SET, not the remembered pointer.  The browser is a view
+		# of the document, and a document that has not been saved says so
+		# on every surface rather than only on the one with a title bar.
+
+		active_set		=> openSetName(),
+		set_dirty		=> isSetDirty() ? 1 : 0,
 		regions			=> _regionsForState(),
 		selection		=> { region => $sel_region, sub => $sel_sub },
 		edit			=> getEditState(),
@@ -384,14 +399,21 @@ sub _workingCoverage
 	# per zoom, cached until the model changes.
 	#
 	# Computing it costs about a second for five regions, which is far
-	# too slow to repeat on every pan.  The cache is keyed by the state
-	# version, so it is thrown away exactly when it becomes wrong and
-	# never otherwise -- the same number the browser polls.
+	# too slow to repeat on every pan.  The cache is keyed by the MODEL
+	# version rather than the poll version: selecting a region and
+	# entering an edit both bump the number the browser polls, and neither
+	# moves a single tile, so keying on that threw a second of work away
+	# on every click in the tree.
+	#
+	# What is left to pay after a real change is the union alone, because
+	# dm_coverage keeps each region's own answer beside the signature of
+	# the region that produced it - so the regions that did not change are
+	# not walked again.
 	#
 	# Per thread, because that is where the region data lives; each
 	# thread pays once.
 {
-	my $seq = getStateSeq();
+	my $seq = getModelSeq();
 	return $cov_cache{$seq} if $cov_cache{$seq};
 
 	%cov_cache = ();		# only the current one is ever worth keeping
@@ -450,6 +472,188 @@ sub applet_coverage
 		zoom	=> 0 + $z,
 		total	=> 0 + ($cov->{$z} ? scalar(keys %{$cov->{$z}}) : 0),
 		tiles	=> \@tiles,
+	});
+}
+
+
+#---------------------------------------------
+# /counts
+#---------------------------------------------
+# WHAT IT WOULD COST, by level.  The footprint says where the tiles are;
+# this says how many and how big, which is the question that decides
+# whether a zmax is sensible before a build runs for an hour to answer it.
+#
+# ASKED, NOT WATCHED.  It is computed when somebody wants it rather than
+# tracked as the model moves, and the number is stamped with the version
+# it came from -- so a stale answer is visibly stale rather than quietly
+# wrong.
+
+my %stats_cache;			# per thread, like every other cache here
+my $STATS_TTL = 60;
+
+sub _cacheStats
+	# cacheStats() stats every file in a source's cache -- thousands of
+	# syscalls, to produce an average.  Held for a minute: the estimate
+	# does not get meaningfully better by being recomputed per request,
+	# and a fetch running underneath it changes it slowly.
+{
+	my ($src) = @_;
+	return undef if !$src;
+
+	my $have = $stats_cache{$src->{id}};
+	return $have->{stats} if $have && (time() - $have->{at}) < $STATS_TTL;
+
+	my $stats = cacheStats($src);
+	$stats_cache{$src->{id}} = { at => time(), stats => $stats };
+	return $stats;
+}
+
+
+sub _bytesPerTile
+	# MEASURED, NOT ASSUMED.  What a tile costs varies by level, by source
+	# and by what is in the picture - open water compresses to nothing and
+	# a marina does not - so the average of what has actually been fetched
+	# at that level is the honest number.  A level nothing has been fetched
+	# at borrows the source's overall average, and a source with an empty
+	# cache has no opinion at all: zero, reported as no answer rather than
+	# as a number somebody made up.
+{
+	my ($stats,$z) = @_;
+	return 0 if !$stats || !$stats->{total_tiles};
+
+	my $zs = $stats->{zooms}{$z};
+	return int($zs->{bytes} / $zs->{tiles}) if $zs && $zs->{tiles};
+	return int($stats->{total_bytes} / $stats->{total_tiles});
+}
+
+
+sub _countBlock
+	# One node's own levels - the band it and nothing else supplies.  The
+	# blocks of a region and its subregions are therefore disjoint, and
+	# they sum without anybody having to subtract.
+{
+	my ($id,$node,$stats) = @_;
+
+	my @levels;
+	my ($tiles,$bytes) = (0,0);
+	for my $z (sort { $a <=> $b } keys %{$node->{levels}})
+	{
+		my $n = scalar(keys %{$node->{levels}{$z}});
+		my $b = $n * _bytesPerTile($stats,$z);
+		push @levels,{ z => 0 + $z, tiles => 0 + $n, bytes => 0 + $b };
+		$tiles += $n;
+		$bytes += $b;
+	}
+	return { id => $id, levels => \@levels,
+			 tiles => 0 + $tiles, bytes => 0 + $bytes };
+}
+
+
+sub _ancestry
+	# The subregions on the path from a region down to one of its
+	# descendants, outermost first, including the descendant itself.
+{
+	my ($reg,$id) = @_;
+	for my $sub (@{$reg->{subregions} || []})
+	{
+		return ($sub) if lc($sub->{id}) eq lc($id);
+		my @deeper = _ancestry($sub,$id);
+		return ($sub,@deeper) if @deeper;
+	}
+	return ();
+}
+
+
+sub applet_counts
+	# GET /counts?id=<region or subregion id>
+	#
+	# The set is always answered, because its total is the one thing true
+	# whatever is selected.  A region adds its own levels; a subregion adds
+	# the band above its parent, and its region comes with it - which is
+	# why the caller sends one id and gets back up to three answers.
+{
+	my ($this,$request) = @_;
+	my $p  = $request->{params} || {};
+	my $id = $p->{id} || '';
+
+	my $stats = _cacheStats(getSource(getDefaultSource()));
+
+	my $merged = _workingCoverage();
+	my ($set_tiles,$set_bytes) = (0,0);
+	for my $z (keys %$merged)
+	{
+		my $n = scalar(keys %{$merged->{$z}});
+		$set_tiles += $n;
+		$set_bytes += $n * _bytesPerTile($stats,$z);
+	}
+
+	# An id names a region or a subregion, and the caller does not have to
+	# know which - the same thing is true of every other verb that takes
+	# one.
+
+	my ($root,$sub);
+	if ($id)
+	{
+		$root = getRegion($id);
+		if (!$root)
+		{
+			for my $rid (getRegionIds())
+			{
+				my $reg = getRegion($rid);
+				my ($found) = findSubregion($reg,$id);
+				next if !$found;
+				($root,$sub) = ($reg,$found);
+				last;
+			}
+		}
+	}
+
+	# THE CHAIN FROM THE REGION DOWN TO WHAT IS SELECTED, one block each.
+	# A subregion may hold subregions of its own, and the panel shows the
+	# path rather than only the two ends - which is the only way a nested
+	# object's numbers can be read against what contains them.
+	#
+	# THE REGION COUNTS ITSELF AND EVERYTHING INSIDE IT, because "how big
+	# is Bocas" means the whole of Bocas, subregions included.  Each
+	# subregion block below it counts ONLY its own band, so the blocks read
+	# down the panel as the parts of the total above them.
+
+	my @chain;
+	if ($root)
+	{
+		my ($merged,$nodes) = regionCoverageNodes($root);
+
+		my $whole = _countBlock($root->{id},{ levels => $merged },$stats);
+		$whole->{depth}   = 0;
+		$whole->{zmin}    = 0 + $root->{zmin};
+		$whole->{zauthor} = 0 + $root->{zauthor};
+		$whole->{zmax}    = 0 + $root->{zmax};
+		push @chain,$whole;
+
+		# The ancestors of the selected subregion, outermost first, which
+		# is the order the walk already produced them in.
+
+		if ($sub)
+		{
+			my %want = map { lc($_->{id}) => $_ } _ancestry($root,$sub->{id});
+			for my $node (@$nodes)
+			{
+				my $reg = $want{ lc($node->{id}) };
+				next if !$reg;
+				my $block = _countBlock($node->{id},$node,$stats);
+				$block->{depth} = 0 + $node->{depth};
+				$block->{zmax}  = 0 + $reg->{zmax};
+				push @chain,$block;
+			}
+		}
+	}
+
+	return $this->api_json_response($request,{
+		version	=> 0 + getStateSeq(),
+		set		=> { name  => openSetName(),
+					 tiles => 0 + $set_tiles,
+					 bytes => 0 + $set_bytes },
+		chain	=> \@chain,
 	});
 }
 

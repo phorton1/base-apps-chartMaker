@@ -128,6 +128,7 @@ changes. Nothing outside the application should depend on them.
 | `/poll`                   | applet  | A cheap version probe.                         |
 | `/state`                  | applet  | Everything currently visible, as one document. |
 | `/coverage?z&w&s&e&n`     | applet  | Tiles in coverage at one zoom, in view.        |
+| `/counts?id=<id>`         | applet  | Tiles and bytes by level, for the set and the chain down to one object. |
 | `/tile/<src>/<z>/<x>/<y>` | applet  | The tile proxy.                                |
 | `/edit`                   | applet  | A model mutation carrying structured data.     |
 
@@ -141,6 +142,23 @@ what it last rendered.
 active source, an evaluator result - all of it arrives together, so no two parts of the
 display can be out of step with one another. The temptation to add a second channel for
 some later feature is the thing to resist.
+
+**A second counter says whether the MODEL moved, and it is published to nobody.** Selecting
+an object and entering an edit both change what should be on screen, so both bump the poll
+counter - and neither moves a polygon, so anything derived from the geometry is still valid
+across them. Coverage costs about a second for a set; keyed on the poll counter, that work
+was thrown away by every click in the tree. The default is the safe one: a mutation that
+says nothing bumps both, which is merely slow, where the opposite default would serve a
+stale answer.
+
+**`/poll` also records when it was last asked.** One timestamp, no session - see
+[Tree Editing](design/editing_wx.md). It answers whether a browser is there, which is what
+lets an edit left behind by a closed window be cleared instead of blocking the tree forever.
+
+**The model travels between threads as a document, not as a folder.** Each thread holds its
+own copy and reloads when the shared counter moves, as before - but it refills from the
+published document rather than from disk, because with a set open the disk no longer holds
+what the user is looking at.
 
 Three properties of the protocol are worth stating because each is easy to lose:
 

@@ -148,8 +148,16 @@ function setImagerySource(src) {
 const regionLayer = L.layerGroup().addTo(map);
 let regionSig = null;
 
+// Yellow says region, cyan says subregion - and WHITE SAYS SELECTED,
+// outranking both.  What kind of object it is can be read off the tree or
+// the info panel; which one is under discussion cannot be read anywhere
+// else on the map, so it gets the colour that is not a category.
+
 const REGION_STYLE    = { color: '#ffcc00', weight: 2, fillOpacity: 0.05 };
 const SUBREGION_STYLE = { color: '#00e5ff', weight: 2, fillOpacity: 0.10 };
+const SELECTED_STYLE  = { color: '#ffffff', weight: 3, fillOpacity: 0.12 };
+
+let selectedId = '';
 
 function drawRegion(reg, style, rootId) {
     // AN OBJECT UNDER EDIT LEAVES THIS LAYER.  cmEdit draws it from its own
@@ -168,7 +176,8 @@ function drawRegion(reg, style, rootId) {
         const label = reg.zauthor === undefined
             ? reg.name + '  (to z' + reg.zmax + ')'
             : reg.name + '  (z' + reg.zauthor + '-' + reg.zmax + ')';
-        L.polygon(poly.map(p => [p[1], p[0]]), style)
+        L.polygon(poly.map(p => [p[1], p[0]]),
+                  reg.id === selectedId ? SELECTED_STYLE : style)
             .bindTooltip(label, { sticky: true })
             .addTo(regionLayer);
     });
@@ -176,10 +185,12 @@ function drawRegion(reg, style, rootId) {
 }
 
 function setRegions(regions) {
-    // The suppression state is part of the signature, because an object
-    // entering or leaving an edit changes what should be drawn without the
-    // model having changed at all.
-    const sig = JSON.stringify(regions) + '|' + suppressionSig();
+    // The suppression state and the SELECTION are part of the signature,
+    // because either one changes what should be drawn without the model
+    // having changed at all - an object entering an edit, or becoming the
+    // white one.
+    const sig = JSON.stringify(regions) + '|' + suppressionSig() +
+                '|' + selectedId;
     if (sig === regionSig) return;
     regionSig = sig;
 
@@ -211,20 +222,295 @@ window.cmRedrawRegions = cmRedrawRegions;
 
 
 // ============================================================================
+// The palette
+// ============================================================================
+// EVERYTHING THE USER SETS IS ON THE LEFT; everything the map reports is on
+// the right.  A control that also answers a question has to be read in one
+// place and operated in another, and the two get in each other's way -- so
+// the switches live here and the numbers live in the info panel.
+//
+// A Leaflet control at topleft rather than a box positioned by hand: the
+// zoom buttons are a control at the same corner, so the stack takes care of
+// itself and stays put at any window size.
+//
+// Rows are added by whichever file owns the thing being switched, and they
+// appear in the order named here rather than the order they were added.
+
+const PALETTE_ROWS = ['grid', 'autozoom', 'footprint'];
+
+const paletteBox = L.control({ position: 'topleft' });
+let paletteDiv = null;
+
+paletteBox.onAdd = function () {
+    paletteDiv = L.DomUtil.create('div', 'leaflet-bar cm-palette');
+    L.DomEvent.disableClickPropagation(paletteDiv);
+    L.DomEvent.disableScrollPropagation(paletteDiv);
+    return paletteDiv;
+};
+paletteBox.addTo(map);
+
+// Three columns: the checkbox, the label, and a value that is either text
+// or a control of the row's own.  THE WHOLE ROW IS THE SWITCH, so it can be
+// hit without aiming; the exception is a control in the value column, which
+// has its own job and must not toggle the row on its way to doing it.
+//
+// The checkbox carries no handler.  A click on it bubbles to the row,
+// toggles once, and the owner sets .box.checked from its own flag, so the
+// flag stays the only state.
+
+function paletteRow(key, label, opts) {
+    opts = opts || {};
+    const row = document.createElement('div');
+    row.className = 'cm-pal-row';
+    row.dataset.key = key;
+
+    const box = document.createElement('input');
+    box.type = 'checkbox';
+    box.className = 'cm-pal-box';
+    box.tabIndex = -1;
+    box.checked = !!opts.checked;
+
+    const lab = document.createElement('span');
+    lab.className = 'cm-pal-label';
+    lab.textContent = label;
+
+    const val = document.createElement('span');
+    val.className = 'cm-pal-value';
+
+    row.appendChild(box);
+    row.appendChild(lab);
+    row.appendChild(val);
+
+    row.onclick = ev => {
+        const t = ev.target;
+        if (t !== box && /^(INPUT|SELECT|BUTTON)$/.test(t.tagName)) return;
+        if (opts.onToggle) opts.onToggle();
+    };
+
+    const want = PALETTE_ROWS.indexOf(key);
+    let before = null;
+    for (const el of paletteDiv.children) {
+        if (PALETTE_ROWS.indexOf(el.dataset.key) > want) { before = el; break; }
+    }
+    paletteDiv.insertBefore(row, before);
+
+    return { row: row, box: box, label: lab, value: val };
+}
+window.cmPaletteRow = paletteRow;
+
+
+// ============================================================================
+// The info panel
+// ============================================================================
+// The other half of the split: what the map has to SAY.  The set the work
+// is in, the object selected, the zooms that object carries, and what the
+// footprint counted.  Nothing here is operable.
+//
+// The selected object is drawn in bold blue because it is the one line that
+// answers "what am I working on" -- everything around it is context.
+
+const infoBox = L.control({ position: 'topright' });
+let infoDiv    = null;
+let infoState  = null;
+let infoCount  = '';
+let counts     = null;
+let countsKey  = null;
+
+// DECLARED HERE, WITH THE PANEL THAT READS IT, rather than beside the poll
+// loop that sets it: drawInfo() runs once at load to put something on
+// screen, and a `let` further down the file is not initialised yet when it
+// does - which is a dead reference rather than a false.
+let dark = false;
+
+infoBox.onAdd = function () {
+    infoDiv = L.DomUtil.create('div', 'cm-info');
+    L.DomEvent.disableClickPropagation(infoDiv);
+    return infoDiv;
+};
+infoBox.addTo(map);
+
+function findNode(regions, id) {
+    // The node with this id, and the region it belongs to.
+    const dig = (node, root) => {
+        if (node.id === id) return { root: root, node: node };
+        for (const s of (node.subregions || [])) {
+            const found = dig(s, root);
+            if (found) return found;
+        }
+        return null;
+    };
+    for (const r of (regions || [])) {
+        const found = dig(r, r);
+        if (found) return found;
+    }
+    return null;
+}
+
+function infoRow(key, value, cls) {
+    const row = document.createElement('div');
+    row.className = 'cm-info-row' + (cls ? ' ' + cls : '');
+    const k = document.createElement('span');
+    k.className = 'cm-info-k';
+    k.textContent = key;
+    const v = document.createElement('span');
+    v.className = 'cm-info-v';
+    v.textContent = value;
+    row.appendChild(k);
+    row.appendChild(v);
+    infoDiv.appendChild(row);
+}
+
+function prettyBytes(n) {
+    if (!n) return '-';
+    const u = ['B', 'KB', 'MB', 'GB', 'TB'];
+    let i = 0;
+    while (n >= 1024 && i < u.length - 1) { n /= 1024; i++; }
+    return (i && n < 10 ? n.toFixed(1) : Math.round(n)) + ' ' + u[i];
+}
+
+// A LEVEL ROW IS TWO NUMBERS, and they are padded rather than given their
+// own columns: the panel is monospace, so a pad IS a column, and one built
+// out of flex boxes would only be the same thing with more parts.
+
+function levelRow(label, tiles, bytes, cls) {
+    infoRow(label,
+        tiles.toLocaleString().padStart(8) + '  ' + prettyBytes(bytes).padStart(8),
+        'cm-info-in' + (cls ? ' ' + cls + '-in' : ''));
+}
+
+function countBlock(block, cls) {
+    if (!block) return;
+    for (const lv of block.levels) levelRow('z' + lv.z, lv.tiles, lv.bytes, cls);
+    levelRow('total', block.tiles, block.bytes, cls);
+}
+
+// The subregions between a region and one of its descendants, outermost
+// first - the same path the counts arrive in, computed here so the panel
+// can be drawn before they do.
+function ancestry(reg, id) {
+    if (reg.id === id) return [];
+    for (const sub of (reg.subregions || [])) {
+        if (sub.id === id) return [sub];
+        const deeper = ancestry(sub, id);
+        if (deeper.length) return [sub].concat(deeper);
+    }
+    return [];
+}
+
+// FOUR DEPTHS ARE COLOURED and anything deeper reuses the last.  A fourth
+// level of nesting is already past z22, where no source has imagery and
+// the map itself will not go - so running out of colours is not a case
+// worth designing for, but running out of them SILENTLY would be.
+const MAX_INFO_DEPTH = 3;
+
+// THE PANEL NESTS THE WAY THE MODEL DOES.  The set is always the top line;
+// the selected region is always named under it; and a selected subregion
+// ADDS a block rather than replacing the region's - which is what makes it
+// unnecessary to say whose subregion it is, the region being the line
+// above.  Nothing is a summary of anything else: each block is the band
+// only it supplies, so they read down the panel as addition.
+
+function drawInfo() {
+    if (!infoDiv) return;
+    infoDiv.innerHTML = '';
+    const s = infoState;
+    const c = counts;
+
+    // THE PANEL IS WHERE THE MAP SAYS WHAT IT KNOWS, so it is also where
+    // it says that it knows nothing.  Three states, not two: connected
+    // with a set, connected with none, and not connected at all.
+
+    if (dark) {
+        infoRow('chartMaker', 'not connected', 'cm-info-d0');
+        return;
+    }
+    if (s && !s.active_set) {
+        infoRow('set', 'none open', 'cm-info-d0');
+        return;
+    }
+    if (s && s.active_set) {
+        infoRow('set', s.active_set + (s.set_dirty ? ' *' : ''));
+        // TILE COUNTS ARE NOT INTERESTING AT SET LEVEL - what a whole card
+        // costs is, and that is one number.
+        if (c && c.set) infoRow('size', prettyBytes(c.set.bytes), 'cm-info-in');
+    }
+
+    const sel = s && s.selection;
+    const id  = sel && (sel.sub || sel.region);
+    const hit = id ? findNode(s.regions, id) : null;
+
+    if (!hit) {
+        infoRow('nothing', 'selected', 'cm-info-d0');
+    } else {
+        // ONE BLOCK PER LEVEL, from the region down to what is selected,
+        // each in the colour of its depth.  Nesting is what the colours
+        // are for: at three deep the words 'subregion' are no longer
+        // telling them apart, and the numbers under each one only mean
+        // something against the level above.
+
+        const chain = (c && c.chain) || [];
+        const path  = [hit.root].concat(ancestry(hit.root, hit.node.id));
+
+        path.forEach((node, depth) => {
+            const cls = 'cm-info-d' + Math.min(depth, MAX_INFO_DEPTH);
+            infoRow(depth ? 'subregion' : 'region',
+                node.id + (depth ?
+                    '   to z' + node.zmax :
+                    '   z' + node.zmin + '-' + node.zmax + ' @' + node.zauthor),
+                cls);
+
+            const block = chain.find(b => b.id === node.id);
+            if (block) countBlock(block, cls);
+        });
+    }
+
+    if (infoCount) {
+        infoRow('footprint', infoCount);
+        infoDiv.lastChild.title = 'tiles in view / tiles in the whole set';
+    }
+}
+
+// ASKED WHEN THE ANSWER COULD HAVE CHANGED, which is not every poll.  The
+// counts depend on the geometry and on which object is selected, and on
+// nothing else - so entering an edit, moving the map, or publishing a mode
+// asks nothing.  Geometry only reaches the model on commit, which is what
+// leaves the table still through an edit without a rule saying so.
+
+async function refreshCounts(state) {
+    const key = JSON.stringify(state.regions) + '|' + selectedId;
+    if (key === countsKey) return;
+    countsKey = key;
+
+    try {
+        counts = await fetchJson('/counts?id=' + encodeURIComponent(selectedId),
+                                 STATE_TIMEOUT_MS);
+    } catch (e) {
+        console.warn('chartMaker: /counts failed', e);
+        counts = null;
+    }
+    drawInfo();
+}
+
+drawInfo();     // says "nothing selected" until the first document arrives
+
+
+// ============================================================================
 // The coverage footprint
 // ============================================================================
-// The tiles that would actually be built, drawn AT THE ZOOM BEING VIEWED.
-// That is what keeps it both legible and honest: a tile is about 256
-// pixels on the screen at any zoom, and the outline really is the
-// coverage at the zoom being looked at.  Zoom in and the staircase along
-// the boundary refines.
+// The tiles that would actually be built, AT A LEVEL THE USER CHOOSES.  The
+// question worth answering is how dense this region is at a given zoom, and
+// tying that to the view made it unanswerable: the number changed every
+// time the map moved, and comparing two levels meant zooming away from what
+// was being looked at.  The level is a spinner in the palette instead.
 //
-// Only the viewport is asked for.  The full set at z16 is tens of
-// thousands of tiles, and an answer about tiles nobody can see is of no
-// use to anybody.
+// Only the viewport is asked for.  The full set at z16 is tens of thousands
+// of tiles, and an answer about tiles nobody can see is of no use to
+// anybody -- so the rectangles are clipped to the view while the COUNT is
+// the whole set at that level.
 
 const coverageLayer = L.layerGroup();
 let coverageOn  = false;
+let coverageZ   = null;     // chosen, never inherited from the view
 let coverageSig = null;
 
 const COVERAGE_STYLE = {
@@ -234,7 +520,7 @@ const COVERAGE_STYLE = {
 
 async function refreshCoverage() {
     if (!coverageOn) return;
-    const z = Math.round(map.getZoom());
+    const z = coverageZ === null ? Math.round(map.getZoom()) : coverageZ;
     const b = map.getBounds();
     const q = '/coverage?z=' + z +
         '&w=' + b.getWest()  + '&s=' + b.getSouth() +
@@ -263,8 +549,12 @@ async function refreshCoverage() {
         L.rectangle([[tileLat(y + 1, n), w], [tileLat(y, n), e]],
                     COVERAGE_STYLE).addTo(coverageLayer);
     });
-    coverageCount.textContent =
-        data.tiles.length + ' of ' + data.total + ' tiles at z' + data.zoom;
+    // IN VIEW OVER TOTAL, and no level in the text - the spinner beside the
+    // checkbox already says which level this is, and a panel that repeats
+    // what the palette just said grows wide enough to matter.
+    infoCount = data.tiles.length.toLocaleString() + ' / ' +
+                data.total.toLocaleString();
+    drawInfo();
 }
 
 function tileLat(y, n) {
@@ -272,47 +562,99 @@ function tileLat(y, n) {
     return 180 / Math.PI * Math.atan(0.5 * (Math.exp(t) - Math.exp(-t)));
 }
 
-// ---- the control ----
+// ---- the palette row ----
 
-const coverageBox = L.control({ position: 'topright' });
-let coverageCount;
+const coverageRow = paletteRow('footprint', 'tile footprint',
+    { checked: false, onToggle: toggleCoverage });
 
-coverageBox.onAdd = function () {
-    const div = L.DomUtil.create('div', 'leaflet-bar cm-coverage');
-    div.style.background = 'rgba(255,255,255,0.85)';
-    div.style.padding    = '4px 8px';
-    div.style.font       = '12px sans-serif';
-    div.style.cursor     = 'default';
+const coverageSpin = document.createElement('input');
+coverageSpin.type      = 'number';
+coverageSpin.min       = 1;
+coverageSpin.max       = MAP_MAX_ZOOM;
+coverageSpin.className = 'cm-pal-spin';
+coverageSpin.value     = Math.round(map.getZoom());   // until /state says better
+coverageRow.value.appendChild(coverageSpin);
 
-    const label = document.createElement('label');
-    label.style.cursor = 'pointer';
-    const cb = document.createElement('input');
-    cb.type = 'checkbox';
-    label.appendChild(cb);
-    label.appendChild(document.createTextNode(' tile footprint'));
-    div.appendChild(label);
+coverageSpin.addEventListener('change', () => {
+    const z = clampZ(Math.round(+coverageSpin.value));
+    coverageSpin.value = z;
+    coverageZ   = z;
+    coverageSig = null;
+    refreshCoverage();
+});
 
-    coverageCount = document.createElement('div');
-    coverageCount.style.color = '#555';
-    coverageCount.style.marginTop = '2px';
-    div.appendChild(coverageCount);
+function clampZ(z) {
+    return Math.max(+coverageSpin.min, Math.min(+coverageSpin.max, z));
+}
 
-    L.DomEvent.disableClickPropagation(div);
-    cb.addEventListener('change', () => {
-        coverageOn = cb.checked;
-        if (coverageOn) {
-            coverageLayer.addTo(map);
-            coverageSig = null;
-            refreshCoverage();
-        } else {
-            map.removeLayer(coverageLayer);
-            coverageLayer.clearLayers();
-            coverageCount.textContent = '';
-        }
-    });
-    return div;
-};
-coverageBox.addTo(map);
+// THE RANGE IS THE WORK, NOT THE PROTOCOL.  A level below the region's zmin
+// or above the deepest subregion in it holds no tiles at all, so offering it
+// would be offering an answer of zero and calling it information.  The floor
+// is the region's zmin - the overview it starts at - and the ceiling is the
+// deepest zmax anywhere inside it, which is a subregion's whenever one goes
+// deeper than its parent.
+//
+// With nothing selected the same question is asked of every region at once,
+// because the footprint is of everything on the map.
+
+function footprintRange(state) {
+    const regions = (state && state.regions) || [];
+    const sel     = selectedId ? findNode(regions, selectedId) : null;
+    const roots   = sel ? [sel.root] : regions;
+
+    let lo = null, hi = null;
+    const walk = node => {
+        if (node.zmin !== undefined)
+            lo = lo === null ? node.zmin : Math.min(lo, node.zmin);
+        if (node.zmax !== undefined)
+            hi = hi === null ? node.zmax : Math.max(hi, node.zmax);
+        (node.subregions || []).forEach(walk);
+    };
+    roots.forEach(walk);
+
+    return (lo === null || hi === null) ? null : { min: lo, max: hi };
+}
+
+// The selection moves the range, and a level that was legal under the last
+// one may not be under this.  It is pulled to the nearest level that is,
+// rather than reset to a default, because it is still the closest thing to
+// what was being asked.
+
+function updateFootprintRange(state) {
+    const range = footprintRange(state);
+    if (!range) return;
+
+    coverageSpin.min = range.min;
+    coverageSpin.max = range.max;
+
+    if (coverageZ === null) {
+        const first = (state.regions || [])[0];
+        coverageZ = first && first.zauthor !== undefined ?
+            first.zauthor : Math.round(map.getZoom());
+    }
+    const z = clampZ(coverageZ);
+    if (z !== coverageZ) coverageSig = null;
+    coverageZ = z;
+    coverageSpin.value = z;
+}
+
+function toggleCoverage() {
+    coverageOn = !coverageOn;
+    coverageRow.box.checked = coverageOn;
+    if (coverageOn) {
+        coverageLayer.addTo(map);
+        coverageSig = null;
+        refreshCoverage();
+    } else {
+        map.removeLayer(coverageLayer);
+        coverageLayer.clearLayers();
+        infoCount = '';
+        drawInfo();
+    }
+}
+
+// The view still decides WHICH rectangles are worth drawing, so a pan is
+// still a new question even though the level no longer moves with it.
 
 map.on('moveend zoomend', refreshCoverage);
 
@@ -357,19 +699,60 @@ async function fetchJson(path, timeoutMs) {
     }
 }
 
+// NOTHING BEHIND IT MEANS NOTHING ON IT.  A chartset drawn with no
+// application behind it is a picture of something that may no longer be
+// true - the set could have been closed, reverted, or replaced while the
+// page went on showing it - so after a grace period the map stops showing
+// a model it can no longer vouch for.
+//
+// AFTER A GRACE PERIOD, and not on the first failed poll: restarting the
+// application takes a few seconds, and wiping the screen every time would
+// make an ordinary restart look like a crash.
+//
+// The imagery layer is deliberately left alone.  Its tiles come through
+// the application too, so it simply stops loading new ones; tearing it
+// down would blank the whole map for nothing.
+
+const DISCONNECT_MS = 5000;
+
+let lastOkMs = Date.now();
+
+function goDark() {
+    if (dark) return;
+    dark = true;
+    console.warn('chartMaker: the application is not there - clearing');
+
+    regionLayer.clearLayers();
+    lastRegions = [];
+    regionSig   = null;
+    selectedId  = '';
+
+    coverageLayer.clearLayers();
+    infoCount = '';
+    counts    = null;
+    countsKey = null;
+    infoState = null;
+
+    if (window.cmEditDisconnected) cmEditDisconnected();
+    drawInfo();
+}
+
 function onDisconnected(what, e) {
     if (connected) {
         connected = false;
         console.warn('chartMaker: lost the application (' + what + ')', e);
     }
     renderedVersion = -1;       // force a full resync when it comes back
+    if (Date.now() - lastOkMs > DISCONNECT_MS) goDark();
 }
 
 function onConnected() {
+    lastOkMs = Date.now();
     if (!connected) {
         connected = true;
         console.info('chartMaker: reconnected');
     }
+    dark = false;
 }
 
 async function pollVersion() {
@@ -398,6 +781,19 @@ async function applyState() {
 
         renderedVersion = wanted;
 
+        // WHAT IS SELECTED IS PART OF THE DOCUMENT, so the map learns it on
+        // the same poll as everything else and no surface can disagree.
+
+        selectedId = (state.selection &&
+            (state.selection.sub || state.selection.region)) || '';
+        infoState = state;
+
+        // The footprint opens on the level the work is authored at, which is
+        // the only level anybody has expressed an opinion about, and is held
+        // within the range the selection actually spans.
+
+        updateFootprintRange(state);
+
         const src = (state.sources || [])
             .find(s => s.id === state.active_source) || null;
         if (!src) {
@@ -418,6 +814,9 @@ async function applyState() {
         } catch (e) {
             console.error('chartMaker: could not draw the regions', e);
         }
+        drawInfo();
+        refreshCounts(state);
+
         // The model changed, so any footprint on screen is now stale.
         coverageSig = null;
         refreshCoverage();

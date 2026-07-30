@@ -95,12 +95,19 @@ sub commandHelp
 		[ 'source use <id>',	'make one source the one the map displays'					],
 		[ 'tile <id> <z> <x> <y>',	'fetch one tile and report what came back'				],
 		[ 'cache [id]',			'what the tile cache holds, by zoom'						],
-		[ 'set',				'list the region sets, marking the active one'				],
-		[ 'set use <name>',		'make one region set active'								],
-		[ 'set new <name>',		'create an empty region set'								],
-		[ 'regions',			'list the regions in the active set'						],
+		[ 'set',				'list the region sets, marking the open one'				],
+		[ 'set open <name>',	'open a region set as the document'							],
+		[ 'set new <name>',		'create an empty region set and open it'					],
+		[ 'set save',			'write the open set - the ONLY thing that writes a region'	],
+		[ 'set saveas <name>',	'write it to a new set and continue there'					],
+		[ 'set revert [force]',	'every region back to what is on disk'					],
+		[ 'set close',			'close it (refuses while dirty)'							],
+		[ 'set discard',		'close it, throwing unsaved changes away'					],
+		[ 'set dirty',			'what is unsaved, and why'									],
+		[ 'regions',			'list the regions in the open set'							],
 		[ 'region <id>',		'show one region and its subregions'						],
-		[ 'region rescan',		're-read the .region files from the active set'				],
+		[ 'region commit <id>',	'write one region now'										],
+		[ 'region revert <id>',	'one region back to what is on disk'						],
 		[ 'region new <name> [z]',		'create an empty region'							],
 		[ 'region rename <id> <name>',	'change a region\'s name (free text, no structural role)'],
 		[ 'region id <id> <new id>',	'change a region\'s id, its file and every set naming it'],
@@ -111,7 +118,7 @@ sub commandHelp
 		[ 'select <id|none>',	'select a region or subregion, on every surface at once'	],
 		[ 'edit [mode] [id] [dirty]','what the map is doing: browse, shape, draw, end'	],
 		[ 'region geometry <id> [sub]',	'replace polygons - /edit only, the map supplies them'],
-		[ 'region delete <id>',			'delete a region and its file'						],
+		[ 'region delete <id>',			'delete a region from the document'						],
 		[ 'region import <file> [z]',	'import each KML folder as a region'				],
 		[ 'subregion new <parent> <zmax> <name>',
 										'add an empty detail area - draw it on the map'		],
@@ -551,7 +558,7 @@ sub _regionGeometry
 	# there is no partial state on this side to get out of step, and a
 	# lost or duplicated message cannot leave a half-moved shape behind.
 	#
-	# Validation is dm_region's, not this module's.  saveRegion validates
+	# Validation is dm_region's, not this module's.  stageRegion validates
 	# what will actually be written and refuses the whole save, so a
 	# polygon with two points or a latitude outside Web Mercator never
 	# reaches the file.
@@ -584,7 +591,7 @@ sub _regionGeometry
 	# that a rejected commit leaves the model exactly as it was rather than
 	# holding a shape the validator would not accept.
 
-	if (!saveRegion($reg))
+	if (!stageRegion($reg))
 	{
 		$target->{geometry} = $old;
 		$cmd_failed = 1;
@@ -689,11 +696,25 @@ sub _regionCommand
 		return;
 	}
 
-	if ($verb eq 'rescan')
+	if ($verb eq 'commit')
 	{
-		my $found = rescanRegions();
-		display(0,0,"region rescan: $found region".($found == 1 ? '' : 's'));
-		bumpState("regions rescanned");
+		my ($id) = split(/\s+/,$rest,2);
+		return _fail("region commit: which region?") if !$id;
+		return $cmd_failed = 1 if !commitRegion($id);
+		display(0,0,"region commit: '$id' written");
+		bumpState("region '$id' committed");
+		return;
+	}
+	if ($verb eq 'revert')
+	{
+		my ($id) = split(/\s+/,$rest,2);
+		return _fail("region revert: which region?") if !$id;
+
+		my $what = revertRegion($id);
+		return $cmd_failed = 1 if !$what;
+		display(0,0,"region revert: '$id' ".($what eq 'removed' ?
+			"had never been saved - it is gone" : "is back to what is on disk"));
+		bumpState("region '$id' reverted");
 		return;
 	}
 	if ($verb eq 'new')
@@ -837,7 +858,7 @@ sub _regionCommand
 		}
 		my $was = $target->{$verb};
 		$target->{$verb} = int($zoom);
-		if (!saveRegion($reg))
+		if (!stageRegion($reg))
 		{
 			$target->{$verb} = $was;
 			$cmd_failed = 1;
@@ -991,9 +1012,22 @@ sub _checkCommand
 
 
 sub _setCommand
-	# set                 - list the sets, marking the active one
-	# set use <name>      - make one active
-	# set new <name>      - create one
+	# set                   - list the sets, marking the open one
+	# set open <name>       - close what is open and open that one
+	# set new <name>        - create one and open it
+	# set save              - write the open set
+	# set saveas <name>     - write it to a new set and continue there
+	# set close             - close it
+	# set dirty             - what is unsaved, and why
+	# set discard           - close or open WITHOUT saving
+	#
+	# A SET IS A DOCUMENT and these are its File menu, in the vocabulary
+	# rather than only on a menu bar, so a test can drive the whole cycle.
+	#
+	# NOTHING HERE DISCARDS WORK SILENTLY.  open and close refuse while the
+	# document is dirty and say so; 'set discard' is the way to say it was
+	# meant, and it is a separate word because a refusal that can be
+	# cleared by repeating the command is not a refusal.
 	#
 	# There is deliberately no 'set delete'.  A set is a folder of the
 	# user's own region files, and deleting it is File Explorer's job -
@@ -1015,50 +1049,124 @@ sub _setCommand
 			display(0,1,"try 'set new <name>'");
 			return;
 		}
-		my $active = getActiveSet();
+		my $open = openSetName();
 		display(0,0,"region sets");
 		for my $n (@names)
 		{
 			my $dir = setDir($n);
 			my @regions = glob("$dir/*.region");
 			display(0,1,sprintf("%s %-16s %d region(s)",
-				$n eq $active ? '->' : '  ',$n,scalar(@regions)));
+				$n eq $open ? '->' : '  ',$n,scalar(@regions)));
 		}
+		display(0,1,"nothing is open") if !$open;
 		return;
 	}
 
-	if ($verb eq 'use')
+	if ($verb eq 'dirty')
 	{
-		if (!defined($name) || $name !~ /\S/)
+		if (!setIsOpen())
 		{
-			warning(0,0,"set use: which set?");
+			display(0,0,"no set is open");
 			return;
 		}
-		if (!setExists($name))
+		if (!isSetDirty())
 		{
-			error("set use: there is no set named '$name'");
+			display(0,0,"'".openSetName()."' has no unsaved changes");
 			return;
 		}
+		my @ids = dirtyRegionIds();
+		display(0,0,"'".openSetName()."' has unsaved changes");
+		display(0,1,"$_ - edited") for @ids;
+		display(0,1,"regions have been created, deleted or renamed")
+			if !@ids;
+		return;
+	}
+
+	if ($verb eq 'revert')
+	{
+		# EVERY REGION BACK TO THE FOLDER, in one step - the set-level
+		# partner of 'region revert'.  Re-reading the files and reverting
+		# are the same act now that the document is what is edited, so
+		# there is one verb for it rather than a rescan that happens to
+		# have that effect.
+
+		return _fail("set revert: no set is open") if !setIsOpen();
+		return _fail("set revert: this throws away unsaved changes to '".
+			openSetName()."' - 'set save' first, or 'set revert force'")
+			if isSetDirty() && ($name || '') !~ /^\s*force\s*$/i;
+
+		my $found = revertSet();
+		display(0,0,"reverted '".openSetName()."' - $found region".
+			($found == 1 ? '' : 's')." re-read from disk");
+		bumpState("set reverted");
+		return;
+	}
+
+	if ($verb eq 'save')
+	{
+		return _fail("set save: no set is open") if !setIsOpen();
+		return if !saveSet();
+		display(0,0,"saved '".openSetName()."'");
+		bumpState("set '".openSetName()."' saved");
+		return;
+	}
+
+	if ($verb eq 'saveas')
+	{
+		return _fail("set saveas: no set is open") if !setIsOpen();
+		return _fail("set saveas: what name?")
+			if !defined($name) || $name !~ /\S/;
+		return if !saveSetAs($name);
+		display(0,0,"saved as '$name', which is now open");
+		bumpState("set saved as '$name'");
+		return;
+	}
+
+	if ($verb eq 'close' || $verb eq 'discard')
+	{
+		return _fail("set close: no set is open") if !setIsOpen();
+		return _fail("set close: '".openSetName()."' has unsaved changes - ".
+			"'set save' first, or 'set discard' to throw them away")
+			if $verb eq 'close' && isSetDirty();
+
+		my $was = openSetName();
+		closeSet();
+		display(0,0,"closed '$was'");
+		bumpState("set '$was' closed");
+		return;
+	}
+
+	if ($verb eq 'open')
+	{
+		return _fail("set open: which set?") if !defined($name) || $name !~ /\S/;
+		return _fail("set open: there is no set named '$name'")
+			if !setExists($name);
+		return _fail("set open: '".openSetName()."' has unsaved changes - ".
+			"'set save' first, or 'set discard' to throw them away")
+			if setIsOpen() && isSetDirty();
+
 		setActiveSet($name);
-		display(0,0,"active set is '".getActiveSet()."'");
-		bumpState("active set is '$name'");
+		openSet($name);
+		display(0,0,"opened '".openSetName()."'");
+		bumpState("set '$name' opened");
 		return;
 	}
 
 	if ($verb eq 'new')
 	{
-		if (!defined($name) || $name !~ /\S/)
-		{
-			warning(0,0,"set new: what name?");
-			return;
-		}
+		return _fail("set new: what name?") if !defined($name) || $name !~ /\S/;
+		return _fail("set new: '".openSetName()."' has unsaved changes - ".
+			"'set save' first, or 'set discard' to throw them away")
+			if setIsOpen() && isSetDirty();
+
 		return if !newSet($name);
-		display(0,0,"created set '$name', now active");
+		openSet($name);
+		display(0,0,"created set '$name', now open");
 		bumpState("set '$name' created");
 		return;
 	}
 
-	warning(0,0,"set: expected 'use' or 'new'");
+	warning(0,0,"set: expected open, new, save, saveas, revert, close, discard or dirty");
 }
 
 

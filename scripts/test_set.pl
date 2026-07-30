@@ -131,7 +131,7 @@ putFile("$ROOT/region_sets/Panama/Bocas.region",
 putFile("$ROOT/region_sets/Panama/PortBelo.region",
 	regionJson('PortBelo','Portobelo',9.55,-79.65));
 
-my $found = rescanRegions();
+my $found = openSet(getActiveSet());
 ok($found == 2,"two region files scanned into the set (got $found)");
 ok(scalar(my @a = getRegionIds()) == 2,"getRegionIds sees both");
 ok(getRegion('Bocas') && getRegion('Bocas')->{name} eq 'Bocas del Toro',
@@ -150,18 +150,19 @@ print "\n=== two sets, the same id ===\n";
 
 ok(newSet('Caribbean'),"newSet('Caribbean')");
 ok(getActiveSet() eq 'Caribbean',"the new set is active");
+openSet('Caribbean');
 my @b = getRegionIds();
 ok(scalar(@b) == 0,"the new set is empty (got ".scalar(@b).")");
 
 putFile("$ROOT/region_sets/Caribbean/Bocas.region",
 	regionJson('Bocas','A DIFFERENT Bocas',9.40,-82.30));
-rescanRegions();
+openSet(getActiveSet());
 
 my $other = getRegion('Bocas');
 ok($other && $other->{name} eq 'A DIFFERENT Bocas',
 	"the same id in another set is another region");
 
-setActiveSet('Panama');
+openSet('Panama');
 my $orig = getRegion('Bocas');
 ok($orig && $orig->{name} eq 'Bocas del Toro',
 	"switching back gives the first one again");
@@ -173,11 +174,11 @@ ok($orig && $orig->{name} eq 'Bocas del Toro',
 
 print "\n=== the active set drives the model ===\n";
 
-setActiveSet('Caribbean');
+openSet('Caribbean');
 my @c = getRegionIds();
 ok(scalar(@c) == 1,
 	"changing the active set reloads the regions (got ".scalar(@c).")");
-setActiveSet('Panama');
+openSet('Panama');
 my @d = getRegionIds();
 ok(scalar(@d) == 2,"and back again (got ".scalar(@d).")");
 
@@ -204,9 +205,9 @@ ok(scalar(@h) == 1,"getUncheckedIds reports it");
 
 # The same id in the other set must not have been hidden too.
 
-setActiveSet('Caribbean');
+openSet('Caribbean');
 ok(isChecked('Bocas'),"the same id in another set is NOT hidden");
-setActiveSet('Panama');
+openSet('Panama');
 ok(!isChecked('Bocas'),"and the first one is still hidden");
 
 setChecked('Bocas',1);
@@ -219,6 +220,11 @@ ok(isChecked('Bocas'),"checking shows it again");
 
 print "\n=== a dangling selection ===\n";
 
+# THE ACTIVE SET IS A POINTER, and it is the pointer being tested here -
+# not the open document.  It is what the ini remembers and what the
+# application opens at startup, so it has to degrade rather than fail when
+# the folder it names is gone.
+
 setActiveSet('Nonesuch');
 ok(getActiveSet() eq 'Caribbean',
 	"a set that does not exist falls through to the first in tree order ".
@@ -229,9 +235,14 @@ rmTree("$ROOT/region_sets/Panama");
 rescanSets();
 ok(getActiveSet() eq 'Caribbean',
 	"deleting the active set's folder falls through (got '".getActiveSet()."')");
+# THE OPEN DOCUMENT DOES NOT FOLLOW THE POINTER.  It cannot: it may hold
+# unsaved work, and a folder disappearing underneath it is not a reason to
+# throw that away.  What degrades is where the next Open lands.
+
+openSet(getActiveSet());
 my @i = getRegionIds();
 ok(scalar(@i) == 1,
-	"and the model follows without being told (got ".scalar(@i).")");
+	"and opening what it resolves to now gives that set (got ".scalar(@i).")");
 
 
 #---------------------------------------------
@@ -295,12 +306,17 @@ ok(getDefaultSource() eq $DEFAULT_SOURCE_ID,
 print "\n=== writing ===\n";
 
 my $new = newRegion('Made Here',15,10,16,'MadeHere');
-ok($new,"newRegion in an active set");
+ok($new,"newRegion in the open set");
+ok(!-f "$ROOT/region_sets/Caribbean/MadeHere.region",
+	"which writes NOTHING until the set is saved");
+
+ok(saveSet(),"saving the set");
 ok(-f "$ROOT/region_sets/Caribbean/MadeHere.region",
-	"the file was written INTO the active set's folder");
+	"puts the file INTO the open set's folder");
 ok(!-f "$ROOT/MadeHere.region","and not into the data dir");
 
 setRegionId('MadeHere','Renamed');
+saveSet();
 ok(-f "$ROOT/region_sets/Caribbean/Renamed.region","a rename writes the new leaf");
 ok(!-f "$ROOT/region_sets/Caribbean/MadeHere.region","and removes the old one");
 
@@ -309,9 +325,14 @@ ok(!-f "$ROOT/region_sets/Caribbean/MadeHere.region","and removes the old one");
 setChecked('Renamed',0);
 setRegionId('Renamed','RenamedAgain');
 ok(!isChecked('RenamedAgain'),"hidden survives a rename");
+saveSet();
+ok(-f "$ROOT/region_sets/Caribbean/RenamedAgain.region","the renamed file is there");
 
 deleteRegion('RenamedAgain');
-ok(!-f "$ROOT/region_sets/Caribbean/RenamedAgain.region","delete removes the file");
+ok(-f "$ROOT/region_sets/Caribbean/RenamedAgain.region",
+	"deleting leaves the file until the set is saved");
+saveSet();
+ok(!-f "$ROOT/region_sets/Caribbean/RenamedAgain.region","and then it is gone");
 ok(!defined(getRegion('RenamedAgain')),"and the region is gone from the model");
 
 

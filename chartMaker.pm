@@ -69,7 +69,12 @@ readIniSelections();
 
 loadSets();
 loadSources();
-loadRegions();
+
+# THE SET REMEMBERED IN THE INI IS OPENED AS THE DOCUMENT, which is what
+# makes starting the application the same thing as opening what you had
+# open.  Nothing is written by this: openSet reads, and only Save writes.
+
+openSet(getActiveSet());
 
 my $console = is_win() ? em_console->new(\&em_command::dispatchCommand) : undef;
 

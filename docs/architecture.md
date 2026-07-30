@@ -243,9 +243,16 @@ native windows; geometry and imagery are edited on the map. Both surfaces show b
 of thing, but each thing has exactly one place it is changed - one model, one
 implementation of every operation, and no way for two views to disagree.
 
-**No project files and no File menu.** The unit people exchange is a region, so the
-container around it never needs to travel, and the entire document-application apparatus -
-open, save-as, recent files, unsaved-changes prompts - buys nothing.
+**No project file.** The unit people exchange is a region and the container around it is a
+folder, so there is nothing to write that describes which files belong together - see
+[Regions](design/regions.md).
+
+There *is* a File menu, and it earns its place for a reason the original refusal missed: a
+**set is the document**, opened and saved as one. Only Save writes a region file, so killing
+the application leaves the folder exactly as it was, a session of experiments can be thrown
+away by closing without saving, and a test can drive the whole application against a fixture
+without touching it. What was refused - and still is - is a project *file*: the folder is
+the manifest.
 
 **Not turnkey.** The corollary of the first two: the seam that keeps the decision with the
 user is the same seam that prevents the application from making it for them.
@@ -270,8 +277,9 @@ people exchange: handing someone a region file hands them a complete description
 of coastline and nothing else.
 
 There is no project file. Regions live in a folder, and the application finds them by
-looking; a **set** is a named list of them, and the set you currently have checked is the
-one you are looking at. The full format is specified in [Design: Regions](design/regions.md).
+looking; a **set** is that folder, and one set is open at a time - read into memory when it
+is opened and written back when it is saved. The full format, and what being a document
+buys, are in [Design: Regions](design/regions.md).
 
 Three rules give the model its properties:
 

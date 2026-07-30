@@ -436,6 +436,42 @@ sub _walk
 }
 
 
+# WHAT A REGION COVERS IS A FUNCTION OF THE REGION, so the last answer is
+# kept beside the question that produced it.  The question is the region's
+# own content - its levels, its polygons, its subregions - and nothing else
+# reaches this computation, so a matching signature means a valid answer no
+# matter what else changed in the application.
+#
+# That is why the signature is the key rather than a version number and a
+# list of what was dirtied: nothing has to be told which region changed, and
+# an invalidation cannot be forgotten at a call site.  Building the string
+# costs microseconds against a walk that costs a fifth of a second.
+#
+# ONE ENTRY PER REGION, holding only its latest signature: the previous
+# coverage of a region that has just been edited is of no use to anybody,
+# and keeping it would grow without bound across a session of editing.
+#
+# The result is READ ONLY to callers.  Nothing mutates it today; a caller
+# that did would be corrupting every later answer as well as its own.
+#
+# Per thread, like every other cache here -- each thread pays once.
+
+my %cov_by_sig;
+
+sub _regionSig
+{
+	my ($reg) = @_;
+	my $s = ($reg->{id} // '').':'.($reg->{zauthor} // '').':'.
+			($reg->{zmin} // '').':'.($reg->{zmax} // '');
+	for my $poly (@{$reg->{geometry} || []})
+	{
+		$s .= '|'.join(',',map { $_->[0].' '.$_->[1] } @$poly);
+	}
+	$s .= '{'._regionSig($_).'}' for @{$reg->{subregions} || []};
+	return $s;
+}
+
+
 sub regionCoverage
 	# { zoom => { "x_y" => 1 } } for a whole region, subregions included.
 	#
@@ -452,11 +488,31 @@ sub regionCoverage
 	my $floor = defined $opts->{zmin} ? $opts->{zmin} :
 		defined $reg->{zmin} ? $reg->{zmin} : $DEF_ZMIN;
 
+	# The caps are part of the question, and so is whether the per-node
+	# breakdown was asked for - a caller that wants the nodes cannot be
+	# served an answer that was computed without them.
+
+	my $want = $opts->{nodes} ? 1 : 0;
+	my $key = ($reg->{id} // '').'|'.($opts->{zmin} // '').'|'.
+			  ($opts->{zmax} // '').'|'.$want;
+	my $sig = _regionSig($reg);
+
+	my $have = $cov_by_sig{$key};
+	if ($have && $have->{sig} eq $sig)
+	{
+		display($dbg_cover,0,"regionCoverage($reg->{id}) unchanged");
+		push @{$opts->{nodes}},@{$have->{nodes}} if $want;
+		return $have->{cov};
+	}
+
 	my $cov = {};
 	display($dbg_cover,0,"regionCoverage($reg->{id}) zauthor=".
 		($reg->{zauthor} // '?')." zmin=$floor zmax=".($reg->{zmax} // '?').
 		(defined $opts->{zmax} ? " cap=$opts->{zmax}" : ''));
 	_walk($cov,$reg,$floor,$opts,0,$opts->{nodes});
+
+	$cov_by_sig{$key} = { sig => $sig, cov => $cov,
+		nodes => $want ? [ @{$opts->{nodes}} ] : undef };
 	return $cov;
 }
 

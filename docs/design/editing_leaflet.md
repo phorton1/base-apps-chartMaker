@@ -26,28 +26,40 @@ you can pan, with three pieces of furniture:
 
 ```
 +--------------------------------------------------------------------+
-|                                          [x] tile footprint        |
-|                                          1,234 of 9,931 at z12     |
-|                                                                    |
-|          ~~~ imagery ~~~                                           |
-|              Bocas          (yellow outline)                       |
-|                 Popa00      (cyan, inside it)                      |
+|  [+]                                     set        Scratch        |
+|  [-]                                        size    215 MB         |
+|  [x] grid       z15                      region     Bocas          |
+|  [x] autozoom                               z15     1,800   15 MB  |
+|  [ ] footprint  [16]                        z16     7,200   62 MB  |
+|                                             total   9,967   84 MB  |
+|          ~~~ imagery ~~~                 subregion  Popa00         |
+|              Bocas          (yellow)        z17        49  400 KB  |
+|                 Popa00      (cyan, inside it, WHITE when selected) |
 |              . . . . . .    (grid dots, when snap is on)           |
 |                                                                    |
-|                                                                    |
-|  zoom 12  9.3312N 82.2411W          grid on  z15                   |
+|  zoom 12  9.3312N 82.2411W                                         |
 +--------------------------------------------------------------------+
 ```
 
-- **top right** - the tile footprint toggle and its count, already built
-- **bottom left** - `#cm-coords`, the zoom and cursor position, already built
-- **bottom right** - the grid readout, mirroring `#cm-coords` across the window and sitting
-  above Leaflet's attribution
+**EVERYTHING YOU SET IS ON THE LEFT; EVERYTHING THE MAP REPORTS IS ON THE RIGHT.** A
+control that also answers a question has to be read in one place and operated in another,
+and the two get in each other's way - the grid's checkbox was wanted mid-edit while its
+level was wanted at a glance, and one badge could not be both.
+
+- **left, under Leaflet's own zoom buttons** - the palette: a checkbox, a label, and a
+  value that is text on one row and a control on another. The whole row is the switch.
+- **top right** - the info panel: the set, what is selected, its zooms, and what it would
+  cost by level. Nothing there is operable.
+- **bottom left** - `#cm-coords`, the zoom and cursor position.
+
+The palette is a Leaflet control at `topleft` rather than a box positioned by hand, so it
+stacks under the zoom buttons by itself at any window size.
 
 ## Right-click is the whole of the interface
 
-There is no toolbar and no palette. Everything begins with a right-click on the thing you
-mean, which is what keeps the map a chart rather than an application with a chart in it.
+Everything that CHANGES something begins with a right-click on the thing you mean, which is
+what keeps the map a chart rather than an application with a chart in it. The palette is not
+a counter-example: it holds no verbs, only three switches and a level.
 
 **The target is the polygon whose filled area is under the pointer**, innermost first where
 a subregion sits inside its parent. The outline is not the target - hitting a one-pixel line
@@ -157,8 +169,11 @@ The same wall applies to dragging a vertex of an existing subregion in the editi
 ```
 
 Handles follow the navMate idiom: a solid square on every vertex, a smaller hollow one at
-every segment midpoint. Dragging a midpoint inserts a vertex there. Dragging inside the
-polygon moves the whole thing.
+every segment midpoint. Dragging a midpoint inserts a vertex there. **Nothing moves the
+polygon as a whole** - a press anywhere but on a handle is a map PAN, and the work polygon
+is drawn non-interactive so it cannot swallow one. A region spans more than a screenful;
+panning to reach its far side is the commonest gesture in an edit, and a whole-polygon
+translate is not an edit that is ever wanted.
 
 **Confirm** writes; **Cancel** restores what is on disk. Nothing else in this bar touches a
 file.
@@ -178,7 +193,7 @@ did not ask for is indistinguishable from a bug the first time a vertex lands so
 than where it was clicked.
 
 **With snap on, a vertex lands on the tile grid of the object's own level** - `zauthor` for
-a region, `zmax` for a subregion, and the active set's `zauthor` when nothing is selected
+a region, `zmax` for a subregion, and the open set's `zauthor` when nothing is selected
 yet, which is well defined because every region on one card must agree on it.
 
 That is the whole of the shared-boundary mechanism. Two regions meet exactly because a
@@ -209,20 +224,51 @@ imagery, and the intersections are what a vertex actually lands on.
 **The display thins out as you zoom away, and the grid does not.** Because tile grids nest
 in powers of two, showing every eighth z15 dot *is* the z12 grid, and every dot drawn is
 still a real z15 intersection - so the thinning is exact rather than a decimation factor
-someone picked. The readout says what it is doing:
+someone picked.
 
-```
-    grid on   z15                    the grid, drawn at its own level
-    grid on   z15  showing z12       thinned - every dot is still a z15 point
-    grid on   z18  Popa00            a subregion is driving the level
-    grid off
-```
+**What decides is the spacing on screen, not the level.** Dots are dropped until they are at
+least **64 pixels apart**, which is where the grid reads as a reference rather than as a haze
+over the imagery - the z15 grid at map zoom 13, and the z18 grid at map zoom 16, are both
+exactly that spacing. Half of it is busy and a quarter of it obscures the chart, which is
+what a rule that thins only at the point of unreadability produces at wide views.
 
-Naming the object matters when the level changes: selecting a subregion changes the pitch
-underfoot, and unexplained is indistinguishable from broken.
+**The palette row is one word and one number** - the level being *snapped to*, and nothing
+else. Not the drawn level: which dots were dropped is the display's own business, the density
+on screen already says it, and every dot drawn is an intersection of the named level whether
+or not any were dropped. A second field that changes on every zoom reads as a state to keep
+track of when there is nothing to do about it.
+
+**The level is shown whether the grid is on or off**, and goes on tracking the selection
+either way. It is a property of what is selected, not of the switch - and watching it move
+while the dots are off is how the two stop being confused for each other, because the dots
+thin out with the view and this number does not.
+
+**The row is reachable mid-edit, which is why it exists.** The right-click menu offers the
+same toggle and is out of reach exactly when it is most wanted: in the middle of shaping a
+polygon, where the pointer belongs to the vertices and a right-click means something else.
+Turning the grid off for one awkward vertex and back on for the next should cost one click at
+a fixed place. The checkbox displays the flag rather than holding a state of its own, so the
+menu, the palette and the dots can never disagree.
 
 **Holding a modifier suspends the snap** for one vertex, for the case that wants a free
 placement without toggling the mode off and back.
+
+### Autozoom
+
+A palette switch. When the selection changes, the map frames that object's own polygons with
+a margin, never deeper than its `zmax` - a small subregion framed at a zoom no card carries
+imagery for would be a worse answer than none.
+
+**It fires only for a selection that arrived from somewhere else.** Zooming to an object the
+user just clicked on the map would move the ground out from under the click that chose it;
+arriving from the tree, where there is no map to lose your place on, it is the whole point.
+The applet remembers the selection it sent and treats anything else as foreign, which also
+covers a `select` typed at the console.
+
+**The memory outlives the page**, stored beside the remembered view. Without it, opening the
+browser could not tell "the tree moved the selection while I was closed" from "this is what I
+was already looking at", and had to refuse to act on either - making a page load the one
+event autozoom never saw.
 
 ### Seams, and what the grid buys
 
@@ -242,17 +288,69 @@ forever, which is the thing a stair-stepping post-process would take away perman
 
 ## Tile counts are asked for, not watched
 
-The footprint and its count answer for the model, on demand - the existing toggle, and a
-recompute when asked. **They do not follow a drag.** Recomputing coverage under the hand
-would cost far more than it tells anybody, and the question a zoom level answers is worth
-asking deliberately, once, when the shape is settled.
+Two answers to the same question, and they are not redundant: the **footprint** draws one
+level on the ground, the **info panel** does every level as arithmetic.
+
+**The footprint's level is chosen, not inherited.** It was tied to the view zoom, and that
+made it unreadable - the number changed every time the map moved, and comparing two levels
+meant zooming away from what you were looking at. It is a spinner in the palette instead,
+bounded by the work rather than by the protocol: the region's `zmin` at the bottom, the
+deepest `zmax` anywhere inside it at the top, since no level outside that holds any tiles.
+The rectangles are still clipped to the view - an answer about tiles nobody can see is of no
+use - while the count is the whole set at that level.
+
+**The panel nests the way the model does.** The set is the top line with what the whole card
+would cost; the region names its levels and totals **itself and everything inside it**; a
+selected subregion adds a block below carrying only the band it supplies. The blocks are
+disjoint by construction, so they read down the panel as addition, and each level of nesting
+has its own colour - at three deep the word "subregion" has stopped telling them apart.
+
+**Nothing here follows a drag.** Geometry only reaches the model on commit, so the table is
+still through an edit without a rule saying so, and it is recomputed when the regions
+document or the selection changes - not on every poll. Recomputing coverage under the hand
+would cost far more than it tells anybody.
 
 ## What the map refuses
 
 The rules are in [Editing](editing.md); the applet's part is to say so rather than to
-silently ignore a click. While an object is dirty, selecting something else and changing the
-active region set are both refused, and the refusal names the object and points at Confirm
-and Cancel - both of which are on screen, in the bar, at that moment.
+silently ignore a click. While an object is dirty, selecting something else is refused, and
+the refusal names the object and points at Confirm and Cancel - both of which are on screen,
+in the bar, at that moment.
+
+## The application owns the mode
+
+The applet publishes what it is doing, and **obeys what comes back**. A document that says
+`browse`, or one in which the object under the hand is no longer present, ends the edit -
+which is how Open, Close and Revert are safe without disabling anything: they publish
+`browse` and the map lets go on its next poll.
+
+It waits for its own publish to be reflected before obeying, or a `/state` built a moment
+before the edit began would arrive and cancel it.
+
+**A missing application is the same case.** After a few seconds of failed polls the regions
+and the footprint are cleared, any edit ends, and the panel says so - because a chartset
+drawn with nothing behind it is a picture of something that may no longer be true. The
+imagery layer is left alone: its tiles come through the application too, so it simply stops
+loading. Reconnecting resyncs everything.
+
+Geometry held in the browser goes with the edit. It was never in the model, it cannot be
+committed with nothing to commit to, and holding it would only defer losing it until the
+application came back in `browse` and ended it anyway.
+
+## Left click selects
+
+In browse mode a click selects the innermost object under it, and open water clears the
+selection. Selecting costs nothing and commits nothing, which is what makes clearing it on a
+stray click harmless rather than destructive.
+
+**No hit cycling here.** Stepping outward through the nesting is a gesture for choosing what
+a *menu* will act on; a click that quietly selected the parent because it was the second one
+in the same spot would be a click that lies.
+
+**Selection is one fact shared by both surfaces**, so this moves the tree, and the tree moves
+this. The selected object draws **white**, outranking yellow for a region and cyan for a
+subregion: what kind of thing it is can be read off the tree or the info panel, but which one
+is under discussion cannot be read anywhere else on the map.
 
 ## A seam is drawn twice, by hand
 

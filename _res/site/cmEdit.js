@@ -73,11 +73,17 @@ async function refusalText(since) {
 // Tell the application what this applet is doing, so the tree can refuse to
 // delete what is under the hand.  Fire and forget -- it is a notification,
 // and a lost one costs a stale grey-out rather than a lost edit.
-function publishMode() {
+// THE VERSION OUR OWN PUBLISH PRODUCED.  A /state older than that is a
+// document that has not heard about this edit yet, and obeying it would
+// mean abandoning an edit because of a report written before it started.
+let publishedVersion = -1;
+
+async function publishMode() {
     let args = mode;
     if (target) args += ' ' + (target.sub || target.region);
     if (dirty)  args += ' dirty';
-    postEdit('edit', args);
+    const r = await postEdit('edit', args);
+    if (r && r.version) publishedVersion = r.version;
 }
 
 
@@ -237,6 +243,16 @@ function snap(latlng, suspend) {
     return L.latLng(tileYToLat(y, z), tileXToLng(x, z));
 }
 
+// SPACING OF THE DOTS ON SCREEN, in pixels, for a grid level at a map zoom.
+// A 256px tile at level L holds 2^(L-z) tiles' worth of intersections when the
+// map is at zoom z.
+function dotPitch(level, z) { return 256 * Math.pow(2, z - level); }
+
+// 64px is the density that was judged right by eye: the z15 grid at map z13 and
+// the z18 grid at map z16 are both exactly this, and both look right.  32px (z15
+// at z12) is busy and 16px (z15 at z11) obscures the imagery.
+const MIN_DOT_PITCH = 64;
+
 const GridDots = L.GridLayer.extend({
     createTile: function (coords) {
         const tile = document.createElement('canvas');
@@ -266,11 +282,14 @@ function updateGrid() {
     const sel = selectedNode();
     gridLevel = snapLevelFor(sel ? sel.node : null);
 
-    // Thin the DISPLAY, never the grid.  Below ~8px between dots it is
-    // unreadable and slow, so a coarser level is drawn instead.
+    // Thin the DISPLAY, never the grid.  The pitch on SCREEN is what decides,
+    // not the level: dots closer together than MIN_DOT_PITCH stop reading as a
+    // reference and start reading as a haze over the imagery, so a coarser
+    // level is drawn instead -- and because the levels are powers of two, every
+    // dot still drawn is a real intersection of the snap level.
     const z = Math.round(map.getZoom());
     gridShown = gridLevel;
-    while (gridShown > z && 256 / Math.pow(2, gridShown - z) < 8) gridShown--;
+    while (gridShown > z && dotPitch(gridShown, z) < MIN_DOT_PITCH) gridShown--;
 
     if (gridLayer) { map.removeLayer(gridLayer); gridLayer = null; }
     if (gridOn && gridShown >= z - 8) {
@@ -278,24 +297,36 @@ function updateGrid() {
         gridLayer.addTo(map);
         gridLayer.bringToBack();
     }
-    drawGridReadout();
+    drawGridRow();
 }
 
-function drawGridReadout() {
-    let div = document.getElementById('cm-grid');
-    if (!div) {
-        div = document.createElement('div');
-        div.id = 'cm-grid';
-        document.body.appendChild(div);
-        div.onclick = () => toggleGrid();
-        div.title = 'click to toggle snap to grid';
-    }
-    if (!gridOn) { div.textContent = 'grid off'; return; }
-    let t = 'grid on  z' + gridLevel;
-    if (gridShown !== gridLevel) t += '  showing z' + gridShown;
-    const sel = selectedNode();
-    if (sel && sel.node !== sel.root) t += '  ' + sel.node.id;
-    div.textContent = t;
+// The grid is a palette row: a checkbox, the word, and the level it snaps to
+// in the value column.  It has to be reachable mid-edit - the grid is wanted
+// for one vertex and in the way for the next - and the right-click menu that
+// also offers it is not available then, the pointer being busy with the
+// polygon.
+//
+// The level is the SNAP level, not the level being drawn.  Which dots were
+// dropped to keep them readable is the display's own business, and every dot
+// on screen is an intersection of the level named here either way.
+//
+// IT IS SHOWN WHETHER THE GRID IS ON OR OFF, and it goes on tracking the
+// selection either way.  The level is a property of what is selected, not of
+// the switch, and watching it move while the dots are off is how the two
+// stop being confused for each other - the dots thin out with the view, this
+// number does not.
+let gridRow = null;
+
+function drawGridRow() {
+    if (!gridRow)
+        gridRow = cmPaletteRow('grid', 'grid',
+            { checked: gridOn, onToggle: toggleGrid });
+
+    gridRow.box.checked = gridOn;
+    gridRow.value.textContent = 'z' + gridLevel;
+    gridRow.row.title = gridOn ?
+        'snapping to z' + gridLevel :
+        'snap to grid is off - z' + gridLevel + ' is the level it would use';
 }
 
 function toggleGrid() {
@@ -316,9 +347,126 @@ function selectedNode() {
     return nodeById(id);
 }
 
+// WHAT THIS APPLET ASKED FOR, so that what arrives back can be told apart
+// from what somebody else asked for.  There is no field in /state saying
+// where a selection came from, and there should not be - the model records
+// what is selected, not who did it.  Remembering the one we sent is enough
+// to answer the only question anybody has: was this mine?
+let sentSelKey = '';
+
+// WHAT WAS SELECTED WHEN THIS PAGE LAST HAD ONE, remembered beside the view
+// it was looking at.  Without it, a page load cannot tell "the tree moved
+// the selection while I was closed" from "this is the object I was already
+// looking at", and it has to refuse to act on either - which quietly makes
+// reopening the browser the one thing autozoom never sees.
+//
+// With it, opening a page is not a special case at all: the same
+// foreign-change rule runs, against what this browser last knew.
+//
+// null means no memory - a fresh browser or cleared storage - and that is
+// deliberately NOT treated as a change.  There is no view to preserve
+// either, so fitRegionsIfUnset has already put the regions on screen.
+
+const SEL_KEY = 'chartMaker.selection';
+
+let seenSelKey = (function () {
+    try {
+        const v = localStorage.getItem(SEL_KEY);
+        return v === null ? null : v;
+    } catch (e) {
+        return null;
+    }
+})();
+
+function rememberSelKey(key) {
+    seenSelKey = key;
+    try {
+        localStorage.setItem(SEL_KEY, key);
+    } catch (e) {
+        // Private browsing, a full quota, a policy - none of it is worth
+        // breaking the map over.  The selection simply is not remembered.
+    }
+}
+
+function selKey(region, sub) {
+    return (region || '') + '/' + (sub || '');
+}
+
 async function selectId(id) {
+    const hit = id ? nodeById(id) : null;
+    sentSelKey = hit ?
+        selKey(hit.root.id, hit.node === hit.root ? '' : hit.node.id) : '';
+
     const r = await postEdit('select', id || 'none');
     if (!r.ok) banner(await refusalText(r.since), true);
+}
+
+
+// ============================================================================
+// Autozoom
+// ============================================================================
+// FRAMES WHAT WAS JUST SELECTED, and only when the selection came from
+// somewhere else.  Zooming to an object the user just clicked on the map
+// would move the ground out from under the click that chose it; arriving
+// from the tree, where there is no map to lose your place on, it is the
+// whole point - the object is put on screen without hunting for it.
+//
+// Foreign means "not the selection this applet sent", which also covers a
+// select from the console or /api/command.  Those are somebody deliberately
+// naming an object, so framing it is right there too.
+
+const AUTOZOOM_KEY = 'chartMaker.autozoom';
+let autoZoom = (localStorage.getItem(AUTOZOOM_KEY) !== 'off');   // defaults ON
+let autoZoomRow = null;
+
+function drawAutoZoomRow() {
+    if (!autoZoomRow)
+        autoZoomRow = cmPaletteRow('autozoom', 'autozoom',
+            { checked: autoZoom, onToggle: toggleAutoZoom });
+    autoZoomRow.box.checked = autoZoom;
+    autoZoomRow.row.title =
+        'frame a region or subregion when it is selected in the tree';
+}
+
+function toggleAutoZoom() {
+    autoZoom = !autoZoom;
+    localStorage.setItem(AUTOZOOM_KEY, autoZoom ? 'on' : 'off');
+    drawAutoZoomRow();
+}
+
+function zoomToSelection() {
+    const sel = selectedNode();
+    if (!sel) return;
+
+    // THE OBJECT'S OWN POLYGONS, not its subregions'.  A subregion lies
+    // within its parent, so including them would change nothing except in
+    // the one case where geometry has drifted outside - and framing a
+    // containment error as if it were intended is not a favour.
+
+    const pts = [];
+    (sel.node.polygons || []).forEach(p => p.forEach(q => pts.push([q[1], q[0]])));
+    if (!pts.length) return;
+
+    // Never deeper than the object is built to.  A small subregion would
+    // otherwise be framed at a zoom no card ever holds imagery for.
+    map.fitBounds(L.latLngBounds(pts), {
+        padding: [40, 40],
+        maxZoom: sel.node.zmax !== undefined ? sel.node.zmax : undefined,
+    });
+}
+
+function onSelectionChanged(state) {
+    const key = selKey(state.selection && state.selection.region,
+                       state.selection && state.selection.sub);
+
+    // A browser with no memory of a selection has nothing to compare
+    // against, so this is not a change - it is the first thing it ever saw.
+    if (seenSelKey === null) { rememberSelKey(key); return; }
+    if (key === seenSelKey) return;
+
+    const foreign = (key !== sentSelKey);
+    rememberSelKey(key);
+    if (foreign && autoZoom) zoomToSelection();
 }
 
 
@@ -703,6 +851,21 @@ function outsideParent(latlng) {
 }
 
 map.on('click', ev => {
+    // A CLICK IN BROWSE SELECTS WHAT IS UNDER IT - the innermost object,
+    // the same answer the right-click menu gives, and nothing where there
+    // is nothing.  Selection is not an edit: it costs nothing, commits
+    // nothing, and the next click undoes it, which is why clicking open
+    // water is allowed to clear it rather than being ignored.
+    //
+    // No hit cycling here.  Stepping outward is a gesture for choosing what
+    // a MENU will act on; a click that quietly selects the parent because
+    // it was the second one in the same spot would be a click that lies.
+    if (mode === MODE_BROWSE) {
+        const chain = hitChain(ev.latlng.lng, ev.latlng.lat);
+        selectId(chain.length ? chain[0].node.id : '');
+        return;
+    }
+
     if (mode !== MODE_DRAW) return;
     const p = snap(ev.latlng, ev.originalEvent && ev.originalEvent.altKey);
     if (outsideParent(p)) {
@@ -795,13 +958,13 @@ function redrawWork() {
         const style = current ? WORK_STYLE :
             { color: '#ffffff', weight: 1, opacity: 0.4, fill: false };
 
-        // FILLED, but only the current one, so there is something to grab in
-        // order to move the whole polygon.  A polygon drawn fill:false has no
-        // interior as far as the mouse is concerned.
-        const poly = L.polygon(pts, current ?
-            Object.assign({}, style, { fill: true, fillOpacity: 0.08 }) : style);
+        // FILLED, but only the current one, purely so it reads as the one being
+        // worked on.  NOT interactive: the polygon must never eat a mouse press,
+        // because a press on the map is a PAN, and panning to reach another part
+        // of a large region is the commonest thing done during an edit.
+        const poly = L.polygon(pts, Object.assign({ interactive: false }, style,
+            current ? { fill: true, fillOpacity: 0.08 } : {}));
         poly.addTo(workLayer);
-        if (current) poly.on('mousedown', beginPolygonDrag);
     });
 
     const ring = working[target.poly] || [];
@@ -823,64 +986,11 @@ function redrawWork() {
     });
 }
 
-// MOVING THE WHOLE POLYGON.  Leaflet polygons are not draggable, so the drag
-// is assembled by hand: take the map's dragging away for the duration, follow
-// the mouse, and shift every vertex by the same delta.
-//
-// The delta is applied to the ring as it was when the drag STARTED, not
-// cumulatively, so a snap on the way does not compound - and with snap on,
-// the delta itself is snapped, which keeps a grid-aligned polygon aligned.
-let polyDrag = null;
-
-function beginPolygonDrag(ev) {
-    if (mode !== MODE_SHAPE) return;
-    L.DomEvent.stop(ev);
-    polyDrag = {
-        start: ev.latlng,
-        ring:  working[target.poly].map(p => [p[0], p[1]]),
-    };
-    map.dragging.disable();
-    map.on('mousemove', onPolygonDrag);
-    map.on('mouseup', endPolygonDrag);
-}
-
-function onPolygonDrag(ev) {
-    if (!polyDrag) return;
-    let dLng = ev.latlng.lng - polyDrag.start.lng;
-    let dLat = ev.latlng.lat - polyDrag.start.lat;
-
-    if (gridOn && !altDown) {
-        // Snap the FIRST vertex to the grid and move everything by whatever
-        // delta that turned out to be, so the shape keeps its own alignment.
-        const p0 = polyDrag.ring[0];
-        const want = L.latLng(p0[1] + dLat, p0[0] + dLng);
-        const got  = snap(want, false);
-        dLng = got.lng - p0[0];
-        dLat = got.lat - p0[1];
-    }
-
-    const moved = polyDrag.ring.map(p => [p[0] + dLng, p[1] + dLat]);
-    if (moved.some(p => outsideParent(L.latLng(p[1], p[0])))) {
-        banner('outside ' + (parentName() || 'the parent') + ', not moved', true);
-        return;
-    }
-    working[target.poly] = moved;
-    dirty = true;
-
-    workLayer.clearLayers();
-    L.polygon(moved.map(q => [q[1], q[0]]), WORK_STYLE).addTo(workLayer);
-}
-
-function endPolygonDrag() {
-    if (!polyDrag) return;
-    polyDrag = null;
-    map.off('mousemove', onPolygonDrag);
-    map.off('mouseup', endPolygonDrag);
-    map.dragging.enable();
-    publishMode();
-    redrawWork();
-    shapeBar();
-}
+// A POLYGON IS NEVER MOVED AS A WHOLE - only its vertices are.  A polygon marks
+// a place on the earth; translating it wholesale is not an edit anyone wants, and
+// the gesture it would need (press inside the shape and drag) is the same gesture
+// that pans the map, which is needed constantly while working across a region too
+// large to see at once.  The pan wins.
 
 
 function moveVertex(i, latlng, final) {
@@ -949,7 +1059,7 @@ function abandon() {
     finishEdit();
 }
 
-function finishEdit() {
+function finishEdit(quiet) {
     mode    = MODE_BROWSE;
     dirty   = false;
     target  = null;
@@ -958,7 +1068,12 @@ function finishEdit() {
     clearHandles();
     workLayer.clearLayers();
     hideBar();
-    publishMode();
+
+    // QUIET IS FOR AN EDIT THE APPLICATION ENDED.  It already knows -
+    // either it published browse, or it is not there to be told - and
+    // reporting a mode back to a document that just dictated it would be
+    // an echo at best and a request to a dead server at worst.
+    if (!quiet) publishMode();
     cmRedrawRegions();
 }
 
@@ -1046,9 +1161,45 @@ function updateIdleBanner() {
     ]);
 }
 
+// THE APPLICATION OWNS THE MODE, and this is where that stops being a
+// claim.  The applet publishes what it is doing and, from here, obeys what
+// comes back: a document saying browse, or one in which the object under
+// the hand no longer exists, ends the edit.
+//
+// That is what makes Close, Open and Revert safe without disabling
+// anything - they publish browse and the map lets go on its next poll -
+// and it is the same path a disconnect takes, because a document that
+// cannot be reached says nothing at all.
+//
+// It waits for its own publish to be reflected first.  A /state built
+// before the edit was announced would otherwise arrive a moment after it
+// began and cancel it.
+
+function obeyPublishedMode(state) {
+    if (mode === MODE_BROWSE || !target) return;
+    if (!(state.version > publishedVersion)) return;
+
+    const said = state.edit || {};
+    const mine = target.region + '/' + (target.sub || '');
+    const says = (said.region || '') + '/' + (said.sub || '');
+
+    const ended  = (said.mode || 'browse') === 'browse' || says !== mine;
+    const vanished = !nodeById(target.sub || target.region);
+
+    if (!ended && !vanished) return;
+
+    banner(vanished ?
+        'the object being edited is no longer in the set' :
+        'the edit was ended by the application', true);
+    finishEdit(1);
+}
+
+
 function cmEditOnState(state) {
     cmState = state;
     updateGrid();
+    obeyPublishedMode(state);
+    onSelectionChanged(state);
 
     // A just-created object appears in this document for the first time; it
     // has no geometry, so drawing it is the next thing anybody wants.
@@ -1068,7 +1219,25 @@ function cmEditOnState(state) {
 
 map.on('zoomend', updateGrid);
 updateGrid();
+drawAutoZoomRow();
 
-window.cmEditSuppresses = cmEditSuppresses;
-window.cmEditTargetKey  = cmEditTargetKey;
-window.cmEditOnState    = cmEditOnState;
+// THE APPLICATION IS GONE, so there is no mode: an edit is a thing the
+// document authorises, and there is no document to authorise it.  Held
+// geometry goes with it, which is the honest end - it could not be
+// committed, and holding it would only put off losing it until the
+// application came back in browse and ended it anyway.
+function cmEditDisconnected() {
+    if (mode !== MODE_BROWSE) finishEdit(1);
+    cmState = null;
+    publishedVersion = -1;
+
+    // The remembered selection is deliberately kept.  Losing the
+    // application is the same kind of gap as closing the page, and what
+    // was selected across it is exactly the comparison that decides
+    // whether the map should frame something when it comes back.
+}
+
+window.cmEditSuppresses   = cmEditSuppresses;
+window.cmEditTargetKey    = cmEditTargetKey;
+window.cmEditOnState      = cmEditOnState;
+window.cmEditDisconnected = cmEditDisconnected;

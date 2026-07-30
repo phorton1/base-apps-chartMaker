@@ -18,23 +18,18 @@ and they encode what was learned by getting things wrong.
 | `test_*` | Asserts. Prints `PASS`/`FAIL` per check and `ALL PASSED` or a failure count. |
 | `tool_*` | Does a job and reports what it found. No pass or fail. |
 | `_` prefix | **Less durable.** Spent one-offs, or things resting on something transient. |
+| `my_` prefix | **Needs the author's own data**, and cannot run anywhere else. Not a candidate for deletion - the data is the point. |
 | `old` in the name | **Depends on something outside this repo that is going away** - `chartMaker_old` or the pre-rewrite card in `OLD_RASTER`. Delete these before the repo is published. |
 
-## What is here
+`my_` and `old` are opposite marks and must not be confused. `old` says *this will stop
+working and should go*; `my_` says *this works, and only here*. `my_test_rct.pl` is the
+clearest case: it checks the exporter against a card that actually ran on the plotter, which
+is the only evidence that the semicircle projection is right - a synthetic fixture would
+prove nothing except that the exporter agrees with itself.
 
-| Script | What it pins down |
-| ------ | ----------------- |
-| `test_source.pl` | TSD validation and rejection, addressing, quadkey, the TMS flip |
-| `test_set.pl` | region sets as folders, per-set ids, the ini selections and how they degrade, checked-is-a-view |
-| `test_fetch.pl` | a live fetch, the cache, negative caching |
-| `test_rct.pl` | calls the exporter, then audits every byte it wrote |
-| `tool_app_command.pl` | one command to the LIVE app, printing only its output |
-| `tool_rct_inspect.pl` | the firmware's own arithmetic over a card |
-
-The `_old_*` scripts predate region sets and **no longer run** - they call a workspace API
-that no longer exists. They were already marked for deletion before the repo is published;
-the only thing worth rescuing from them is their coverage assertions, which have to be
-rewritten against synthetic polygons the way `test_set.pl` writes its own fixtures.
+A `tool_` that reads the author's data is NOT `my_`. Statistics are reported over whatever
+they are pointed at, and `tool_coverage_time.pl` and `tool_rct_inspect.pl` would report just
+as happily on a stranger's set; they read Patrick's because his is what is there.
 
 ## Running them
 
@@ -42,11 +37,17 @@ From this folder, with the shared Perl tree on the include path:
 
 ```
     perl -I/base test_source.pl
+    powershell -File tool_shot.ps1 -out C:\_temp\shot.png
 ```
 
 `use lib` resolves from the script's own location, so the repo can live anywhere. Every
 scratch file, fixture directory and capture they produce is written under
-`C:\_temp\dat-openCPN-chartMaker\` and never beside the script.
+`C:\_temp\dat-openCPN-chartMaker\` and never beside the script - **that folder is cleared
+at every commit**, so nothing worth keeping may live there.
+
+**Anything that writes builds its own data dir first.** A script that forgets leaves
+`$data_dir` empty, and the region-set loader then creates its folders at the root of the
+drive - which has happened. The `tool_` reporters read a real data dir and only read.
 
 Output goes through `Pub::Utils`, which emits console escapes - **capture it to a file and
 read that**, rather than streaming it into a terminal that will be confused by it.
@@ -55,11 +56,16 @@ read that**, rather than streaming it into a terminal that will be confused by i
 
 | Script | What it covers |
 | ------ | -------------- |
+| `test_doc.pl` | the set as a document: only Save writes, dirty is derived, revert against commit, and a fixture that survives a whole session of edits unchanged |
 | `test_source.pl` | TSD loading, validation, rejections, addressing, quadkey, row flip |
+| `test_set.pl` | region sets as folders, per-set ids, the ini selections and how they degrade, checked-is-a-view |
+| `test_edit.pl` | containment, the dispatcher's refusals, the edit state and what it locks |
 | `test_fetch.pl` | a live fetch, the cache, and negative caching |
-| `test_rct.pl` | calls the exporter, then reopens the file and audits every byte it wrote |
+| `my_test_rct.pl` | calls the exporter, then reopens the file and audits every byte it wrote, against the card that ran on the plotter |
 | `tool_app_command.pl` | send one console command to the **running** application and print only that command's output |
 | `tool_rct_inspect.pl` | run the firmware's own arithmetic over a card - the zero-step blocks it would silently skip, and the reveal-mask rectangle count against its budget |
+| `tool_coverage_time.pl` | what coverage costs cold, warm, and after one region is edited |
+| `tool_shot.ps1` | a screenshot of the running window, found by owning process |
 | `_tool_esri_probe.pl` | what resolution Esri actually holds over an area, by `MaxMapLevel` |
 | `_old_test_region.pl` | region files, ids, the workspace, KML import |
 | `_old_test_coverage.pl` | the grid, the band rule, parents versus re-intersecting, tile counts |
