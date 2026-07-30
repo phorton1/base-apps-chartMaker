@@ -383,6 +383,13 @@ sub applet_state
 		# of the document, and a document that has not been saved says so
 		# on every surface rather than only on the one with a title bar.
 
+		# HOW FAR THE MAP MAY ZOOM is a preference of this process, not a
+		# property of any source: a source declares only how deep it goes
+		# natively.  It arrives here because the page is a static file and
+		# cannot read a preference any other way.
+
+		map_max_zoom	=> int(prefVal($PREF_MAP_MAX_ZOOM) // 22),
+
 		active_set		=> openSetName(),
 		set_dirty		=> isSetDirty() ? 1 : 0,
 		regions			=> _regionsForState(),

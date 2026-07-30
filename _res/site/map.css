@@ -99,11 +99,23 @@ html, body {
     background: rgba(40, 40, 40, 0.72);
     color: #fff;
     font: 11px/1.6 monospace;
-    padding: 6px 12px;
+    padding: 6px 18px 6px 12px;   /* more on the right: the widest row ends
+                                     flush against it, and a few pixels of
+                                     grey past the last digit reads as a
+                                     panel rather than as a cut-off */
     margin: 12px 12px 0 0;   /* sits off the edge, as the palette does */
     border-radius: 3px;
     white-space: pre;
     min-width: 22ch;
+
+    /* AS WIDE AS ITS WIDEST ROW.  The counts row is 8 columns of tiles,
+       two spaces and 8 of bytes - 18ch of value against a 9ch key - so
+       min-width alone left the panel narrower than its own content and
+       the value column, being the only shrinkable thing in the row, lost
+       its last character.  Anchored top RIGHT, so the extra width grows
+       leftward and the panel does not move. */
+
+    width: max-content;
 }
 
 .cm-info-row {
@@ -121,7 +133,7 @@ html, body {
    crammed even where it was not. */
 
 .cm-info-v {
-    flex: 0 1 auto;
+    flex: 0 0 auto;
 }
 
 /* ONE COLOUR PER LEVEL OF NESTING.  The word 'subregion' stops telling

@@ -35,6 +35,7 @@ use warnings;
 use threads;
 use threads::shared;
 use Time::HiRes qw( time );
+use Digest::MD5 qw( md5_hex );
 use Pub::Utils;
 use Pub::UA;
 use cm_defs;
@@ -181,6 +182,30 @@ sub fetchTile
 }
 
 
+sub _isDeclaredAbsent
+	# Whether these bytes are the source's way of saying "nothing here".
+	#
+	# LENGTH FIRST.  The digest is only computed when a length matches
+	# exactly, so a source with no fingerprints - which is most of them -
+	# pays nothing, and one with fingerprints pays an integer comparison
+	# per tile.  See the note in dm_source's validator.
+{
+	my ($source,$dataref) = @_;
+	my $fps = $source->{absent_fingerprints};
+	return 0 if !$fps || !@$fps || !$dataref;
+
+	my $len = length($$dataref);
+	my $md5;
+	for my $fp (@$fps)
+	{
+		next if $fp->{bytes} != $len;
+		$md5 = md5_hex($$dataref) if !defined $md5;
+		return 1 if $md5 eq $fp->{md5};
+	}
+	return 0;
+}
+
+
 sub getTile
 	# The tile, cache first.  This is what everything actually calls --
 	# the map, the preview, the evaluator and the build alike, which is
@@ -191,12 +216,38 @@ sub getTile
 	my $cached = cacheGet($source,$z,$x,$y);
 	if ($cached)
 	{
+		# A PLACEHOLDER MAY HAVE BEEN CACHED BEFORE ANYBODY KNEW IT WAS
+		# ONE.  Checking on the way out as well as on the way in means
+		# declaring a fingerprint reclassifies what is already on disk,
+		# so a probe's findings take effect without clearing the cache.
+
+		if ($cached->{status} eq 'ok' &&
+			_isDeclaredAbsent($source,$cached->{bytes}))
+		{
+			display($dbg_fetch,0,"declared-absent tile in cache ".
+				"$source->{cache_key} $z/$x/$y - recording the absence");
+			cachePutMiss($source,$z,$x,$y);
+			return { status => 'absent', cached => 1 };
+		}
+
 		$cached->{cached} = 1;
 		return $cached;
 	}
 
 	my $result = fetchTile($source,$z,$x,$y);
 	$result->{cached} = 0;
+
+	# A 200 THAT MEANS 404.  Recorded as the absence it is, so it is
+	# never asked for again and never reaches a card.
+
+	if ($result->{status} eq 'ok' &&
+		_isDeclaredAbsent($source,$result->{bytes}))
+	{
+		display($dbg_fetch,0,"$source->{cache_key} $z/$x/$y is the source's ".
+			"'no data' tile - recording an absence");
+		cachePutMiss($source,$z,$x,$y);
+		return { status => 'absent', cached => 0, ms => $result->{ms} };
+	}
 
 	if ($result->{status} eq 'ok')
 	{

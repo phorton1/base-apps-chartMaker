@@ -12,6 +12,7 @@ use FindBin;
 use lib "$FindBin::Bin/..";
 use Pub::Utils;
 use cm_defs;
+use dm_set;
 use dm_source;
 use dm_cache;
 use dm_fetch;
@@ -53,8 +54,8 @@ my ($x,$y) = tileOf(9.33,-82.24,10);
 # hit, so leaving the previous run's entries in place makes the test pass
 # or fail depending on whether it has been run before.
 
-unlink("$TMP/fetch/cache/gibs/10/${x}_${y}.jpeg");
-unlink("$TMP/fetch/cache/gibs/10/1023_1.none");
+unlink(cacheDir()."/gibs/10/${x}_${y}.jpeg");
+unlink(cacheDir()."/gibs/10/1023_1.none");
 
 print "=== GIBS live fetch: Bocas del Toro at z10 = $x/$y ===\n";
 
@@ -72,7 +73,7 @@ if ($r->{status} eq 'ok')
 	ok(!$r->{cached},"first call was a network fetch");
 	ok(defined($r->{ms}),"took $r->{ms} ms");
 
-	my $path = "$TMP/fetch/cache/gibs/10/${x}_${y}.jpeg";
+	my $path = cacheDir()."/gibs/10/${x}_${y}.jpeg";
 	ok(-f $path,"written to the cache at cache/gibs/10/${x}_${y}.jpeg");
 
 	my $again = getTile($gibs,10,$x,$y);
@@ -86,7 +87,7 @@ print "\n=== outside the declared protocol range ===\n";
 my $deep = getTile($gibs,13,$x,$y);
 ok($deep->{status} eq 'absent',"z13 is absent (declared zoom.max is 12)");
 ok(!defined($deep->{http}),"no http request was made");
-ok(!-f "$TMP/fetch/cache/gibs/13/${x}_${y}.none",
+ok(!-f cacheDir()."/gibs/13/${x}_${y}.none",
 	"a range-derived absence is NOT written to the cache");
 
 
@@ -97,7 +98,7 @@ print "  z10/1023/1 -> $off->{status}".
 	(defined($off->{reason}) ? " - $off->{reason}" : '')."\n";
 if ($off->{status} eq 'absent' && defined($off->{http}))
 {
-	ok(-f "$TMP/fetch/cache/gibs/10/1023_1.none",
+	ok(-f cacheDir()."/gibs/10/1023_1.none",
 		"a source-asserted absence IS written to the cache");
 	my $again = getTile($gibs,10,1023,1);
 	ok($again->{cached},"the absence is served from the cache next time");

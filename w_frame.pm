@@ -30,6 +30,7 @@ use dm_set;
 use dm_region;
 use w_resources;
 use w_ini;
+use w_prefs;
 use winRegions;
 use winSources;
 use base qw(Pub::WX::Frame);
@@ -61,6 +62,7 @@ sub new
 	EVT_MENU($this, $COMMAND_SET_REVERT,  \&onCommand);
 	EVT_MENU($this, $COMMAND_SET_CLOSE,   \&onCommand);
 	EVT_MENU($this, $COMMAND_NEW_REGION,  \&onCommand);
+	EVT_MENU($this, $COMMAND_PREFS,       \&onCommand);
 
 	# A MENU ITEM ANSWERS FOR ITSELF rather than being switched on and off
 	# by whatever last changed the state.  There is no list of places that
@@ -319,6 +321,16 @@ sub onCommand
 	if ($id == $COMMAND_OPEN_MAP)
 	{
 		openMapBrowser();
+	}
+	elsif ($id == $COMMAND_PREFS)
+	{
+		# Modal, and nothing is asked of the model.  Every folder change
+		# is deferred to the next start, so there is no open document to
+		# reconcile and nothing here can fail halfway.
+
+		my $dlg = w_prefs->new($this);
+		$dlg->ShowModal();
+		$dlg->Destroy();
 	}
 	elsif ($id == $WIN_REGIONS || $id == $WIN_SOURCES)
 	{

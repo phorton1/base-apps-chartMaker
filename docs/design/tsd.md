@@ -40,9 +40,11 @@ sent you is a matter of putting the file in the folder.
     terms_url:        where the terms of use are published
     license:          a short identifier or description
     redistributable:  yes | no | unknown          (default unknown)
-    uses:             ["display"] | ["display","build"]
+    uses:             any of ["display","build","overlay"]
     credentials:      [ { slot, label, obtain_url } ]    SLOTS, never values
     policy:           { max_concurrency, min_interval_ms }
+    absent_fingerprints:
+                      [ { bytes, md5 } ]   a 200 that means 404
 ```
 
 | Field             | Notes                                                                      |
@@ -57,7 +59,8 @@ sent you is a matter of putting the file in the folder.
 | `zoom.max`        | The highest zoom the **server will answer at all**, not where detail ends. |
 | `attribution`     | Mandatory and non-empty. A file without it does not load.                  |
 | `redistributable` | The author's assertion. Propagates into built output as metadata.          |
-| `uses`            | Whether the source may be built from, or only looked at.                   |
+| `uses`            | What the source is FOR. Not "what it uses" - see below.                    |
+| `absent_fingerprints` | The bytes a server sends INSTEAD of saying no. Read as absences.       |
 | `credentials`     | Names of secrets the source needs. Never the secrets themselves.           |
 | `policy`          | Requested limits. The application clamps regardless of what is asked for.  |
 
@@ -122,10 +125,25 @@ place and is found out at runtime.
   one output format accepts only one of them, so the actual format is read from the image's
   magic bytes and a mismatch becomes a decision rather than a surprise.
 
-## Display versus build
+## What a source is for
 
-`uses` declares whether a source may be used for **display** only, or for display **and**
-build. A display-only source never appears in a build picker.
+**`uses` means "what this source is FOR", not "what this source uses."** The name has
+misled two readers already, which is enough to say so here rather than leave it to be
+inferred from the values.
+
+There are three, and a source may declare any combination:
+
+| Value     | Meaning                                                                    |
+| --------- | -------------------------------------------------------------------------- |
+| `display` | May be drawn on the map.                                                   |
+| `build`   | May be named by a region and read by an exporter.                          |
+| `overlay` | Drawn **over** a base layer rather than instead of one - names, boundaries. |
+
+`overlay` is what separates a radio button from a checkbox: base layers are exclusive
+because two of them means one hides the other, while overlays compose. Adding it to the
+vocabulary invalidated no existing file, so `tsd_version` did not move.
+
+A source that does not declare `build` never appears where a region's source is chosen.
 
 The distinction does two jobs at once, which is usually the sign a field is drawn
 correctly. It describes genuinely different traffic - browsing generates viewport-shaped
@@ -136,6 +154,47 @@ as a build source at two in the morning.
 
 It is also simply practical. A street basemap is display-only because building a
 nine-thousand-tile pyramid of one is pointless, not because of anybody's terms.
+
+## `inherited` is a reserved id
+
+A region names its source by id, and a **subregion** may use the value `inherited` to mean
+"my parent's". That is one string field answering both questions, so no reader has to test
+two things - and the cost is one id that cannot name a real source. A TSD claiming it is
+refused at load, because a source called `inherited` could never be selected by anything and
+would fail in a way nobody could diagnose.
+
+## A 200 that means 404
+
+A well behaved source answers **404** for a tile it does not hold. Some answer **200 with a
+fixed image saying so in words**.
+
+Nothing downstream can tell that from imagery. It is not a blurry tile, which at least
+resembles the ground; it is a picture of a sentence, and a build will bake it into a card and
+report success. That is the worst failure this application has, because every signal says it
+worked.
+
+`absent_fingerprints` is how a file says so:
+
+```
+    "absent_fingerprints": [
+      { "bytes": 2521, "md5": "f27d9de7f80c13501f470595e327aa6d" }
+    ]
+```
+
+**Length first, digest only on an exact match.** A source with no fingerprints - which is
+most of them - pays one integer comparison per tile, so the check costs the map nothing.
+
+**Checked on the way out of the cache as well as the way in**, so declaring a fingerprint
+retroactively reclassifies tiles already on disk. Discovering one does not mean clearing the
+cache.
+
+**Declared, not detected.** It is a fact about a server, and this file is where facts about
+servers live. A probe can *discover* one - fetch over ground known to be empty and watch for
+byte-identical repeats - but the file is what remembers.
+
+Note what this is **not**: it does not detect a source that magnifies its own imagery past
+where real detail ends. That produces genuinely different bytes every time and is a fact
+about ground rather than about a server. See [Build](build.md) on where that is measured.
 
 ## Credentials
 

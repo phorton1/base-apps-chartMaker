@@ -52,6 +52,7 @@ BEGIN
 		loadSources
 		rescanSources
 		getSourceIds
+		getBuildSourceIds
 		getSource
 		sourceTileUrl
 		getDefaultSource
@@ -70,14 +71,20 @@ my $TSD_VERSION = 1;
 
 my @KINDS			= qw( remote_xyz local_mbtiles local_dir wms );
 my @IMPLEMENTED		= qw( remote_xyz );
-my @USES			= qw( display build );
+my @USES			= qw( display build overlay );
+	# OVERLAY is a third PURPOSE, not a third kind of thing.  A source
+	# that declares it is drawn over a base layer rather than instead of
+	# one - place names, boundaries - which is the difference between a
+	# radio button and a checkbox, and nothing else about the file
+	# changes.  Adding a value to a vocabulary invalidates no existing
+	# file, so tsd_version does not move.
 my @REDISTRIBUTABLE	= qw( yes no unknown );
 my @FORMATS			= qw( jpeg png );
 
 my @FIELDS = qw(
 	tsd_version id name notes kind url subdomains tile_format tile_size
 	crs zoom attribution terms_url license redistributable uses
-	credentials policy );
+	credentials policy absent_fingerprints );
 
 # The closed placeholder set.  A url may contain these and the credential
 # slots the file itself declares, and nothing else.  {-y} covers the TMS
@@ -160,6 +167,16 @@ sub _validate
 
 	return _err($file,"id is required and must be [a-z0-9_-]")
 		if !defined($tsd->{id}) || $tsd->{id} !~ /^[a-z0-9_-]+$/;
+
+	# '$SOURCE_INHERITED' IS SPOKEN FOR.  Regions name their source by id
+	# and use that one word to mean "not my decision", so a source
+	# actually called that could never be selected by anything.  Refusing
+	# the file says so, where accepting it would produce a source that
+	# quietly does not work.
+
+	return _err($file,"id '$SOURCE_INHERITED' is reserved - it is what a ".
+			"region says when it has not chosen a source")
+		if $tsd->{id} eq $SOURCE_INHERITED;
 	return _err($file,"name is required and may not be empty")
 		if !defined($tsd->{name}) || $tsd->{name} !~ /\S/;
 
@@ -246,6 +263,40 @@ sub _validate
 			return _err($file,"policy.$key must be a non-negative integer")
 				if defined($tsd->{policy}{$key}) &&
 				   (!_isInt($tsd->{policy}{$key}) || $tsd->{policy}{$key} < 0);
+		}
+	}
+
+	# ABSENT FINGERPRINTS -- the bytes a server sends INSTEAD of saying no.
+	#
+	# A well behaved source answers 404 for a tile it does not hold.  Some
+	# answer 200 with a fixed image saying so in words: Esri's "Map data
+	# not yet available" is one image, 2521 bytes, byte for byte identical
+	# every time.  Nothing downstream can tell that from imagery, so a
+	# build bakes grey tiles into a card and reports success - the worst
+	# failure this application has, because every signal says it worked.
+	#
+	# Declared rather than detected, because it is a fact about a server
+	# and this format is where facts about servers live.  The probe can
+	# discover them; the file is what remembers.
+	#
+	# BOTH FIELDS, and in that order: length is a free comparison and the
+	# digest is only computed when a length actually matches, so the
+	# common case - no fingerprints, or no match - costs one integer test
+	# per tile.
+
+	if (defined $tsd->{absent_fingerprints})
+	{
+		return _err($file,"absent_fingerprints must be an array")
+			if ref($tsd->{absent_fingerprints}) ne 'ARRAY';
+		for my $fp (@{$tsd->{absent_fingerprints}})
+		{
+			return _err($file,"each absent_fingerprint must be an object")
+				if ref($fp) ne 'HASH';
+			return _err($file,"absent_fingerprint bytes must be a positive integer")
+				if !_isInt($fp->{bytes}) || $fp->{bytes} < 1;
+			return _err($file,"absent_fingerprint md5 must be 32 hex digits")
+				if !defined($fp->{md5}) || $fp->{md5} !~ /^[0-9a-fA-F]{32}$/;
+			$fp->{md5} = lc($fp->{md5});
 		}
 	}
 
@@ -395,6 +446,24 @@ sub getSourceIds
 {
 	_current();
 	my @ids = sort keys %sources;
+	return @ids;
+}
+
+
+sub getBuildSourceIds
+	# The sources a REGION may name.  'uses' is the author's statement of
+	# what a source is for, and a source that does not say 'build' is not
+	# offered as one -- a display-only basemap chosen as a build source
+	# would fail at the only moment it mattered, hours in.
+{
+	# A real array for the reason getSourceIds gives: sort in scalar
+	# context is undefined, so a caller counting the result would get
+	# garbage rather than a count.
+
+	_current();
+	my @ids = sort grep {
+		grep { $_ eq 'build' } @{$sources{$_}{uses}}
+	} keys %sources;
 	return @ids;
 }
 

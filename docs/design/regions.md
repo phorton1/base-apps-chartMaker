@@ -35,18 +35,21 @@ author's document rather than a set of exchangeable pieces.
 ## The region file
 
 ```
-    region_version:   2
+    region_version:   1
     id:               Bocas
     name:             Bocas del Toro
     notes:            free text
     zauthor:          15
     zmin:             10
     zmax:             16
+    source:           esri_world_imagery
+    source_name:      Esri - ArcGIS World Imagery
     geometry:         [ <polygon>, <polygon>, ... ]
     subregions:
       - id:           Popa00
         name:         Popa anchorage
         zmax:         18
+        source:       inherited
         geometry:     [ <polygon> ]
         subregions:   [ ... ]
 ```
@@ -60,8 +63,34 @@ author's document rather than a set of exchangeable pieces.
 | `zauthor`        | The zoom at which this region's polygon meets the tile grid.          |
 | `zmin`           | The overview floor - the coarsest level the region carries.           |
 | `zmax`           | The finest level the region itself carries.                           |
+| `source`         | The id of the TSD this is to be built from.                           |
+| `source_name`    | What that source was *called* when this was authored. Never resolved. |
 | `geometry`       | One or more polygons in WGS84 decimal degrees.                        |
 | `subregions`     | Zero or more detail areas nested inside this one, recursively.        |
+
+### The source is named, not inherited
+
+**A region names the source it builds from, outright.** It may not inherit one, and the
+reason is the reason a region set exists at all: a set is meant to travel. If the top of the
+tree deferred the question, what a set produced would depend on the machine it was built on,
+and the same folder handed to somebody else would build something its author never saw.
+
+**A subregion may inherit**, with the reserved value `inherited`, which is also its default.
+That stays completely determined - it resolves to its parent's answer, and the chain
+terminates at a region that has named one. A subregion may equally name its own, which is
+the point of the field being on both: a detail area from a sharper provider is a thing
+people will want.
+
+**`source` is a reference and `source_name` is a souvenir.** The id is what resolves; the
+name is a snapshot of what that id was called when the region was authored, carried so that
+a set arriving on a machine without that TSD can still say where its tiles were meant to
+come from. Nothing ever resolves by name, and the two are allowed to disagree - a name that
+has drifted is stale information, not a broken file, and the only moment it is shown in
+preference to the live one is when the id resolves to nothing at all.
+
+**An id naming nothing installed is accepted, not refused.** That is the normal condition of
+a set that arrived from somebody else, and the recipient has to be able to open it to find
+out what it wants. The refusal belongs to the build, which is the first moment it matters.
 
 **A subregion is NOT quite a region: it has `zmax` alone.** No `zauthor`, no `zmin`. A
 region's authored level is the level its outline is cut at, and that outline is what the
@@ -85,8 +114,8 @@ regions because they cannot be two files. The convention is CamelCase and short 
 `PanCanal`, `PortBelo`, `SanBlas`, `SanBlasE` - because eight characters keeps the card file
 name a genuine FAT short name.
 
-**The id is not derived from the name.** A new region and a KML import both *suggest* one by
-CamelCasing the name, and the author is expected to shorten it. `SanBlasE` is not a slug of
+**The id is not derived from the name.** A new region *suggests* one by CamelCasing the
+name, and the author is expected to shorten it. `SanBlasE` is not a slug of
 "San Blas East"; it is a decision, and a field that can hold a decision is the only kind
 that works. Changing an id afterwards moves three things that must move together - the file,
 the key, and every set that names it - which is why it is one operation rather than an
@@ -106,8 +135,7 @@ lose the coverage outright, since a subregion at its parent's `zmax` has an empt
 contributes nothing.
 
 **There are no holes**, and not as a simplification. Coverage is a union and never
-subtracts, so an inner ring could not mean anything. A KML import ignores them for exactly
-that reason rather than as an omission.
+subtracts, so an inner ring could not mean anything. The editor offers no way to draw one.
 
 **The geometry itself is zoom-independent.** A polygon is an outline on the earth, not a
 set of tiles, and it is stored exactly as it was drawn - free coordinates in decimal
@@ -316,10 +344,13 @@ nothing in the current model needs it.
 
 ## What a region file does not contain
 
-Each of these is absent for a reason, and each was considered:
+Each of these is absent for a reason, and each was considered.
 
-- **No source.** A region says where and how deep, never from what. The same region built
-  from two sources is the same region.
+**The source used to be on this list**, on the grounds that a region says where and how deep
+and never from what. That was overturned by what it costs a set to travel: a set whose build
+source is left to the machine is not a recipe, because two people running it get different
+cards. So a region names one - see above - and what remains absent is everything else.
+
 - **No coded region name for the card.** The exported file's stem is the id, uppercased at
   export if it needs to be. Carrying a second machine-readable copy of the region's identity
   would only be one more thing to disagree with the first. See [RCT](rct.md).

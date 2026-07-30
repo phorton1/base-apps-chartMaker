@@ -781,6 +781,16 @@ async function applyState() {
 
         renderedVersion = wanted;
 
+        // THE ZOOM CEILING IS A PREFERENCE OF THE APPLICATION, and this
+        // page is a static file that cannot read one - so it arrives with
+        // the state.  Applied only when it actually differs, because
+        // setMaxZoom re-evaluates every layer.  MAP_MAX_ZOOM remains the
+        // value the map is BUILT with, for the first paint before any
+        // state has arrived.
+
+        if (state.map_max_zoom && state.map_max_zoom !== map.getMaxZoom())
+            map.setMaxZoom(state.map_max_zoom);
+
         // WHAT IS SELECTED IS PART OF THE DOCUMENT, so the map learns it on
         // the same poll as everything else and no surface can disagree.
 

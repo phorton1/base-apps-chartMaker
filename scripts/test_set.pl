@@ -70,7 +70,7 @@ sub regionJson
 	my $d = 0.05;
 	return <<"EOJ";
 {
-   "region_version" : 2,
+   "region_version" : 1,
    "id" : "$id",
    "name" : "$name",
    "zauthor" : 15,

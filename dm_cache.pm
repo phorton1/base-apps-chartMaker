@@ -4,8 +4,13 @@
 #---------------------------------------------
 # The tile cache.  See docs/implementation.md.
 #
-#	$temp_dir/cache/<cache_key>/<z>/<x>_<y>.<ext>		a tile
-#	$temp_dir/cache/<cache_key>/<z>/<x>_<y>.none		a known absence
+#	<CACHE_DIR>/<cache_key>/<z>/<x>_<y>.<ext>		a tile
+#	<CACHE_DIR>/<cache_key>/<z>/<x>_<y>.none		a known absence
+#
+# CACHE_DIR is a preference and defaults into $data_dir, NOT $temp_dir.
+# 'Temp' is a promise that anything may delete it, and these tiles are
+# bandwidth, wall clock, and for some sources requests that should not be
+# repeated.  Reconstructible is not the same as disposable.
 #
 # THE SOURCE KEY IS NOT OPTIONAL.  A z/x/y coordinate means something
 # different in every source, so a cache without a source dimension will
@@ -35,6 +40,9 @@ use threads::shared;
 use File::Path qw( make_path );
 use Pub::Utils;
 use cm_defs;
+use dm_set;
+	# For cacheDir() alone - the folder accessors all live in one place so
+	# that moving a tree is a preference rather than a search.
 
 
 BEGIN
@@ -61,7 +69,7 @@ my @EXTS = qw( jpeg png );
 sub _dir
 {
 	my ($source,$z) = @_;
-	return "$temp_dir/cache/$source->{cache_key}/$z";
+	return cacheDir()."/$source->{cache_key}/$z";
 }
 
 
@@ -186,7 +194,7 @@ sub cacheStats
 	# { total_tiles, total_misses, total_bytes, zooms => { z => {...} } }.
 {
 	my ($source) = @_;
-	my $root = "$temp_dir/cache/$source->{cache_key}";
+	my $root = cacheDir()."/$source->{cache_key}";
 	my $stats = { total_tiles => 0, total_misses => 0, total_bytes => 0, zooms => {} };
 	return $stats if !-d $root;
 

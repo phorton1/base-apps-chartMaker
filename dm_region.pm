@@ -64,7 +64,13 @@ use threads::shared;
 use JSON::PP;
 use Pub::Utils;
 use cm_defs;
+use cm_prefs;
 use dm_set;
+use dm_source;
+	# For one question only: which source a region is born naming.  A
+	# region may not inherit, so something has to answer at creation, and
+	# dm_source is what knows which sources can build.  Not a cycle --
+	# dm_source knows nothing about regions.
 use dm_coverage;
 	# For the polygon primitives only - outsideVertices, to enforce that a
 	# subregion stays inside its parent.  dm_coverage knows nothing about
@@ -110,7 +116,6 @@ BEGIN
 		deleteSubregion
 		findSubregion
 
-		importKmlFile
 		regionPolygonCount
 		regionPointCount
 	);
@@ -123,16 +128,38 @@ our $dbg_region:shared = 0;
 	# -2 = geometry detail
 
 
-my $REGION_VERSION		= 2;
+my $REGION_VERSION		= 1;
+	# THE COUNTER WAS RESTARTED, deliberately.  The format went through
+	# two earlier shapes entirely inside development and no file outside
+	# this machine ever held either of them, so what was carried as
+	# "version 3" was two upgrade paths for a population of files that
+	# does not exist.  The current shape is version 1 and there is no
+	# upgrade code at all: a file claiming a higher version is refused as
+	# newer than this application understands, which is the whole job.
 
 my @REGION_FIELDS		= qw( region_version id name notes zauthor zmin zmax
+							  source source_name geometry subregions );
+my @SUBREGION_FIELDS	= qw( id name notes zmax source source_name
 							  geometry subregions );
-my @SUBREGION_FIELDS	= qw( id name notes zmax geometry subregions );
 
-my $UPGRADE_ZMIN		= 10;
-	# The overview floor a version 1 file did not carry.  It lived in
-	# dm_coverage as a default; a version 2 region states it, and a file
-	# written before it existed is read as having meant the default.
+# SOURCE IS A REFERENCE AND SOURCE_NAME IS A SOUVENIR.  The id is what
+# resolves; the name is a snapshot of what that id was CALLED when this
+# region was authored, carried so that a set arriving on a machine without
+# that TSD can still say where its tiles were meant to come from.
+#
+# Nothing ever resolves by name, and the two are allowed to disagree - a
+# name that has drifted is stale information, not a broken file, and the
+# only moment it is shown in preference to the live one is when the id
+# resolves to nothing at all.  Deliberate denormalisation, kept honest by
+# the rule that one field is read by code and the other only by people.
+
+# THE LEVELS A NEW REGION STARTS WITH are preferences, read at creation
+# and never afterwards.  They are seeds: changing one never touches a
+# region that exists, which is the only reason a zoom may be a preference
+# at all.  A set built on the shipped GIBS sources, which stop at z12,
+# needs different seeds from one built on a commercial aerial source, and
+# correcting three spinners on every new region is how you find that out
+# the slow way.
 
 #---------------------------------------------
 # THE OPEN DOCUMENT
@@ -345,6 +372,24 @@ sub _numify
 # validation
 #---------------------------------------------
 
+sub _newRegionSource
+	# THE SOURCE A REGION IS BORN NAMING.  What the map is currently
+	# showing, if that source can build; otherwise the shipped default.
+	#
+	# The fallback is a plain string and does not have to resolve to
+	# anything installed -- an id naming a source this machine does not
+	# have is a condition the format already tolerates, and is exactly
+	# what a set arriving from somebody else looks like.  So this always
+	# has an answer and a region is never left without one.
+{
+	my $id  = getDefaultSource();
+	my $src = $id ? getSource($id) : undef;
+	return $id
+		if $src && grep { $_ eq 'build' } @{$src->{uses} || []};
+	return $DEFAULT_SOURCE_ID;
+}
+
+
 sub _validatePolygon
 {
 	my ($where,$poly,$n) = @_;
@@ -438,6 +483,33 @@ sub _validateRegion
 			if $reg->{zauthor} > $reg->{zmax};
 	}
 
+	# A SUBREGION MAY INHERIT AND A REGION MAY NOT.  An inherited build
+	# source at the top would make what a set produces depend on the
+	# machine it is built on, and a set is meant to travel -- handed to
+	# somebody else it would build something its author never saw.  So
+	# the region names a source outright.  A subregion inheriting its
+	# parent's answer stays completely determined, which is why the value
+	# survives there and is the default there.
+	#
+	# The charset is the TSD's own, so an id that could not name a source
+	# is refused here rather than at build time.  An id that is merely NOT
+	# INSTALLED is accepted: that is the normal condition of a set that
+	# arrived from somebody else, and the recipient has to be able to open
+	# it to find out what it wants.
+
+	$reg->{source} = $depth ? $SOURCE_INHERITED : _newRegionSource()
+		if !defined $reg->{source};
+	return _err($where,"source must be [a-z0-9_-]")
+		if $reg->{source} !~ /^[a-z0-9_-]+$/;
+	return _err($where,"a region may not have source '$SOURCE_INHERITED' ".
+			"- only a subregion may inherit, because a set that inherits ".
+			"its build source builds differently in different hands")
+		if !$depth && $reg->{source} eq $SOURCE_INHERITED;
+
+	$reg->{source_name} = '' if !defined $reg->{source_name};
+	return _err($where,"source_name must be a string")
+		if ref($reg->{source_name});
+
 	# geometry is a LIST of polygons.  A region with no geometry at all is
 	# allowed -- that is what a newly created one looks like before
 	# anything has been drawn.
@@ -528,62 +600,6 @@ sub _checkContainment
 # loading
 #---------------------------------------------
 
-sub _upgradeRegion
-	# Version 1 -> 2, in memory, at load.
-	#
-	# A version 1 file carried one zoom per level, canonical_zoom, and got
-	# its floor and its depth from defaults living in dm_coverage: the
-	# floor was 10 and exactly one level above canonical was filled.  So
-	# the version 2 reading of a version 1 file is zauthor = canonical,
-	# zmin = 10, zmax = canonical + 1, and a subregion -- which had the
-	# same one-level fill -- becomes zmax = canonical + 1.
-	#
-	# THIS IS A READ, NOT A REWRITE.  Nothing is written back until the
-	# region is saved for some other reason, so an upgrade that is wrong
-	# about a file costs nothing until someone looks at it.  It is also
-	# why no migration script has to touch the user's folder.
-{
-	my ($reg,$depth) = @_;
-	return if ref($reg) ne 'HASH';
-	$depth ||= 0;
-
-	# Version 1 allowed [a-z0-9_-], so bocas_del_toro was a legal id and
-	# is not one now.  Such a file must still LOAD -- rejecting it would
-	# make every region anyone already has unreadable, and there would be
-	# no way to fix it from inside the application.  The converted id is
-	# a mechanical CamelCase of the old one and is expected to be
-	# shortened by hand; see setRegionId.
-
-	if (defined($reg->{id}) && !ref($reg->{id}) &&
-		$reg->{id} !~ /^[A-Za-z0-9]+$/)
-	{
-		my $was = $reg->{id};
-		$reg->{id} = _suggestId($was);
-		warning(0,0,"region id '$was' is not valid in version $REGION_VERSION ".
-			"- read as '$reg->{id}'")
-			if $reg->{id} =~ /^[A-Za-z0-9]+$/;
-	}
-
-	if (defined $reg->{canonical_zoom})
-	{
-		my $c = delete $reg->{canonical_zoom};
-		if ($depth)
-		{
-			$reg->{zmax} = $c + 1 if !defined $reg->{zmax};
-		}
-		else
-		{
-			$reg->{zauthor} = $c      if !defined $reg->{zauthor};
-			$reg->{zmin}    = $UPGRADE_ZMIN if !defined $reg->{zmin};
-			$reg->{zmax}    = $c + 1  if !defined $reg->{zmax};
-		}
-	}
-
-	_upgradeRegion($_,$depth+1) for @{$reg->{subregions} || []};
-
-	$reg->{region_version} = $REGION_VERSION if !$depth;
-}
-
 
 sub _loadFile
 {
@@ -600,10 +616,6 @@ sub _loadFile
 		error("$leaf: not valid JSON - $why");
 		return;
 	}
-
-	_upgradeRegion($reg,0)
-		if ref($reg) eq 'HASH' && _isInt($reg->{region_version}) &&
-			$reg->{region_version} < $REGION_VERSION;
 
 	$reg = _validateRegion($leaf,$reg,0);
 	return if !$reg;
@@ -1187,9 +1199,9 @@ sub newRegion
 	# author is expected to shorten it, and setRegionId is how.
 {
 	my ($name,$zauthor,$zmin,$zmax,$id) = @_;
-	$zauthor = 15 if !defined $zauthor;
-	$zmin    = $UPGRADE_ZMIN if !defined $zmin;
-	$zmax    = $zauthor + 1  if !defined $zmax;
+	$zauthor = prefVal($PREF_NEW_ZAUTHOR)	if !defined $zauthor;
+	$zmin    = prefVal($PREF_NEW_ZMIN)		if !defined $zmin;
+	$zmax    = prefVal($PREF_NEW_ZMAX)		if !defined $zmax;
 
 	$id = _suggestId($name) if !defined($id) || $id !~ /\S/;
 	if ($id !~ /^[A-Za-z0-9]+$/)
@@ -1210,6 +1222,8 @@ sub newRegion
 		zauthor			=> $zauthor,
 		zmin			=> $zmin,
 		zmax			=> $zmax,
+		source			=> _newRegionSource(),
+		source_name		=> '',
 		geometry		=> [],
 		subregions		=> [],
 	};
@@ -1428,6 +1442,8 @@ sub addSubregion
 		id			=> $id,
 		name		=> $name,
 		zmax		=> $zmax,
+		source		=> $SOURCE_INHERITED,
+		source_name	=> '',
 		geometry	=> [],
 		subregions	=> [],
 	};
@@ -1583,127 +1599,5 @@ sub setUncheckedIds
 	_touch();
 	return 1;
 }
-
-
-#---------------------------------------------
-# KML import
-#---------------------------------------------
-
-sub _kmlPolygons
-	# Every Placemark's outer ring, as [[lon,lat],...].  KML coordinates
-	# are lon,lat[,alt] and whitespace separated.  Inner rings are ignored
-	# deliberately: coverage is a union and never subtracts, so a hole
-	# cannot mean anything here.
-{
-	my ($xml) = @_;
-	my @polys;
-	while ($xml =~ m{<Placemark>(.*?)</Placemark>}gs)
-	{
-		my $pm = $1;
-		my ($outer) = $pm =~ m{<outerBoundaryIs>(.*?)</outerBoundaryIs>}s;
-		$outer = $pm if !defined $outer;
-		my ($coords) = $outer =~ m{<coordinates>\s*(.*?)\s*</coordinates>}s;
-		next if !defined $coords;
-
-		my @pts;
-		for my $tuple (split(/\s+/,$coords))
-		{
-			next if $tuple !~ /\S/;
-			my ($lon,$lat) = split(/,/,$tuple);
-			next if !_isNum($lon) || !_isNum($lat);
-			push @pts,[ 0 + $lon, 0 + $lat ];
-		}
-
-		# KML closes its rings by repeating the first point.  The model
-		# does not store the closing point; a polygon is implicitly closed.
-
-		pop @pts if @pts > 1 &&
-			$pts[0][0] == $pts[-1][0] && $pts[0][1] == $pts[-1][1];
-
-		push @polys,\@pts if @pts >= 3;
-	}
-	return @polys;
-}
-
-
-sub importKmlFile
-	# Each KML Folder becomes one region, and every Placemark inside it
-	# becomes one of that region's polygons.  A Folder holding two
-	# disjoint shapes is one region with two polygons, which is what the
-	# format is for.
-	#
-	# Returns the list of region ids created.
-{
-	my ($path,$zauthor,$zmin,$zmax) = @_;
-	$zauthor = 15 if !defined $zauthor;
-	$zmin    = $UPGRADE_ZMIN if !defined $zmin;
-	$zmax    = $zauthor + 1  if !defined $zmax;
-
-	my $xml = _readFile($path);
-	return () if !defined $xml;
-
-	my @made;
-	while ($xml =~ m{<Folder>(.*?)</Folder>}gs)
-	{
-		my $folder = $1;
-		my ($raw) = $folder =~ m{<name>\s*(.*?)\s*</name>}s;
-		$raw = 'unnamed' if !defined($raw) || $raw !~ /\S/;
-
-		# Google Earth folder names here read 'BocasDelToro (Bocas del
-		# Toro)' - the bare token then the display name in parentheses.
-		# Take the parenthesised form when it is there; it is the one a
-		# person wrote.
-
-		my $name = $raw =~ /^\s*\S+\s*\((.+)\)\s*$/ ? $1 : $raw;
-
-		my @polys = _kmlPolygons($folder);
-		if (!@polys)
-		{
-			warning(0,0,"importKml: folder '$raw' holds no usable polygon - skipped");
-			next;
-		}
-
-		# The KML's bare token is the closest thing it has to an id, and it
-		# is already CamelCase where these files came from ('BocasDelToro
-		# (Bocas del Toro)').  It is still only a suggestion: BocasDelToro
-		# is twelve characters and the author will want Bocas.
-
-		my $token = $raw =~ /^\s*(\S+)\s*\(/ ? $1 : $name;
-		my $id = _suggestId($token);
-		$id = _suggestId($name) if $id !~ /^[A-Za-z0-9]+$/;
-
-		if ($id !~ /^[A-Za-z0-9]+$/)
-		{
-			warning(0,0,"importKml: folder '$raw' does not yield a usable id - skipped");
-			next;
-		}
-		if (getRegion($id))
-		{
-			warning(0,0,"importKml: a region with id '$id' already exists - skipped");
-			next;
-		}
-
-		my $reg = {
-			region_version	=> $REGION_VERSION,
-			id				=> $id,
-			name			=> $name,
-			notes			=> "imported from ".($path =~ m{([^/\\]+)$})[0],
-			zauthor			=> $zauthor,
-			zmin			=> $zmin,
-			zmax			=> $zmax,
-			geometry		=> \@polys,
-			subregions		=> [],
-		};
-
-		if (stageRegion($reg))
-		{
-			push @made,$id;
-			display($dbg_region,1,sprintf("%-16s %d polygon(s), %d points",
-				$id,scalar(@polys),regionPointCount($reg)));
-		}
-	}
-	return @made;
-}
-
 
 1;

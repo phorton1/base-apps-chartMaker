@@ -464,7 +464,17 @@ function onSelectionChanged(state) {
     if (seenSelKey === null) { rememberSelKey(key); return; }
     if (key === seenSelKey) return;
 
+    // ONE SHOT, CONSUMED HERE.  sentSelKey answers "did I ask for this?",
+    // which is a question about the change that just arrived and about
+    // nothing after it.  Left standing, it becomes a permanent claim on
+    // that object: the applet selects a subregion once by clicking it,
+    // and from then on choosing that same subregion in the tree looks
+    // like the applet's own doing, so it is never framed again.  Every
+    // other object still worked, which is what made it look like one
+    // broken subregion rather than a rule with a leak in it.
+
     const foreign = (key !== sentSelKey);
+    sentSelKey = '';
     rememberSelKey(key);
     if (foreign && autoZoom) zoomToSelection();
 }

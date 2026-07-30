@@ -57,7 +57,9 @@ my @view_menu = (
 	$COMMAND_OPEN_MAP,
 	$ID_SEPARATOR,
 	$CLOSE_ALL_PANES,
-	$CLOSE_OTHER_PANES );
+	$CLOSE_OTHER_PANES,
+	$ID_SEPARATOR,
+	$COMMAND_PREFS );
 
 
 my @main_menu = (
@@ -78,6 +80,7 @@ my $command_data = {
 	$COMMAND_SET_REVERT	=> ['Revert',		'Throw away every unsaved change and re-read the folder'],
 	$COMMAND_SET_CLOSE	=> ['Close',		'Close the open set'],
 	$COMMAND_NEW_REGION	=> ['New Region...','Create a region in the open set'],
+	$COMMAND_PREFS		=> ['Preferences...','Folders, the map, and what a new region starts with'],
 };
 
 

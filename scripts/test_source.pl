@@ -94,7 +94,10 @@ my $QUAD = <<'EOJ';
   "url": "https://example.com/tile/{q}.jpeg",
   "zoom": { "min": 1, "max": 20 },
   "attribution": "test",
-  "uses": ["display"]
+  "absent_fingerprints": [
+    { "bytes": 2521, "md5": "F27D9DE7F80C13501F470595E327AA6D" }
+  ],
+  "uses": ["display","overlay"]
 }
 EOJ
 
@@ -125,6 +128,20 @@ my %BAD = (
 	'bad_uses.tsd' => '{ "tsd_version":1, "id":"i", "name":"I", "kind":"remote_xyz",
 		"url":"https://e.com/{z}/{x}/{y}.png", "zoom":{"max":10},
 		"uses":["export"], "attribution":"t" }',
+	'reserved_id.tsd' => '{ "tsd_version":1, "id":"inherited", "name":"J",
+		"kind":"remote_xyz", "url":"https://e.com/{z}/{x}/{y}.png",
+		"zoom":{"max":10}, "uses":["display"], "attribution":"t" }',
+	'fp_not_array.tsd' => '{ "tsd_version":1, "id":"k", "name":"K", "kind":"remote_xyz",
+		"url":"https://e.com/{z}/{x}/{y}.png", "zoom":{"max":10},
+		"uses":["display"], "attribution":"t", "absent_fingerprints":{"bytes":1} }',
+	'fp_bad_md5.tsd' => '{ "tsd_version":1, "id":"l", "name":"L", "kind":"remote_xyz",
+		"url":"https://e.com/{z}/{x}/{y}.png", "zoom":{"max":10},
+		"uses":["display"], "attribution":"t",
+		"absent_fingerprints":[{"bytes":2521,"md5":"not-a-digest"}] }',
+	'fp_no_bytes.tsd' => '{ "tsd_version":1, "id":"m", "name":"M", "kind":"remote_xyz",
+		"url":"https://e.com/{z}/{x}/{y}.png", "zoom":{"max":10},
+		"uses":["display"], "attribution":"t",
+		"absent_fingerprints":[{"md5":"f27d9de7f80c13501f470595e327aa6d"}] }',
 	'broken.tsd' => '{ this is not json',
 );
 
@@ -144,6 +161,14 @@ ok($n == 3,"3 valid sources loaded (got $n)");
 ok(join(',',getSourceIds()) eq 'gibs_weld_annual,quad_test,tms_test',
 	"ids are ".join(',',getSourceIds()));
 
+# A REGION MAY ONLY NAME A SOURCE THAT SAYS 'build'.  Two of the three
+# fixtures are display-only, so this is the filter working rather than
+# the list happening to be short.
+
+ok(join(',',getBuildSourceIds()) eq 'gibs_weld_annual',
+	"only build-capable sources are offered to a region (got ".
+	join(',',getBuildSourceIds()).")");
+
 my $gibs = getSource('gibs_weld_annual');
 ok($gibs,"gibs source found");
 ok($gibs && $gibs->{cache_key} eq 'gibs',"cache_key is the leaf name minus .tsd");
@@ -152,6 +177,23 @@ ok($gibs && $gibs->{crs} eq 'EPSG:3857',"crs defaulted to EPSG:3857");
 ok($gibs && $gibs->{redistributable} eq 'yes',"redistributable read");
 
 my $q = getSource('quad_test');
+
+# The fingerprint of a server that answers 200 with a picture of the word
+# 'no'.  Stored lower case whatever the file said, so a comparison never
+# has to think about it.
+
+ok($q && ref($q->{absent_fingerprints}) eq 'ARRAY' &&
+	scalar(@{$q->{absent_fingerprints}}) == 1,
+	"absent_fingerprints read");
+ok($q && $q->{absent_fingerprints}[0]{bytes} == 2521,
+	"fingerprint byte length read");
+ok($q && $q->{absent_fingerprints}[0]{md5} eq 'f27d9de7f80c13501f470595e327aa6d',
+	"fingerprint md5 folded to lower case");
+ok($q && grep({ $_ eq 'overlay' } @{$q->{uses}}),
+	"'overlay' is a legal use");
+ok(!grep({ $_ eq 'quad_test' } getBuildSourceIds()),
+	"and an overlay is still not offered as a build source");
+
 ok($q && $q->{redistributable} eq 'unknown',"redistributable defaults to unknown");
 ok($q && $q->{tile_format} eq 'jpeg',"tile_format defaults to jpeg");
 ok($q && $q->{zoom}{min} == 1,"zoom.min read");

@@ -66,24 +66,33 @@ read that**, rather than streaming it into a terminal that will be confused by i
 | `tool_rct_inspect.pl` | run the firmware's own arithmetic over a card - the zero-step blocks it would silently skip, and the reveal-mask rectangle count against its budget |
 | `tool_coverage_time.pl` | what coverage costs cold, warm, and after one region is edited |
 | `tool_shot.ps1` | a screenshot of the running window, found by owning process |
+| `tool_prune_absent.pl` | convert a source's cached "no data here" tiles into recorded absences |
 | `_tool_esri_probe.pl` | what resolution Esri actually holds over an area, by `MaxMapLevel` |
-| `_old_test_region.pl` | region files, ids, the workspace, KML import |
-| `_old_test_coverage.pl` | the grid, the band rule, parents versus re-intersecting, tile counts |
-| `_old_test_server.pl` | the applet protocol against an in-process server |
 | `_old_test_rct_merc.pl` | the E80 semicircle projection, against the pre-rewrite card |
 | `_old_tool_rct_compare.pl` | old card versus new, by byte region |
 | `_old_tool_rct_bitmaps.pl` | old card versus new, presence bitmap by presence bitmap |
 
-## The `_old_` group is not meant to survive
+## The `_old_` group
 
-Three of them import a coverage KML that lives in the old repository, and three read the
-card the old exporter produced. Both go away.
+Three of these were **deleted in Phase F**: `_old_test_region.pl`, `_old_test_coverage.pl`
+and `_old_test_server.pl` all called a KML importer that no longer exists. It was the
+one-way path out of the old chartMaker, its job is done, and the application has no notion
+of importing a region set - it creates, modifies and saves them. The scripts could not run,
+and most of what they covered is now in `test_doc.pl`, `test_set.pl` and `test_edit.pl`.
 
-The three tests among them are worth keeping, and the way to keep them is **not** to copy
-that KML in here - it is to have them write their own small synthetic polygons the way
-`test_source.pl` already writes its own `.tsd` fixtures. That removes the dependency, makes
-them publishable, and promotes them out of `_old_`. Until somebody does that, they are on
-borrowed time.
+The three that remain compare this exporter's output against the card the OLD chartMaker
+produced, and both reference files still exist, so they still do real work:
+
+```
+    C:/dat/openCPN/OLD_RASTER/BOCAS.RCT     the pre-rewrite card
+    C:/dat/openCPN/RASTER/Bocas.rct         what this one wrote
+```
+
+**Both paths are hardcoded and the second one is now wrong.** Output folders became
+preferences in Phase F, so a build writes to `<RASTER_DIR>/<set>/` - by default
+`$data_dir/raster/<set>/`. These three will need pointing at `rasterDir()` the next time
+anybody builds a card to compare against. Until then they read a file that happens to still
+be sitting where the old exporter left it.
 
 The three tools are spent: they compared the new exporter against the old card, the
 comparison passed, and the card is on the hardware.

@@ -130,6 +130,20 @@ almost never fire.
 reasons that are only visible from this side of the boundary - see
 [RCT](rct.md#two-constraints-only-chartmaker-can-see).
 
+**The tiles must be in a format the exporter can carry.** RCT holds JPEG. A source may
+legitimately declare `png`, and nothing stops such a source declaring `build` in its
+`uses` - so the combination is reachable without anybody doing anything wrong.
+
+The exporter copies cached bytes into the blob table without inspecting them, which is
+what keeps an image stack out of the build and is worth keeping. The consequence is that
+a PNG source yields a structurally valid card full of bytes the plotter cannot decode:
+built, reported as successful, and blank on the water. That is the worst failure this
+application can produce, because every signal says it worked.
+
+So the build refuses, naming the source and its format, rather than writing that card.
+The check survives format conversion arriving later - it becomes the place a format that
+still cannot be carried is refused, instead of the place every non-JPEG is refused.
+
 ## Block decomposition is a budget, not an optimisation
 
 The [RCT](rct.md) exporter groups each zoom's tiles into rectangular coverage blocks, and
@@ -164,6 +178,40 @@ budget is the aperture ceasing to mean anything.
   [RCT](rct.md) as peers over it); what an exporter has to provide is not.
 - **Progress reporting** - the build is long-running and reports into the application
   without blocking it.
+- **Format conversion at the exporter seam** - decoding and re-encoding one tile, which is
+  an encoder and not the image-processing stack this application refuses: no resampling, no
+  reprojection, no compositing. It carries a quality preference, and that preference is a
+  legitimate user-level setting precisely because it changes the bytes without changing what
+  the card asserts - the same ground, the same zooms, the same source. Anything that changed
+  *those* would belong to the region, not to a preference.
+- **Build analysis, and the dry run that produces it.** A build already reads every tile it
+  will write, so the facts worth knowing are free at the moment they pass through. Three of
+  them are known to be worth collecting: repeated byte-identical tiles, which is how a
+  server that serves a "no data here" placeholder instead of a 404 confesses (Esri does this;
+  its grey tile is one fixed image); the depth at which a level stops carrying information
+  its parent did not already have; and the resulting deepest genuinely-resolved zoom, per
+  region rather than per source, because it is a fact about ground and not about a server.
+
+  The output is feedback rather than a decision: it tells the author which zooms are worth
+  building, and the author sets `zmax`. What it must also be able to do is act on its own
+  findings against the cache - pruning levels that carry nothing, so that disk is not held
+  by tiles that will never be written to a card.
+
+  Overzoom is worth stating plainly, because it is easy to read as a defect and is also a
+  choice: magnified imagery is not *wrong*, it is the provider's resampling instead of the
+  plotter's, and one may legitimately prefer it. What must not happen is shipping it
+  unknowingly, at four times the tiles per level, on a card whose space is the binding
+  constraint.
+- **Source probing** - what a TSD can be *measured* for rather than asserted to be:
+  reachability, the format actually served, real depth as against declared `zoom.max`, the
+  fingerprints of any placeholder tile, and whether the addressing order is right. The last
+  is testable rather than eyeballed - correlating one low-zoom tile against a source already
+  trusted collapses if rows and columns are transposed. Deliberately excluded: probing for
+  where a server begins refusing, which is the behaviour that earns a permanent refusal.
+- **Build notes in the card.** The RCT format can carry a record of how a card was made -
+  source, zoom range, encoding, date. chartMaker is upstream of both the specification and
+  the renderer, so this is a decision available to be taken rather than a constraint to work
+  within.
 
 ---
 

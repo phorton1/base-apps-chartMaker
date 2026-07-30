@@ -28,16 +28,19 @@ use warnings;
 use threads;
 use threads::shared;
 use Wx qw(:everything);
-use Wx::Event qw( EVT_TREE_SEL_CHANGED EVT_LEFT_DOWN EVT_RIGHT_DOWN
+use Wx::Event qw( EVT_TREE_SEL_CHANGED EVT_TREE_ITEM_ACTIVATED
+				  EVT_LEFT_DOWN EVT_RIGHT_DOWN
 				  EVT_TIMER EVT_MENU
 				  EVT_TEXT EVT_TEXT_ENTER EVT_SPINCTRL EVT_CHECKBOX
-				  EVT_BUTTON );
+				  EVT_COMBOBOX EVT_BUTTON );
 use Pub::Utils;
 use Pub::WX::Window;
 use cm_defs;
 use cm_state;
+use cm_utils;
 use dm_set;
 use dm_region;
+use dm_source;
 use base qw(Wx::SplitterWindow Pub::WX::Window);
 
 
@@ -173,6 +176,36 @@ sub new
 		wxDefaultPosition,[60,-1],wxSP_ARROW_KEYS,0,24,10);
 	$this->{ctl_zmax} = Wx::SpinCtrl->new($right,-1,'',
 		wxDefaultPosition,[60,-1],wxSP_ARROW_KEYS,0,24,16);
+
+	# The subregion's own Max spinner, and the text that says where its
+	# band starts.  A separate control rather than the region's, because
+	# the two live in different rows and a wx control belongs to one.
+
+	$this->{ctl_submax} = Wx::SpinCtrl->new($right,-1,'',
+		wxDefaultPosition,[60,-1],wxSP_ARROW_KEYS,0,24,16);
+	$this->{txt_submin} = Wx::StaticText->new($right,-1,'',
+		wxDefaultPosition,[90,-1]);
+
+	# THE SOURCE IS ONE ROW FOR BOTH KINDS, unlike the zoom levels: a
+	# region and a subregion answer this question identically, so there is
+	# nothing to swap and one set of controls serves both.
+	#
+	# THE PULLDOWN CARRIES THE ID, THE TEXT CARRIES THE NAME.  Ids are
+	# short and names are not - 'gibs_weld_annual' against 'NASA GIBS -
+	# Landsat WELD True Colour (global annual)' - so a combined entry would
+	# be a dropdown wider than the pane to show a field that is usually
+	# one word.  The text is last in the row and unsized, so a long name
+	# runs off the right rather than pushing anything.
+	#
+	# It is also where the failure is said.  An id that resolves to nothing
+	# - the normal condition of a set that arrived from somebody else -
+	# shows the REMEMBERED name in red, which is the only moment the
+	# souvenir is worth more than the live answer.
+
+	$this->{ctl_source} = Wx::ComboBox->new($right,-1,'',
+		wxDefaultPosition,[150,-1],[],wxCB_READONLY);
+	$this->{txt_source} = Wx::StaticText->new($right,-1,'');
+
 	$this->{ctl_show} = Wx::CheckBox->new($right,-1,'show on map');
 	$this->{ctl_save} = Wx::Button->new($right,-1,'Save',
 		wxDefaultPosition,[$BTN,-1]);
@@ -206,9 +239,14 @@ sub new
 		wxDefaultPosition,[$LBL,-1]),0,$CV,0);
 	$name_row->Add($this->{ctl_name},0,$CV,0);
 
-	# ROW 3 -- the three levels.  A subregion has zmax alone, and the
-	# other two are disabled for it rather than hidden, so the shape of
-	# the model stays visible.
+	# ROW 3 -- the levels.  THERE ARE TWO OF THESE AND EXACTLY ONE IS
+	# EVER SHOWN, because a region and a subregion do not have the same
+	# fields.  A region has all three.  A SUBREGION HAS ONLY MAX: its
+	# floor is its parent's zmax + 1 and its authored level is the
+	# region's, neither of which it can be asked about -- so they are
+	# said as text rather than offered as disabled spinners, which read
+	# as settings that happen to be locked.  Its Max sits in the field
+	# column with Id and Name, because it is the one thing being edited.
 
 	my $zoom_row = Wx::BoxSizer->new(wxHORIZONTAL);
 	$zoom_row->AddSpacer($PAD);
@@ -226,6 +264,33 @@ sub new
 		wxDefaultPosition,[32,-1]),0,$CV,0);
 	$zoom_row->Add($this->{ctl_zmax},0,$CV,0);
 
+	my $sub_row = Wx::BoxSizer->new(wxHORIZONTAL);
+	$sub_row->AddSpacer($PAD);
+	$sub_row->Add(Wx::StaticText->new($right,-1,'Zoom',
+		wxDefaultPosition,[$COL - $PAD,-1]),0,$CV,0);
+	$sub_row->Add(Wx::StaticText->new($right,-1,'Max:',
+		wxDefaultPosition,[$LBL,-1]),0,$CV,0);
+	$sub_row->Add($this->{ctl_submax},0,$CV,0);
+	$sub_row->AddSpacer(14);
+	$sub_row->Add($this->{txt_submin},0,$CV,0);
+
+	# ROW 4 -- the source.  IT LINES UP WITH THE ZOOM ROW, NOT WITH THE
+	# FIELDS: 'Source:' sits where 'Zoom' does and the pulldown where
+	# 'Author:' does, one column to the LEFT of the id, name and spinners.
+	# The row says one thing rather than three, and starting it early
+	# leaves the width for the name that follows it.
+
+	my $src_row = Wx::BoxSizer->new(wxHORIZONTAL);
+	$src_row->AddSpacer($PAD);
+	$src_row->Add(Wx::StaticText->new($right,-1,'Source:',
+		wxDefaultPosition,[$COL - $PAD,-1]),0,$CV,0);
+	$src_row->Add($this->{ctl_source},0,$CV,0);
+	$src_row->AddSpacer(8);
+	$src_row->Add($this->{txt_source},0,$CV,0);
+
+	$this->{zoom_row} = $zoom_row;
+	$this->{sub_row}  = $sub_row;
+
 	$this->{props} = Wx::TextCtrl->new($right,-1,'',
 		wxDefaultPosition,wxDefaultSize,
 		wxTE_MULTILINE | wxTE_READONLY | wxTE_DONTWRAP);
@@ -239,6 +304,10 @@ sub new
 	$sizer->Add($name_row,0,wxLEFT|wxRIGHT,8);
 	$sizer->AddSpacer(6);
 	$sizer->Add($zoom_row,0,wxLEFT|wxRIGHT,8);
+	$sizer->Add($sub_row,0,wxLEFT|wxRIGHT,8);
+	$sizer->Show($sub_row,0);
+	$sizer->AddSpacer(6);
+	$sizer->Add($src_row,0,wxLEFT|wxRIGHT,8);
 	$sizer->AddSpacer(8);
 	$sizer->Add($this->{props},1,wxEXPAND|wxALL,4);
 	$right->SetSizer($sizer);
@@ -247,6 +316,7 @@ sub new
 	$this->SetMinimumPaneSize(160);
 
 	EVT_TREE_SEL_CHANGED($this,$this->{tree},\&onSelect);
+	EVT_TREE_ITEM_ACTIVATED($this,$this->{tree},\&onTreeActivated);
 	EVT_LEFT_DOWN($this->{tree},sub { $this->onTreeLeftDown($_[1]) });
 	EVT_RIGHT_DOWN($this->{tree},sub { $this->onTreeRightDown($_[1]) });
 	EVT_MENU($this,$_,\&onTreeMenu) for ($MENU_COMMIT, $MENU_REVERT,
@@ -265,6 +335,8 @@ sub new
 	EVT_SPINCTRL($this,$this->{ctl_zauthor},\&onEdited);
 	EVT_SPINCTRL($this,$this->{ctl_zmin},\&onEdited);
 	EVT_SPINCTRL($this,$this->{ctl_zmax},\&onEdited);
+	EVT_SPINCTRL($this,$this->{ctl_submax},\&onEdited);
+	EVT_COMBOBOX($this,$this->{ctl_source},\&onSourcePicked);
 	EVT_BUTTON($this,$this->{ctl_save},\&onSave);
 	EVT_BUTTON($this,$this->{ctl_revert},\&onRevert);
 	EVT_CHECKBOX($this,$this->{ctl_show},\&onShowToggled);
@@ -279,6 +351,7 @@ sub new
 	EVT_TIMER($this,-1,\&onTimer);
 	$this->{timer}->Start($TIMER_MS);
 
+	$this->{built} = 1;
 	$this->populate();
 	return $this;
 }
@@ -470,6 +543,14 @@ sub showSetTitle
 sub onTimer
 {
 	my ($this,$event) = @_;
+
+	# NOT UNTIL THE PANE EXISTS - the same trap winSources::onTimer
+	# describes at length.  The frame activates the page from inside
+	# MyWindow(), before any of the widgets below it are made, and this
+	# pane would die one line further on asking ctl_save whether it is
+	# enabled.
+
+	return if !$this->{built};
 	return if getStateSeq() == $this->{seen_seq};
 
 	# Never rebuild out from under an edit in progress.  A rebuild
@@ -560,6 +641,33 @@ sub onTreeLeftDown
 		return;
 	}
 	$event->Skip();
+}
+
+
+sub onTreeActivated
+	# DOUBLE CLICK SELECTS AND SHOWS.  wx sends the selection change
+	# first, so by the time this arrives the map already knows what was
+	# picked -- all the gesture adds is a window to see it in, and only
+	# when there is not one already.  navMate's trees answer a double
+	# click the same way, which is where it comes from.
+	#
+	# THE EVENT IS NOT SKIPPED, so a region with subregions does not also
+	# expand out from under the pointer.  The expand button and the arrow
+	# keys still do that, and one gesture that does two things at once is
+	# hard to aim.
+	#
+	# 'Not currently open' is a browser that has stopped polling, which is
+	# the only sense in which this process can know -- see cm_state.  A
+	# map that is open but buried stays where it is: raising somebody
+	# else's window is not this application's business.
+{
+	my ($this,$event) = @_;
+	my $node = $this->selectedIds();
+	return if !$node;
+	return if mapIsOpen();
+	display($dbg_win,0,"winRegions: double click on '".
+		($node->{is_root} ? $node->{root_id} : $node->{id})."' opens the map");
+	openMapBrowser();
 }
 
 
@@ -800,19 +908,96 @@ sub _selectedRegion
 }
 
 
+sub _fillSources
+	# Rebuild the pulldown around the value the region actually holds.
+	#
+	# THE STORED ID IS ALWAYS AN ENTRY, installed or not.  A read-only
+	# combo can only show what is in its list, so an id that resolves to
+	# nothing would come up blank -- and the next Save would write that
+	# blank over a build choice nobody touched.  A set that arrived from
+	# somebody else has to be openable without being quietly rewritten.
+{
+	my ($this,$want,$is_root) = @_;
+
+	# ONLY A SUBREGION IS OFFERED 'inherited'.  A region that inherited
+	# its build source would build differently in somebody else's hands,
+	# and a set is meant to travel - see dm_region's validator, which
+	# refuses it outright rather than relying on this list.
+
+	my @ids = ($is_root ? () : $SOURCE_INHERITED, getBuildSourceIds());
+	push @ids,$want
+		if defined($want) && $want ne '' && !grep { $_ eq $want } @ids;
+
+	my $ctl = $this->{ctl_source};
+	$ctl->Clear();
+	$ctl->Append($_) for @ids;
+	$ctl->SetStringSelection($want) if defined($want) && $want ne '';
+}
+
+
+sub _showSourceName
+	# The name beside the pulldown, and the one place the two copies of
+	# the source's identity are allowed to disagree out loud.
+{
+	my ($this,$id,$remembered) = @_;
+	my $txt  = $this->{txt_source};
+	my $bad  = 0;
+	my $show = '';
+
+	if ($id eq $SOURCE_INHERITED)
+	{
+		# Deliberately blank.  What it inherits is a fact about the build,
+		# not about this region, and naming a source here would read as a
+		# choice that had been made.
+	}
+	elsif (my $src = getSource($id))
+	{
+		$show = $src->{name};
+	}
+	else
+	{
+		# NOT INSTALLED IS NOT CORRUPTION.  The souvenir is now the only
+		# statement of where the tiles were meant to come from, so it is
+		# what gets shown -- in red, because a build cannot be run from it.
+
+		$bad  = 1;
+		$show = ($remembered // '') =~ /\S/ ?
+			"$remembered  -- not installed" : 'not installed';
+	}
+
+	$txt->SetForegroundColour($bad ? Wx::Colour->new(180,0,0) :
+		Wx::SystemSettings::GetColour(wxSYS_COLOUR_WINDOWTEXT));
+	$txt->SetLabel($show);
+	$txt->Refresh();
+}
+
+
+sub _zmaxCtl
+	# WHICHEVER MAX SPINNER IS THE SHOWN ONE.  The region's row and the
+	# subregion's row each carry their own, so every read of zmax has to
+	# say which kind of thing is selected.
+{
+	my ($this,$is_root) = @_;
+	return $is_root ? $this->{ctl_zmax} : $this->{ctl_submax};
+}
+
+
 sub _isDirty
 {
 	my ($this) = @_;
 	my ($reg,undef,$node) = $this->_selectedRegion();
 	return 0 if !$reg;
+	my $is_root = ($node && $node->{is_root}) ? 1 : 0;
 	return 1 if $this->{ctl_name}->GetValue() ne $reg->{name};
 	return 1 if $this->{ctl_id}->GetValue() ne $reg->{id};
-	return 1 if $this->{ctl_zmax}->GetValue() != $reg->{zmax};
+	return 1 if $this->_zmaxCtl($is_root)->GetValue() != $reg->{zmax};
+	return 1 if $this->{ctl_source}->GetStringSelection() ne
+		($reg->{source} // $SOURCE_INHERITED);
 
 	# A subregion has no authored level and no floor, so there is nothing
 	# on those two controls that could be dirty.
 
-	return 0 if $node && !$node->{is_root};
+	return 0 if !$is_root;
 	return 1 if $this->{ctl_zauthor}->GetValue() != $reg->{zauthor};
 	return 1 if $this->{ctl_zmin}->GetValue() != $reg->{zmin};
 	return 0;
@@ -828,6 +1013,25 @@ sub onEdited
 	my $dirty = $this->_isDirty() ? 1 : 0;
 	$this->{ctl_save}->Enable($dirty);
 	$this->{ctl_revert}->Enable($dirty);
+}
+
+
+sub onSourcePicked
+	# THE NAME BELONGS TO THE PULLDOWN, NOT TO THE SAVED REGION.  It has
+	# to answer the moment the id changes: updating it only on selection
+	# meant it described the source that was there before the pick, which
+	# is worse than showing nothing.
+	#
+	# The remembered name still comes from the region, because the one id
+	# that can be picked and not resolve is the one the region arrived
+	# with.
+{
+	my ($this,$event) = @_;
+	my ($reg) = $this->_selectedRegion();
+	$this->_showSourceName($this->{ctl_source}->GetStringSelection(),
+		$reg ? $reg->{source_name} : '');
+	$this->{right}->Layout();
+	$this->onEdited($event);
 }
 
 
@@ -925,7 +1129,7 @@ sub onSave
 	my $is_root = $node && $node->{is_root};
 	my $name    = $this->{ctl_name}->GetValue();
 	my $new_id  = $this->{ctl_id}->GetValue();
-	my $zmax    = $this->{ctl_zmax}->GetValue();
+	my $zmax    = $this->_zmaxCtl($is_root)->GetValue();
 
 	if ($name !~ /\S/)
 	{
@@ -953,6 +1157,25 @@ sub onSave
 	$why .= " zmax $zmax"			if $zmax != $reg->{zmax};
 	$reg->{name} = $name;
 	$reg->{zmax} = $zmax;
+
+	# THE NAME IS RE-SNAPSHOT FROM THE LIVE SOURCE, except when there is
+	# no live source to ask.  An id that resolves to nothing keeps the
+	# name it arrived with: overwriting it with '' would destroy the only
+	# record of what the author was building from, and this Save might
+	# only have been a rename.
+
+	my $source = $this->{ctl_source}->GetStringSelection();
+	$why .= " source $source"
+		if $source ne ($reg->{source} // $SOURCE_INHERITED);
+	$reg->{source} = $source;
+	if ($source eq $SOURCE_INHERITED)
+	{
+		$reg->{source_name} = '';
+	}
+	elsif (my $src = getSource($source))
+	{
+		$reg->{source_name} = $src->{name};
+	}
 
 	if ($is_root)
 	{
@@ -990,10 +1213,10 @@ sub onSave
 				return;
 			}
 			$reg->{id} = $new_id;
-			return if !saveRegion($root);
+			return if !stageRegion($root);
 		}
 	}
-	elsif (!saveRegion($root))
+	elsif (!stageRegion($root))
 	{
 		return;
 	}
@@ -1109,12 +1332,21 @@ sub _enableControls
 	my ($this,$on,$is_root) = @_;
 	$this->{ctl_name}->Enable($on ? 1 : 0);
 	$this->{ctl_id}->Enable($on ? 1 : 0);
+
+	# THE ROW ITSELF IS THE ANSWER TO WHAT KIND OF THING IS SELECTED.  A
+	# subregion has zmax alone, so its row is the one that is shown and
+	# the region's three spinners are not on screen at all -- see the
+	# comment where the two rows are built.  Nothing selected keeps the
+	# region's row, which is the wider of the two.
+
+	my $sizer = $this->{right}->GetSizer();
+	$sizer->Show($this->{zoom_row},($on && !$is_root) ? 0 : 1);
+	$sizer->Show($this->{sub_row}, ($on && !$is_root) ? 1 : 0);
+	$this->{right}->Layout();
+
 	$this->{ctl_zmax}->Enable($on ? 1 : 0);
-
-	# A subregion has zmax alone -- no authored level, no floor.  The
-	# controls are disabled rather than hidden so the shape of the model
-	# is visible from the pane.
-
+	$this->{ctl_submax}->Enable($on ? 1 : 0);
+	$this->{ctl_source}->Enable($on ? 1 : 0);
 	$this->{ctl_zauthor}->Enable(($on && $is_root) ? 1 : 0);
 	$this->{ctl_zmin}->Enable(($on && $is_root) ? 1 : 0);
 
@@ -1194,6 +1426,8 @@ sub showProperties
 		$this->{ctl_name}->SetValue('');
 		$this->{ctl_id}->SetValue('');
 		$this->{ctl_show}->SetValue(0);
+		$this->_fillSources($SOURCE_INHERITED,0);
+		$this->_showSourceName($SOURCE_INHERITED,'');
 		$this->_enableControls(0,0);
 		$this->{loading} = 0;
 
@@ -1206,16 +1440,35 @@ sub showProperties
 		return;
 	}
 
-	# A subregion has no zauthor or zmin of its own.  The controls show
-	# the PARENT'S, disabled -- blank fields would read as "zero" and a
-	# stale value from the last selection would read as this node's.
+	# A subregion has no zauthor and no zmin of its own.  Its floor is
+	# the IMMEDIATE parent's zmax + 1, which is not the root's once
+	# subregions nest, and it is said as text -- there is nothing there
+	# to set.
+
+	my $parent;
+	if (!$node->{is_root})
+	{
+		(undef,$parent) = findSubregion($root,$reg->{id});
+		$parent ||= $root;
+	}
 
 	$this->{loading} = 1;
 	$this->{ctl_name}->SetValue($reg->{name});
 	$this->{ctl_id}->SetValue($reg->{id});
-	$this->{ctl_zmax}->SetValue($reg->{zmax});
 	$this->{ctl_zauthor}->SetValue($root->{zauthor});
 	$this->{ctl_zmin}->SetValue($root->{zmin});
+	if ($parent)
+	{
+		$this->{ctl_submax}->SetValue($reg->{zmax});
+		$this->{txt_submin}->SetLabel(sprintf("Min: %d",$parent->{zmax}+1));
+	}
+	else
+	{
+		$this->{ctl_zmax}->SetValue($reg->{zmax});
+	}
+	my $source = $reg->{source} // $SOURCE_INHERITED;
+	$this->_fillSources($source,$node->{is_root});
+	$this->_showSourceName($source,$reg->{source_name});
 	$this->{ctl_show}->SetValue(isChecked($node->{root_id}) ? 1 : 0);
 
 	# GREYED OUT WHILE THE MAP HOLDS IT.  Not merely advisory: an edit
@@ -1223,6 +1476,7 @@ sub showProperties
 
 	my $held = $this->_mapHolds($node);
 	$this->_enableControls($held ? 0 : 1,$node->{is_root});
+	$this->{right}->Layout();
 	$this->{loading} = 0;
 
 	my $text = '';
@@ -1243,14 +1497,30 @@ sub showProperties
 	}
 	else
 	{
-		# The band starts at the IMMEDIATE parent's zmax + 1, which is not
-		# the root's once subregions nest.
-
-		my (undef,$parent) = findSubregion($root,$reg->{id});
-		$parent ||= $root;
 		$text .= sprintf("%-16s %d  (its band is z%d-%d)\n",'zmax',
 			$reg->{zmax},$parent->{zmax}+1,$reg->{zmax});
 	}
+	# The souvenir is printed only when it is the last thing standing.
+	# Two lines saying the same name is noise; two lines disagreeing is
+	# the one case worth the space.
+
+	if ($source eq $SOURCE_INHERITED)
+	{
+		$text .= sprintf("%-16s %s  (%s)\n",'source',$SOURCE_INHERITED,
+			$node->{is_root} ? 'whatever the build is run with' :
+				"from '$node->{root_id}'");
+	}
+	elsif (my $src = getSource($source))
+	{
+		$text .= sprintf("%-16s %s  (%s)\n",'source',$source,$src->{name});
+	}
+	else
+	{
+		$text .= sprintf("%-16s %s  *** NOT INSTALLED ***\n",'source',$source);
+		$text .= sprintf("%-16s %s\n",'was called',$reg->{source_name})
+			if ($reg->{source_name} // '') =~ /\S/;
+	}
+
 	$text .= sprintf("%-16s %s  (it is on the card either way)\n",'shown on map',
 		isChecked($node->{root_id}) ? 'yes' : 'no');
 	$text .= sprintf("%-16s %s\n",'notes',$reg->{notes}) if $reg->{notes};

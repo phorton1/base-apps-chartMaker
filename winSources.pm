@@ -127,6 +127,7 @@ sub new
 	EVT_TIMER($this,-1,\&onTimer);
 	$this->{timer}->Start($TIMER_MS);
 
+	$this->{built} = 1;
 	$this->populate();
 	return $this;
 }
@@ -197,6 +198,19 @@ sub populate
 sub onTimer
 {
 	my ($this,$event) = @_;
+
+	# NOT UNTIL THE PANE EXISTS.  MyWindow() puts the page into the
+	# notebook, which makes it the current one, which the frame turns
+	# into an activation -- and all of that happens BEFORE the widgets
+	# below it are created.  The activation arrives at a $this whose tree
+	# is still undef, and populate() dies on it.
+	#
+	# It stayed hidden because the guard below used to catch it by
+	# accident: seen_seq was undef, undef == 0 is true, and the state
+	# counter is 0 only until the first selection.  So it fired on
+	# reopening a pane and never on a fresh start.
+
+	return if !$this->{built};
 	return if getStateSeq() == $this->{seen_seq};
 
 	# A PANE THAT IS NOT ON TOP DOES NOT TOUCH ITS WIDGETS - see the same
@@ -317,7 +331,7 @@ sub showProperties
 			if defined $src->{$key};
 	}
 	$text .= sprintf("%-16s %s\n",'uses',join(',',@{$src->{uses}}));
-	$text .= sprintf("%-16s %d - %d  (protocol limits)\n",'zoom',
+	$text .= sprintf("%-16s %d - %d\n",'zoom',
 		$src->{zoom}{min},$src->{zoom}{max});
 	$text .= sprintf("%-16s %s\n",'subdomains',join(',',@{$src->{subdomains}}))
 		if $src->{subdomains};
@@ -340,13 +354,14 @@ sub showProperties
 	# source does not have, recorded so it is never asked for again.
 
 	my $stats = cacheStats($src);
-	$text .= "\n".sprintf("%-16s %d tiles, %d absent, %d bytes\n",'cache',
-		$stats->{total_tiles},$stats->{total_misses},$stats->{total_bytes});
+	$text .= "\n".sprintf("%-16s %d tiles, %d absent, %s\n",'cache',
+		$stats->{total_tiles},$stats->{total_misses},
+		prettyBytes($stats->{total_bytes}));
 	for my $z (sort { $a <=> $b } keys %{$stats->{zooms}})
 	{
 		my $zs = $stats->{zooms}{$z};
-		$text .= sprintf("    z%-2d  %6d tiles  %6d absent  %9d bytes\n",
-			$z,$zs->{tiles},$zs->{misses},$zs->{bytes});
+		$text .= sprintf("    z%-2d  %6d tiles  %6d absent  %9s\n",
+			$z,$zs->{tiles},$zs->{misses},prettyBytes($zs->{bytes}));
 	}
 
 	$this->{props}->SetValue($text);

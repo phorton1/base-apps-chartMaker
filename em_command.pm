@@ -119,7 +119,6 @@ sub commandHelp
 		[ 'edit [mode] [id] [dirty]','what the map is doing: browse, shape, draw, end'	],
 		[ 'region geometry <id> [sub]',	'replace polygons - /edit only, the map supplies them'],
 		[ 'region delete <id>',			'delete a region from the document'						],
-		[ 'region import <file> [z]',	'import each KML folder as a region'				],
 		[ 'subregion new <parent> <zmax> <name>',
 										'add an empty detail area - draw it on the map'		],
 		[ 'subregion delete <region> <id>',	'remove a detail area'							],
@@ -437,12 +436,12 @@ sub _buildCommand
 	# folder holding exactly one region set - so the producer side needs
 	# one folder per set for the copy to be a copy rather than a decision.
 
-	if (!-d $RASTER_DIR)
+	if (!-d rasterDir())
 	{
-		warning(0,0,"build rct: $RASTER_DIR does not exist");
+		warning(0,0,"build rct: ".rasterDir()." does not exist");
 		return;
 	}
-	my $out_dir = "$RASTER_DIR/$set";
+	my $out_dir = rasterDir()."/$set";
 	if (!-d $out_dir && !mkdir($out_dir))
 	{
 		error("build rct: could not create $out_dir: $!");
@@ -522,7 +521,7 @@ sub _regionsCommand
 	if (!@ids)
 	{
 		display(0,0,"no regions in set '$set'");
-		display(0,1,"try 'region import <file.kml>' or 'region new <name>'");
+		display(0,1,"try 'region new <name>'");
 		return;
 	}
 	display(0,0,"regions in set '$set'");
@@ -886,26 +885,6 @@ sub _regionCommand
 		}
 		return;
 	}
-	if ($verb eq 'import')
-	{
-		my ($path,$zoom) = $rest =~ /^(.*?)\s+(\d+)\s*$/ ? ($1,$2) : ($rest,15);
-		if (!-f $path)
-		{
-			warning(0,0,"region import: no such file '$path'");
-			return;
-		}
-		my @made = importKmlFile($path,$zoom);
-		if (!@made)
-		{
-			warning(0,0,"region import: nothing usable in '$path'");
-			return;
-		}
-		display(0,0,"region import: ".scalar(@made)." region(s) at z$zoom");
-		display(0,1,$_) for @made;
-		bumpState(scalar(@made)." region(s) imported");
-		return;
-	}
-
 	# not a verb, so it is an id
 
 	my $reg = getRegion($verb);
@@ -920,6 +899,19 @@ sub _regionCommand
 	display(0,1,sprintf("%-16s %d",'zauthor',$reg->{zauthor}));
 	display(0,1,sprintf("%-16s %d",'zmin',$reg->{zmin}));
 	display(0,1,sprintf("%-16s %d",'zmax',$reg->{zmax}));
+
+	# THE SOURCE, AND WHETHER IT RESOLVES.  An id naming nothing installed
+	# is the normal condition of a set that arrived from somebody else, so
+	# it is reported rather than treated as damage - and the remembered
+	# name is all such a set has left to say where its tiles came from.
+
+	my $src = getSource($reg->{source});
+	display(0,1,sprintf("%-16s %s%s",'source',$reg->{source},
+		$src ? "  ($src->{name})" :
+			"  *** NOT INSTALLED ***".
+			(($reg->{source_name} // '') =~ /\S/ ?
+				" - was called '$reg->{source_name}'" : '')));
+
 	display(0,1,sprintf("%-16s %s",'checked',isChecked($verb) ? 'yes' : 'no'));
 	display(0,1,sprintf("%-16s %s",'notes',$reg->{notes})) if $reg->{notes};
 

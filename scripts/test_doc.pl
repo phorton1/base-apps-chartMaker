@@ -71,7 +71,7 @@ sub regionJson
 	my $d = 0.05;
 	return <<"EOJ";
 {
-   "region_version" : 2,
+   "region_version" : 1,
    "id" : "$id",
    "name" : "$name",
    "zauthor" : 15,
@@ -273,6 +273,56 @@ ok(-f "$ROOT/region_sets/Copy/Beta.region",		"including the ones not edited");
 openSet('Fix');
 ok(getRegion('Alpha')->{name} ne 'In The Copy',
 	"and the set it came from was left as it was");
+
+
+#---------------------------------------------
+# the build source
+#---------------------------------------------
+# LAST, because it writes to the fixture -- every assertion about the
+# folder surviving untouched has already run by here.
+
+print "\n--- the build source\n";
+
+# The fixtures carry no source at all, which is what a hand written file
+# looks like.  A REGION MAY NOT INHERIT, so the loader has to give it one
+# outright; with no sources installed in the fixture data dir that falls
+# through to the shipped default.
+
+my $alpha = getRegion('Alpha');
+ok($alpha && $alpha->{source} eq $DEFAULT_SOURCE_ID,
+	"a region file with no source is given one ('".
+	($alpha->{source} // 'undef')."')");
+ok($alpha && $alpha->{source} ne $SOURCE_INHERITED,
+	"and never '$SOURCE_INHERITED' - a set that inherits is indeterminate");
+ok($alpha && $alpha->{source_name} eq '',
+	"and carries no remembered name");
+
+$alpha->{source} = $SOURCE_INHERITED;
+ok(!stageRegion($alpha),	"a region may not be given '$SOURCE_INHERITED'");
+$alpha = getRegion('Alpha');
+
+# AN ID THAT NAMES NOTHING INSTALLED IS STILL VALID.  A set that arrived
+# from somebody else has to open, or its recipient can never find out
+# what it wants.  dm_region does not consult dm_source at all.
+
+$alpha->{source}      = 'somebody_elses_tsd';
+$alpha->{source_name} = 'Somebody Else - Imagery';
+ok(stageRegion($alpha),		"a source that is not installed is accepted");
+
+$alpha->{source} = 'Not A Source Id';
+ok(!stageRegion($alpha),	"but one outside [a-z0-9_-] is refused");
+
+my $reset = getRegion('Alpha');
+ok($reset && $reset->{source} eq 'somebody_elses_tsd',
+	"and the refusal put the last accepted source back");
+
+ok(saveSet(),				"the set saves");
+ok(openSet('Fix') == 2,		"and reopens");
+my $back = getRegion('Alpha');
+ok($back && $back->{source} eq 'somebody_elses_tsd',
+	"with the source id round tripped");
+ok($back && $back->{source_name} eq 'Somebody Else - Imagery',
+	"and the remembered name with it");
 
 
 print "\n".($fails ? "$fails FAILED\n" : "ALL PASSED\n");

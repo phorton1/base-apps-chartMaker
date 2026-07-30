@@ -22,8 +22,8 @@ BEGIN
 		$appName
 		$appVersion
 		$app_dir
-		$RASTER_DIR
 		$DEFAULT_SOURCE_ID
+		$SOURCE_INHERITED
 
 		$WIN_REGIONS
 		$WIN_SOURCES
@@ -36,6 +36,7 @@ BEGIN
 		$COMMAND_SET_CLOSE
 		$COMMAND_SET_NEW
 		$COMMAND_NEW_REGION
+		$COMMAND_PREFS
 	);
 }
 
@@ -72,31 +73,22 @@ our $app_dir = $^O eq 'MSWin32' ?
 
 our $DEFAULT_SOURCE_ID = 'gibs_weld_annual';
 
-# Where the .rct exporter writes a card.  THE FOLDER IS THE CARD: the
-# renderer enumerates it and merges every .rct it finds, so there is no
-# manifest and any subset of the files is a valid set.
+# THE SOURCE A REGION DID NOT CHOOSE.  A region or subregion names the
+# source it is to be built from; this is the value meaning "not my
+# decision", and it is what everything is created with, so adding the
+# field changed no existing behaviour.
 #
-# TWO DIFFERENT FACTS SHARE THE NAME 'RASTER' AND SHOULD NOT BE CONFUSED.
-# On the CF card the spec requires a single outer folder called \RASTER\
-# holding exactly one region set - that is the consumer's contract.  What
-# the folder is called on THIS machine is a local convenience, and its
-# current name and location are a vestige of the old chartMaker rather
-# than anything the format asks for.  The copy to the card is what bridges
-# them, and it is the same producer-side/consumer-side seam as the 8.3
-# short name.
+# It resolves DOWNWARD: a subregion inherits its parent's answer, and a
+# region that inherits falls through to whatever source the application
+# would use anyway.  A chain of inheritance therefore always terminates,
+# which is the property that lets the field be optional.
 #
-# THE BASE, not the output folder.  Sets are folders now, so a build
-# writes to $RASTER_DIR/<set> and it is THAT folder you copy to the
-# card -- which makes the copy a copy rather than a decision about which
-# .rct files belong together.
-#
-# The base itself is still a hardcoded path and must not survive into the
-# installed product as one; it wants to move under $data_dir (something
-# like $data_dir/RCT_REGIONS) rather than sit at the root of a drive.
+# It is a RESERVED SOURCE ID, not a separate kind of value, so one string
+# field holds both answers and no reader has to test two things.  A TSD
+# claiming this id is refused at load - see dm_source - because a real
+# source called 'inherited' would silently become unreachable.
 
-our $RASTER_DIR = $^O eq 'MSWin32' ?
-	'C:/dat/openCPN/RASTER' :
-	'/dat/openCPN/RASTER';
+our $SOURCE_INHERITED = 'inherited';
 
 
 #---------------------------------------------
@@ -124,6 +116,11 @@ our $COMMAND_SET_CLOSE	= 10025;
 our $COMMAND_SET_NEW	= 10026;
 
 our $COMMAND_NEW_REGION	= 10031;
+
+# Preferences is a VIEW menu item rather than a File one, because nothing
+# it changes is part of the document.
+
+our $COMMAND_PREFS		= 10032;
 
 
 1;

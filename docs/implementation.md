@@ -71,14 +71,45 @@ the question for every user in either camp.
 specified** - neither the store's format nor how a slot is bound to an entry in it. Only
 its location is settled here.
 
-### `$temp_dir` - everything regenerable
+### Every folder is a preference
 
-`$temp_dir` holds only what chartMaker can rebuild by itself, which makes deleting it a
-question of time rather than loss. The principal occupant is the **tile cache**, and it is
-keyed by source:
+The five trees chartMaker reads and writes are each a preference, and each defaults to a
+leaf under `$data_dir`:
 
 ```
-    $temp_dir/cache/<tsd_leaf_name>/<z>/<x>_<y>.<ext>
+    SOURCES_DIR       $data_dir/sources          the .tsd files
+    REGION_SETS_DIR   $data_dir/region_sets      one folder per set
+    MBTILES_DIR       $data_dir/mbtiles          built chartsets
+    RASTER_DIR        $data_dir/raster           built cards, one folder per set
+    CACHE_DIR         $data_dir/cache            fetched tiles
+```
+
+**`$data_dir` itself is deliberately not a preference.** The preferences file lives in it,
+so a preference naming it could not be read without already knowing it. That single fact
+fixes the order of operations: establish `$data_dir`, read the preferences, then resolve
+every folder from them.
+
+**The folder defaults are computed on every read, never stored.** Two things follow, and
+both matter. A folder line appears in `chartMaker.prefs` only when somebody actually sets
+one, so the file stays a statement of what was *changed* rather than a snapshot of
+everything. And a headless test can point the whole application at a fixture directory by
+assigning `$data_dir` alone.
+
+**The application creates only the folders it chose the location of.** A preference naming
+a folder that is not there is reported, never made: a missing path is far more likely to be
+a typo, an unmounted drive, or a preferences file copied from another machine than an
+instruction to build an empty tree somewhere unexpected - and building it would look like
+success while hiding the real one.
+
+### The tile cache is not temporary
+
+The cache defaults into `$data_dir` rather than `$temp_dir`, and the distinction is
+deliberate: *temp* is a promise that anything may delete it, and these tiles are bandwidth,
+wall clock, and for some sources requests that should not be repeated. Reconstructible is
+not the same as disposable.
+
+```
+    <CACHE_DIR>/<tsd_leaf_name>/<z>/<x>_<y>.<ext>
 ```
 
 **The source key is not optional.** A tile is identified by its z/x/y coordinate, and that

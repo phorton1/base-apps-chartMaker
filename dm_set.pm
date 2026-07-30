@@ -41,8 +41,10 @@ use strict;
 use warnings;
 use threads;
 use threads::shared;
+use File::Path qw( make_path );
 use Pub::Utils;
 use cm_defs;
+use cm_prefs;
 
 
 BEGIN
@@ -60,6 +62,9 @@ BEGIN
 
 		sourcesDir
 		regionSetsDir
+		mbtilesDir
+		rasterDir
+		cacheDir
 		setDir
 	);
 }
@@ -70,8 +75,6 @@ our $dbg_set:shared = 0;
 	# -1 = one line per set
 
 
-my $SOURCES_DIR		= 'sources';
-my $REGION_SETS_DIR	= 'region_sets';
 
 my $scan_seq:shared		= 1;
 my $my_seq				= 0;
@@ -86,15 +89,47 @@ my $active_set:shared	= '';
 # paths
 #---------------------------------------------
 
+# EVERY FOLDER IS A PREFERENCE, defaulted under $data_dir.  Read through
+# these rather than composed at any call site, so that changing where a
+# tree lives is one line in a prefs file and not a search.  Nothing may
+# call them at compile time: init_prefs has to have run.
+
 sub sourcesDir
 {
-	return "$data_dir/$SOURCES_DIR";
+	return prefDir($PREF_SOURCES_DIR);
 }
 
 
 sub regionSetsDir
 {
-	return "$data_dir/$REGION_SETS_DIR";
+	return prefDir($PREF_REGION_SETS_DIR);
+}
+
+
+sub mbtilesDir
+{
+	return prefDir($PREF_MBTILES_DIR);
+}
+
+
+sub rasterDir
+	# THE BASE, not the output folder.  A build writes to
+	# rasterDir()/<set>, and it is THAT folder which is copied to the
+	# card -- which makes the copy a copy rather than a decision about
+	# which files belong together.
+	#
+	# On the CF card the spec requires a single outer folder called
+	# \RASTER\ holding exactly one region set: that is the consumer's
+	# contract, and what this folder is called on this machine is a local
+	# convenience.  The copy to the card is what bridges them.
+{
+	return prefDir($PREF_RASTER_DIR);
+}
+
+
+sub cacheDir
+{
+	return prefDir($PREF_CACHE_DIR);
 }
 
 
@@ -121,17 +156,32 @@ sub _validName
 #---------------------------------------------
 
 sub _ensureDirs
-	# Both folders are created if they are missing.  This is the one place
-	# the application makes a directory in the user's own data folder, and
-	# it makes only these two, only empty, and only because nothing can be
-	# loaded or saved without them.  It does not create a set: zero sets is
-	# a legitimate state that the application must present rather than
-	# paper over.
+	# The folders are created if they are missing -- but ONLY the ones the
+	# application chose the location of.
+	#
+	# A PATH THE USER NAMED IS NEVER CREATED.  A preference pointing at a
+	# folder that is not there is far more likely to be a typo, a drive
+	# that has not mounted, or a machine the prefs file was copied from
+	# than it is an instruction to build an empty tree somewhere
+	# unexpected.  Making it would look like it worked and would quietly
+	# hide the real one.  So a default location is ours to create and a
+	# named one is reported.
+	#
+	# It does not create a set: zero sets is a legitimate state the
+	# application must present rather than paper over.
 {
-	for my $dir (sourcesDir(),regionSetsDir())
+	for my $name (@PREF_DIRS)
 	{
-		next if -d $dir;
-		if (!mkdir($dir))
+		my $dir = prefDir($name);
+		next if !defined($dir) || $dir !~ /\S/ || -d $dir;
+
+		if (!prefIsDefault($name))
+		{
+			error("$name is set to '$dir', which does not exist - ".
+				"correct it in Preferences, or create the folder");
+			next;
+		}
+		if (!make_path($dir))
 		{
 			error("could not create $dir: $!");
 			next;
