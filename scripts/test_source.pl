@@ -17,7 +17,7 @@ use Pub::Utils;
 use cm_defs;
 use dm_source;
 
-my $TMP = 'C:/_temp/dat-openCPN-chartMaker';
+my $TMP = 'C:/_temp/base-apps-chartMaker';
 
 my $fails = 0;
 

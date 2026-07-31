@@ -49,8 +49,8 @@ our $appName = 'chartMaker';
 our $appVersion = '0.1';
 
 our $app_dir = $^O eq 'MSWin32' ?
-	'C:\dat\openCPN\chartMaker' :
-	'/dat/openCPN/chartMaker';
+	'C:\base\apps\chartMaker' :
+	'/base/apps/chartMaker';
 
 
 # THE OFFICIAL DEFAULT TSD.  When nothing has been selected, or what was

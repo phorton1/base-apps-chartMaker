@@ -12,7 +12,7 @@
 # the reason this is a tool rather than a test: it reports what a person
 # would see, which is the only thing worth checking by eye.
 
-param([string]$out = "C:\_temp\dat-openCPN-chartMaker\shot.png")
+param([string]$out = "C:\_temp\base-apps-chartMaker\shot.png")
 
 Add-Type @"
 using System;

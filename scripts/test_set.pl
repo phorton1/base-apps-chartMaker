@@ -25,7 +25,7 @@ use dm_set;
 use dm_source;
 use dm_region;
 
-my $TMP  = 'C:/_temp/dat-openCPN-chartMaker';
+my $TMP  = 'C:/_temp/base-apps-chartMaker';
 my $ROOT = "$TMP/sets_data";
 
 my $fails = 0;

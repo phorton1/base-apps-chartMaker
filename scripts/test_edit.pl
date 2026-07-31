@@ -24,7 +24,7 @@ use dm_region;
 use dm_coverage;
 use em_command;
 
-my $TMP  = 'C:/_temp/dat-openCPN-chartMaker';
+my $TMP  = 'C:/_temp/base-apps-chartMaker';
 my $ROOT = "$TMP/edit_data";
 
 my $fails = 0;

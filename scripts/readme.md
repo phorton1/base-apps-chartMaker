@@ -42,7 +42,7 @@ From this folder, with the shared Perl tree on the include path:
 
 `use lib` resolves from the script's own location, so the repo can live anywhere. Every
 scratch file, fixture directory and capture they produce is written under
-`C:\_temp\dat-openCPN-chartMaker\` and never beside the script - **that folder is cleared
+`C:\_temp\base-apps-chartMaker\` and never beside the script - **that folder is cleared
 at every commit**, so nothing worth keeping may live there.
 
 **Anything that writes builds its own data dir first.** A script that forgets leaves

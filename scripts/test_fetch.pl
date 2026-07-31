@@ -17,7 +17,7 @@ use dm_source;
 use dm_cache;
 use dm_fetch;
 
-my $TMP = 'C:/_temp/dat-openCPN-chartMaker';
+my $TMP = 'C:/_temp/base-apps-chartMaker';
 
 $Pub::Utils::data_dir = "$TMP/tsd_good";
 $Pub::Utils::temp_dir = "$TMP/fetch";

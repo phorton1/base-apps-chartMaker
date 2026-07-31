@@ -22,7 +22,7 @@ use dm_rct;
 setStandardTempDir('chartMaker');
 setStandardDataDir('chartMaker');
 
-my $OUT = 'C:/_temp/dat-openCPN-chartMaker/out';
+my $OUT = 'C:/_temp/base-apps-chartMaker/out';
 mkdir $OUT if !-d $OUT;
 
 my $fails = 0;
