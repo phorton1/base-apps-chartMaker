@@ -30,6 +30,7 @@ use dm_cache;
 use dm_fetch;
 use dm_region;
 use dm_coverage;
+use dm_fill;
 use dm_rct;
 
 
@@ -122,6 +123,7 @@ sub commandHelp
 		[ 'subregion new <parent> <zmax> <name>',
 										'add an empty detail area - draw it on the map'		],
 		[ 'subregion delete <region> <id>',	'remove a detail area'							],
+		[ 'fetch <id|set|all> [zmax]',	'fill the cache with every tile the build will read'],
 		[ 'build rct <id|set> [zmax]',	'export region(s) as .rct card files'				],
 		[ 'check <id>',			'show a region on the map'									],
 		[ 'uncheck <id>',		'hide it from the map (it is still on the card)'			],
@@ -375,6 +377,73 @@ sub _showSubregions
 			scalar(@{$sub->{geometry}}),$sub->{name}));
 		_showSubregions($sub,$level+1);
 	}
+}
+
+
+sub _fetchCommand
+	# fetch <id|set|all> [zmax]
+	#
+	# The cache filler.  It exists because dm_rct fetches nothing: a build
+	# over ground that has never been displayed writes a card full of
+	# absences that the plotter papers over by overzooming, which looks
+	# soft rather than broken and is therefore not noticed until somebody
+	# is out there relying on it.
+	#
+	# 'set' and 'all' mean the same thing they mean to build - every region
+	# file in the open set, because the files present ARE the set.
+{
+	my ($rest) = @_;
+	my ($which,$zmax) = split(/\s+/,$rest || '');
+	$which = 'set' if !defined($which) || $which !~ /\S/;
+
+	if (defined($zmax) && ($zmax !~ /^\d+$/ || $zmax > 22))
+	{
+		warning(0,0,"fetch: '$zmax' is not a zoom level");
+		return;
+	}
+
+	my $set = getActiveSet();
+	if (!$set)
+	{
+		warning(0,0,"fetch: there is no active region set");
+		return;
+	}
+
+	my @ids = ($which eq 'all' || $which eq 'set') ?
+		getRegionIds() : ($which);
+	if (!@ids)
+	{
+		warning(0,0,"fetch: nothing to fetch");
+		return;
+	}
+
+	# THE FALLBACK, not the answer.  A region names the source it is to be
+	# built from and a subregion may name its own; this is only what a node
+	# that inherits resolves to, and it is the source being displayed for
+	# the same reason the build uses it - display and build share one cache.
+
+	my $fallback = getDefaultSource();
+	if (!$fallback)
+	{
+		warning(0,0,"fetch: no active source - try 'source use <id>'");
+		return;
+	}
+
+	display(0,0,"fetch ".join(', ',@ids).
+		(defined $zmax ? " capped at z$zmax" : '').
+		"  (inheriting '$fallback')");
+
+	my $stats = fillCoverage(\@ids,{
+		fallback => $fallback,
+		defined $zmax ? ( zmax => $zmax ) : (),
+	});
+
+	display(0,0,sprintf("%s%d tiles in %.1fs - %d fetched, %d already cached, ".
+		"%d absent, %d errors",
+		$stats->{aborted} ? 'ABORTED after ' : '',
+		$stats->{tiles},$stats->{secs},
+		$stats->{tiles} - $stats->{cached},$stats->{cached},
+		$stats->{absent},$stats->{error}));
 }
 
 
@@ -1247,6 +1316,10 @@ sub dispatchCommand
 	elsif ($lpart eq 'subregion')
 	{
 		_subregionCommand($rpart);
+	}
+	elsif ($lpart eq 'fetch')
+	{
+		_fetchCommand($rpart);
 	}
 	elsif ($lpart eq 'build')
 	{

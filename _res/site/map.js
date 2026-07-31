@@ -135,7 +135,35 @@ function setImagerySource(src) {
         tileSize:      src.tile_size,
     });
     imageryLayer.addTo(map);
+    applyContextDim();
 }
+
+// THE IMAGERY BECOMES CONTEXT WHEN PREVIEW IS ON, and says so by going
+// dim. Held as a flag rather than applied once, because switching sources
+// builds a whole new layer - and a preview whose context quietly came back
+// to full brightness would be telling the user that everything on screen is
+// in their chartset.
+
+let contextDim = false;
+
+function applyContextDim() {
+    if (!imageryLayer) return;
+    const el = imageryLayer.getContainer();
+    if (el) el.classList.toggle('cm-context-dim', contextDim);
+}
+
+function cmSetContextDim(on) {
+    contextDim = !!on;
+    applyContextDim();
+}
+window.cmSetContextDim = cmSetContextDim;
+
+// What the preview's classifications are valid against. Anything that can
+// move a tile moves this.
+function cmModelKey() {
+    return renderedVersion;
+}
+window.cmModelKey = cmModelKey;
 
 
 // ============================================================================
@@ -236,7 +264,7 @@ window.cmRedrawRegions = cmRedrawRegions;
 // Rows are added by whichever file owns the thing being switched, and they
 // appear in the order named here rather than the order they were added.
 
-const PALETTE_ROWS = ['grid', 'autozoom', 'footprint'];
+const PALETTE_ROWS = ['grid', 'autozoom', 'footprint', 'preview'];
 
 const paletteBox = L.control({ position: 'topleft' });
 let paletteDiv = null;
@@ -518,9 +546,36 @@ const COVERAGE_STYLE = {
     fill: true, fillOpacity: 0.06, interactive: false,
 };
 
+// WHILE PREVIEW IS ON THE LEVEL IS NOT A CHOICE.  Preview fills in the
+// tiles the card holds at the zoom being looked at, so a footprint pinned
+// to some other level would be outlining a different question's answer -
+// and the two disagreeing on screen is exactly what made the halo
+// unreadable. Following the map is what makes the outlines mean "these are
+// the tiles you are looking at".
+
+let footprintFollows = false;
+
+function cmFootprintFollow(on) {
+    footprintFollows = !!on;
+    coverageSpin.disabled = footprintFollows;
+    coverageSig = null;
+    refreshCoverage();
+}
+window.cmFootprintFollow = cmFootprintFollow;
+
+function cmFootprintIsOn() { return coverageOn; }
+window.cmFootprintIsOn = cmFootprintIsOn;
+
+function cmFootprintSet(on) {
+    if (!!on !== coverageOn) toggleCoverage();
+}
+window.cmFootprintSet = cmFootprintSet;
+
 async function refreshCoverage() {
     if (!coverageOn) return;
-    const z = coverageZ === null ? Math.round(map.getZoom()) : coverageZ;
+    const z = footprintFollows ? Math.round(map.getZoom()) :
+              coverageZ === null ? Math.round(map.getZoom()) : coverageZ;
+    if (footprintFollows) coverageSpin.value = z;
     const b = map.getBounds();
     const q = '/coverage?z=' + z +
         '&w=' + b.getWest()  + '&s=' + b.getSouth() +
@@ -827,9 +882,11 @@ async function applyState() {
         drawInfo();
         refreshCounts(state);
 
-        // The model changed, so any footprint on screen is now stale.
+        // The model changed, so any footprint on screen is now stale, and
+        // so is every preview classification.
         coverageSig = null;
         refreshCoverage();
+        if (window.cmPreviewInvalidate) cmPreviewInvalidate();
     } catch (e) {
         onDisconnected('state', e);
     } finally {

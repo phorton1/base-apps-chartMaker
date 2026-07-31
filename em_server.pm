@@ -125,6 +125,10 @@ sub handle_request
 	{
 		return $this->applet_coverage($request)
 	}
+	elsif ($uri eq '/preview')
+	{
+		return $this->applet_preview($request)
+	}
 	elsif ($uri eq '/counts')
 	{
 		return $this->applet_counts($request)
@@ -423,21 +427,43 @@ sub _workingCoverage
 	my $seq = getModelSeq();
 	return $cov_cache{$seq} if $cov_cache{$seq};
 
+	# EACH TILE IS VALUED BY THE SOURCE IT WOULD BE BUILT FROM rather than
+	# by 1.  Preview needs it and everything else here only ever asks
+	# whether a key is present, so carrying it costs nothing and means
+	# there is one merged coverage rather than two that could drift.
+
 	%cov_cache = ();		# only the current one is ever worth keeping
-	my $merged = {};
-	for my $id (getWorkingSet())
-	{
-		my $reg = getRegion($id);
-		next if !$reg;
-		my $cov = regionCoverage($reg);
-		for my $z (keys %$cov)
-		{
-			$merged->{$z} ||= {};
-			$merged->{$z}{$_} = 1 for keys %{$cov->{$z}};
-		}
-	}
+	my $merged = mergedCoverageSources(
+		[ map { getRegion($_) } getWorkingSet() ],
+		getDefaultSource());
+
 	$cov_cache{$seq} = $merged;
 	return $merged;
+}
+
+
+sub applet_preview
+	# GET /preview?z=<zoom>&w=&s=&e=&n=
+	#
+	# What the chartset would show over the view, tile by tile.  The
+	# browser draws it; this decides it, for the reason the design gives:
+	# if the applet worked coverage out for itself, preview would be an
+	# illustration of the build rather than a test of it, and the two would
+	# disagree exactly at the seams where disagreement is most expensive.
+{
+	my ($this,$request) = @_;
+	my $p = $request->{params} || {};
+	my $z = defined($p->{z}) ? int($p->{z}) : 15;
+
+	my ($x0,$y0) = lonLatToTile($p->{w},$p->{n},$z);
+	my ($x1,$y1) = lonLatToTile($p->{e},$p->{s},$z);
+	($x0,$x1) = ($x1,$x0) if $x0 > $x1;
+	($y0,$y1) = ($y1,$y0) if $y0 > $y1;
+
+	return $this->api_json_response($request,{
+		zoom	=> 0 + $z,
+		tiles	=> previewTiles(_workingCoverage(),$z,$x0,$y0,$x1,$y1),
+	});
 }
 
 

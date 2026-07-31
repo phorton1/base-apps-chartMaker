@@ -118,6 +118,9 @@ BEGIN
 
 		regionPolygonCount
 		regionPointCount
+
+		regionSourceMap
+		mergedCoverageSources
 	);
 }
 
@@ -1599,5 +1602,85 @@ sub setUncheckedIds
 	_touch();
 	return 1;
 }
+
+
+#---------------------------------------------
+# which source each node is built from
+#---------------------------------------------
+
+sub regionSourceMap
+	# Every node in a region tree mapped to the source it is to be built
+	# from, with '$SOURCE_INHERITED' already followed.  Keys are
+	# "<depth>:<id>", which is the shape the coverage walk reports nodes in.
+	#
+	# THE CHAIN ALWAYS TERMINATES.  A subregion inherits its parent's
+	# answer and a region that inherits falls through to $fallback -- so one
+	# pass down the tree resolves every node, and no reader has to walk back
+	# up to find out what it got.
+	#
+	# It lives here, on the model, because more than one thing needs the
+	# same answer: the cache filler fetches by it and the preview renders by
+	# it, and the two disagreeing would make preview a picture of something
+	# that is not what would be built.  The build will be the third.
+	#
+	# Keyed by DEPTH AND ID rather than by walk order.  The coverage walk
+	# skips a node whose whole band sits above a build's cap, so the two
+	# sequences are not the same length and pairing them positionally would
+	# silently shift every source by one.  Depth is part of the key because
+	# a subregion id need only be unique among its SIBLINGS -- it may
+	# legitimately repeat its parent's id, and id alone would let the child
+	# overwrite the parent's answer.
+{
+	my ($reg,$fallback,$map,$depth) = @_;
+	$map   ||= {};
+	$depth ||= 0;
+
+	my $mine = $reg->{source} // $SOURCE_INHERITED;
+	$mine = $fallback if $mine eq $SOURCE_INHERITED;
+	$map->{"$depth:$reg->{id}"} = $mine;
+
+	regionSourceMap($_,$mine,$map,$depth+1)
+		for @{$reg->{subregions} || []};
+
+	return $map;
+}
+
+
+sub mergedCoverageSources
+	# These regions' coverage merged into one structure per zoom, VALUED BY
+	# THE SOURCE each tile would be built from rather than by 1.
+	#
+	# INNERMOST WINS where two nodes claim the same tile at the same zoom,
+	# and it falls out of the walk order rather than being enforced: nodes
+	# arrive outermost first, so a deeper node's answer overwrites its
+	# parent's.  That is the rule the design states for overlapping
+	# polygons, arrived at by construction.
+	#
+	# Callers that only ask whether a key is present are unaffected by the
+	# value, which is why there is one merged coverage here rather than a
+	# plain one and a sourced one that could drift apart.
+{
+	my ($regs,$fallback) = @_;
+	my $merged = {};
+
+	for my $reg (@$regs)
+	{
+		next if !$reg;
+		my $srcs = regionSourceMap($reg,$fallback);
+		my ($cov,$nodes) = regionCoverageNodes($reg);
+
+		for my $node (@$nodes)
+		{
+			my $src = $srcs->{"$node->{depth}:$node->{id}"} || $fallback;
+			for my $z (keys %{$node->{levels}})
+			{
+				$merged->{$z} ||= {};
+				$merged->{$z}{$_} = $src for keys %{$node->{levels}{$z}};
+			}
+		}
+	}
+	return $merged;
+}
+
 
 1;

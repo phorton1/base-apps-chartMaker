@@ -61,6 +61,8 @@ read that**, rather than streaming it into a terminal that will be confused by i
 | `test_set.pl` | region sets as folders, per-set ids, the ini selections and how they degrade, checked-is-a-view |
 | `test_edit.pl` | containment, the dispatcher's refusals, the edit state and what it locks |
 | `test_fetch.pl` | a live fetch, the cache, and negative caching |
+| `test_fill.pl` | the cache filler: which source each node resolves to, the zmax cap, an uninstalled source, and the abort. Nearly offline - it plants the cache itself and asserts a 100% hit rate, which is what proves source resolution |
+| `test_preview.pl` | the preview classification: carried at this zoom, the deepest carried ancestor past the built depth, innermost-wins on source, and outside coverage. Entirely offline - it tests the decision, never the drawing |
 | `my_test_rct.pl` | calls the exporter, then reopens the file and audits every byte it wrote, against the card that ran on the plotter |
 | `tool_app_command.pl` | send one console command to the **running** application and print only that command's output |
 | `tool_rct_inspect.pl` | run the firmware's own arithmetic over a card - the zero-step blocks it would silently skip, and the reveal-mask rectangle count against its budget |

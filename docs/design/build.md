@@ -78,6 +78,41 @@ Keeping them one implementation is what makes preview meaningful. If the browser
 coverage for itself, preview would be an illustration of the build rather than a test of
 it, and the two would disagree at exactly the seams where disagreement is most expensive.
 
+## Filling the cache is a separate act from building
+
+The exporter fetches nothing. An uncached tile is simply absent from the card: the miss bit
+is set and the plotter overzooms from a present ancestor, which is exactly the behaviour the
+format is designed around. That is right for the exporter and wrong as a way to acquire
+imagery, because the failure it produces is invisible. Reshaping an existing area rebuilds
+happily from what browsing already cached; **new ground at depth has never been fetched**, so
+the card comes back with holes that the plotter papers over. It looks soft rather than
+broken, which reads on the water as "the imagery is bad there" instead of "we never fetched
+it."
+
+So filling the cache is its own command - it walks the same enumerator the build walks and
+asks for each tile in turn - and the build remains a pure read of whatever is there. Two
+properties come out of keeping them apart:
+
+**Resume is free, and therefore unspecified.** The request path is cache first, so a run that
+is interrupted asks the network only for what the previous run did not reach. Nothing has to
+record where it got to.
+
+**Errors are never cached, so a failure is not permanent.** An absence the source asserted is
+recorded and never asked for again; a timeout or a refused connection is not, because it says
+nothing about whether the tile exists. What that costs is the possibility of a dead source
+producing thousands of identical failures, so a run stops after a small number of consecutive
+errors rather than working through the whole region. Stopping poisons nothing - running it
+again after fixing the source resumes.
+
+**Each node is filled from the source it will be built from**, with `inherited` already
+followed: a subregion that names its own source has its tiles fetched from that source, not
+from its parent's and not from whatever the map happens to be displaying. Filling from the
+displayed source would fill entries the build will never read, which is the same invisible
+hole by a different route.
+
+This is not the queue. It is serial, it has no concurrency and no retry policy, and it
+honours only the interval a source declares. The engine specified below replaces it.
+
 ## Editor and preview are one component in two modes
 
 The same map, the same proxy, the same tile layer. Preview adds a clip and a cap:
@@ -89,13 +124,44 @@ where a region should extend to, because it shows what is out there beyond the b
 
 ```
     in coverage at this zoom  ->  the build source's tile
-    beyond the region's depth ->  the coarser tile upscaled, as the plotter does
+    not carried at this zoom  ->  nothing - the context layer shows through
     outside coverage entirely ->  the context layer, visibly dimmed
 ```
 
-The middle line is the one that is otherwise expensive to answer: it simulates the
-plotter's fallback behaviour at a zoom the card does not carry, without a card, a boat, or
-a trip to the water.
+**The middle line has no fallback, and that is the design rather than an omission.** A
+plotter answers a request for a tile the card does not hold by magnifying the deepest
+ancestor it has, and preview reproduced that at first. It made the built edge unreadable:
+real imagery and magnified imagery look alike, so the card appeared to extend a long way
+past where it actually stopped - a halo of progressively coarser imagery, one tile wider at
+each level, which is genuinely what a plotter shows and is useless for deciding anything.
+
+What an author needs is the opposite. **Zooming in until the imagery stops is the answer to
+"how deep did I build here"**, read directly off the map, and it only works if the imagery
+actually stops.
+
+**And it is client independent, which is the stronger reason.** A fallback render is a model
+of one consumer's behaviour: the E-Series magnifies the deepest tile it holds, OpenCPN allows
+essentially unlimited overzoom from the deepest level in the file, and neither is a fact
+about the chartset. What the card *contains* is the same answer whoever reads it - so this
+mode stays true as consumers are added, and needs no evidence about any of them to be
+trusted. A simulation would need to be validated against every client it claimed to
+simulate, and would be quietly wrong the moment one changed.
+
+**Depth is spatial, not a number.** A detail area is carried several levels deeper than the
+ground around it, so at one zoom the same screen shows imagery inside the detail area and
+bare context outside it. That difference IS the information.
+
+**The tile footprint comes with it.** Filled tiles alone do not say where a tile ends, and
+the edge of the built area is what preview is for - so preview turns the footprint on and
+pins it to the map's zoom, and the two answer the same question at the same level: the
+outlines say which tiles are on the card, the fill says what is in them.
+
+**A tile the source does not have is drawn as a hole**: a muted orange rectangle with a pale
+outline. Orange because it has to be findable at a glance against dark water; muted because a
+region that has never been fetched is a screen full of them and a bright colour would be
+unreadable; outlined because fill alone disappears into brown coastline at low zoom. It is
+deliberately the most conspicuous thing preview can show, since a hole in a card is invisible
+on the plotter - it overzooms an ancestor and simply looks soft.
 
 The context layer is **visually marked** - dimmed or desaturated, with the coverage
 boundary drawn over it. A user who sees imagery and assumes it is in their chartset is
@@ -164,10 +230,6 @@ budget is the aperture ceasing to mean anything.
 
 ## Still to specify
 
-- **How preview renders an absent tile.** A tile the source does not have has to be
-  conspicuous, and conspicuous against dark water specifically - a subtle marker over
-  near-black sea is no marker at all. Not yet designed; the requirement is that a hole in
-  the imagery reads as a hole at a glance.
 - **The queue** - concurrency, interval limiting, retry policy, and the failure
   classification that distinguishes a rate limit from a missing tile from a dead source.
 - **Resume** - a run of thousands of tiles that is interrupted must continue rather than

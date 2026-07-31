@@ -159,6 +159,7 @@ changes. Nothing outside the application should depend on them.
 | `/poll`                   | applet  | A cheap version probe.                         |
 | `/state`                  | applet  | Everything currently visible, as one document. |
 | `/coverage?z&w&s&e&n`     | applet  | Tiles in coverage at one zoom, in view.        |
+| `/preview?z&w&s&e&n`      | applet  | The same tiles, each named with the source it would be built from. |
 | `/counts?id=<id>`         | applet  | Tiles and bytes by level, for the set and the chain down to one object. |
 | `/tile/<src>/<z>/<x>/<y>` | applet  | The tile proxy.                                |
 | `/edit`                   | applet  | A model mutation carrying structured data.     |

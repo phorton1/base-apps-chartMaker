@@ -65,6 +65,7 @@ BEGIN
 		coverageHas
 		coverageCounts
 		coverageTotal
+		previewTiles
 		polygonsContainPoint
 		outsideVertices
 	);
@@ -545,6 +546,45 @@ sub coverageHas
 	my ($cov,$z,$x,$y) = @_;
 	return 0 if !$cov->{$z};
 	return $cov->{$z}{"${x}_${y}"} ? 1 : 0;
+}
+
+
+sub previewTiles
+	# WHAT THE CARD ACTUALLY HOLDS over a rectangle of tiles at one zoom.
+	# Returns { "x_y" => source id } for the tiles in coverage AT THIS ZOOM,
+	# and nothing at all for the rest.
+	#
+	# AT THIS ZOOM, and no fallback.  A card carries tiles at the levels a
+	# region was built to and nothing below them; a plotter papers over the
+	# difference by magnifying whatever ancestor it has, and an earlier
+	# version of this reproduced that.  It was the wrong question.  What an
+	# author needs to see is which tiles are on the card at the level being
+	# looked at - so that zooming in until the imagery stops IS the answer
+	# to "how deep did I build here", read directly off the map.
+	#
+	# It is therefore the same question the tile footprint asks, and
+	# deliberately so: the footprint draws the outlines, this fills them in,
+	# and the two cannot disagree because they read the same structure.
+	#
+	# $cov is the merged coverage of the working set, valued by the SOURCE
+	# each tile would be built from rather than by 1.
+{
+	my ($cov,$z,$x0,$y0,$x1,$y1) = @_;
+	my %out;
+
+	my $level = $cov->{$z};
+	return \%out if !$level;
+
+	for my $x ($x0..$x1)
+	{
+		for my $y ($y0..$y1)
+		{
+			my $src = $level->{"${x}_${y}"};
+			$out{"${x}_${y}"} = $src if $src;
+		}
+	}
+
+	return \%out;
 }
 
 

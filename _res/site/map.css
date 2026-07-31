@@ -162,6 +162,38 @@ html, body {
     flex-basis: 7.5ch;
 }
 
+/* ---- preview ----------------------------------------------------------
+   COLOUR MEANS IT IS IN THE CARD.  The context imagery is desaturated and
+   darkened rather than merely faded, because a fade over dark water is not
+   a visible difference at all - and the whole job of this mode is that
+   nobody mistakes context for coverage. */
+
+.cm-context-dim {
+    filter: grayscale(85%) brightness(0.55);
+}
+
+.cm-prev-tile {
+    background-repeat: no-repeat;
+    background-position: 0 0;
+}
+
+/* A tile the source does not have. Orange enough to find at a glance over
+   black water, dull enough to survive a screenful of them, and outlined so
+   that it also reads over land. */
+
+.cm-prev-absent {
+    background-color: rgba(198, 118, 38, 0.62);
+    box-shadow: inset 0 0 0 1px rgba(226, 226, 226, 0.85);
+}
+
+/* Imagery the card does not carry at this zoom, magnified from a shallower
+   tile exactly as the plotter would. Left unmarked on purpose: how it LOOKS
+   is the answer being sought, and a badge over it would be answering a
+   different question. */
+
+.cm-prev-over {
+}
+
 /* Vertex and midpoint handles, following navMate's nm-vtx / nm-mid. */
 
 .cm-vtx {

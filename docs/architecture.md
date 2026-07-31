@@ -305,11 +305,16 @@ Three rules give the model its properties:
   a mariner is most likely to be looking.
 
 The **editor** and the **preview** are one component in two modes, not two pipelines: the
-same map, the same tile proxy, a clip and a cap applied on top. Preview earns its place by
-answering two questions that are otherwise expensive - what the *build* source actually
-looks like here, before committing to a nine-thousand-tile run; and how the plotter's
-fallback behaves at a zoom the card does not carry, without a card, a boat, or a trip to
-the water.
+same map, the same tile proxy, a clip applied on top. Preview earns its place by answering
+what the chartset will actually contain - what the *build* source looks like here before
+committing to a nine-thousand-tile run, and how deep the card really goes at any point on
+it, which is read off the map by zooming in until the imagery stops.
+
+**It shows contents, not a client.** Consumers differ in how they cope with a zoom the card
+does not carry - the E-Series magnifies the deepest tile it holds, OpenCPN permits
+essentially unlimited overzoom from the deepest level in the file - and none of that is a
+fact about the chartset. Rendering the card's own contents is the same answer whoever reads
+it, so the mode stays true as consumers are added and needs no evidence about any of them.
 
 What makes that more than an illustration is that **preview renders through the build's own
 rasteriser.** Whether a tile is in coverage is asked once, of one implementation, whether
