@@ -21,7 +21,7 @@
 # name a source of its own, so this module is handed the whole tree's
 # source map rather than a single source -- but it never needs a per-tile
 # lookup, because the block structure already follows the node structure
-# exactly.  The map is of RESOLVED SOURCE OBJECTS, keyed "<depth>:<id>"
+# exactly.  The map is of RESOLVED SOURCE OBJECTS, keyed by node PATH
 # the way dm_region::regionSourceMap reports them: this module does not
 # know how to turn a source id into a source, and must not learn, because
 # whether a source is installed, may build, and can be carried by THIS
@@ -269,7 +269,7 @@ sub _attributionFor
 
 	for my $node (@$nodes)
 	{
-		my $src = $sources->{"$node->{depth}:$node->{id}"} or next;
+		my $src = $sources->{$node->{path}} or next;
 		my $text = _asciify($src->{attribution});
 		next if !length($text);
 		next if $seen{$text}++;
@@ -426,16 +426,16 @@ sub _planBlocks
 	# different source than its parent costs one field here and no lookup
 	# in the loop that runs nine thousand times.
 	#
-	# Keyed "<depth>:<id>" because a subregion id is unique only among its
-	# SIBLINGS.  It may legitimately repeat its parent's, and keying by id
-	# alone would let a child silently inherit the wrong answer.
+	# Keyed by the node's PATH, because nothing shorter identifies a node:
+	# an id is unique only within its region, and depth+id was not unique
+	# even there.  See dm_region::regionSourceMap.
 {
 	my ($nodes,$sources) = @_;
 	my %by_zoom;
 
 	for my $node (@$nodes)
 	{
-		my $src = $sources->{"$node->{depth}:$node->{id}"};
+		my $src = $sources->{$node->{path}};
 		for my $z (sort { $a <=> $b } keys %{$node->{levels}})
 		{
 			my $blk = _blockOf($z,$node->{levels}{$z});
@@ -480,7 +480,7 @@ sub writeRct
 	# Write one region as one .rct file.
 	#
 	# $sources is the RESOLVED source map for this region's whole tree --
-	# { "<depth>:<id>" => source object } -- as dm_region::regionSourceMap
+	# { "<node path>" => source object } -- as dm_region::regionSourceMap
 	# produces it and the build validates it.  See the header on why this
 	# is a map rather than a source, and why the objects arrive already
 	# resolved.

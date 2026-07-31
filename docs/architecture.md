@@ -329,15 +329,20 @@ the tile cache - not a file. An output format is not built by converting another
 format.
 
 **`.mbtiles`** is a standard container read directly by OpenCPN: well specified, with a
-large ecosystem, and holding nothing chartMaker-specific.
+large ecosystem, and holding nothing chartMaker-specific. One file per **node** rather than
+per region, because the format carries a single maximum zoom for a whole file and a reader
+derives the chart's scale from it - so depth that an [RCT](design/rct.md) expresses
+*spatially*, in per-block coverage, this format can only express in the filesystem.
 
 **`.RCT` is exporter number one.** The aerial photo overlay in the custom E-Series firmware
 reads a purpose-built on-card raster format - one `.RCT` file per region under `\RASTER\`,
 with no manifest, because the set of files present *is* the set of regions. It is
 regenerable: the card is a deployment artifact, not a source of truth.
 
-Further exporters plug into the same seam. A KAP/BSB writer is the obvious second, reaching
-a long tail of navigation software for very little work.
+Further exporters plug into the same seam, and it is now a real seam rather than an
+intention: an output format declares what it can carry, what it can be named, where it goes
+by default, and how it writes and un-writes itself. A KAP/BSB writer is the obvious third,
+reaching a long tail of navigation software for very little work.
 
 Both formats have their own specifications: [MBTiles](design/mbtiles.md) and
 [RCT](design/rct.md).

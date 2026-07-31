@@ -59,6 +59,7 @@ BEGIN
 		buildConfig
 		saveBuildConfig
 		defaultOutDir
+		defaultMbtilesOutDir
 		configSelectedIds
 		configIsDefault
 		effectiveInterval
@@ -97,6 +98,22 @@ sub defaultOutDir
 	$set = getActiveSet() if !defined $set;
 	return '' if !$set;
 	return rasterDir()."/$set";
+}
+
+
+sub defaultMbtilesOutDir
+	# The same idea for the other output, and it is NOT CONFIGURABLE.
+	#
+	# The stored out_dir is the CARD folder - it is where an E-Series card
+	# gets assembled, chosen once per set because that folder is copied
+	# wholesale to a CF card.  A tree of region folders landing in the
+	# middle of it would make that copy a decision instead of a copy.  So
+	# mbtiles has one place it goes, and there is nothing to remember.
+{
+	my ($set) = @_;
+	$set = getActiveSet() if !defined $set;
+	return '' if !$set;
+	return mbtilesDir()."/$set";
 }
 
 

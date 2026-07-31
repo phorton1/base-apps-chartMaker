@@ -427,9 +427,14 @@ sub _validatePolygon
 sub _validateRegion
 	# Validates a region or, recursively, a subregion.  A subregion IS a
 	# region: same fields, same rules, one level down.
+	#
+	# $seen carries the ids already used ANYWHERE IN THIS REGION, and it is
+	# threaded down the recursion rather than made fresh at each level.
+	# See the uniqueness check below for why the scope had to widen.
 {
-	my ($where,$reg,$depth) = @_;
+	my ($where,$reg,$depth,$seen) = @_;
 	$depth ||= 0;
+	$seen  ||= {};
 
 	return _err($where,"not a JSON object")
 		if ref($reg) ne 'HASH';
@@ -460,6 +465,24 @@ sub _validateRegion
 		if !defined($reg->{id}) || $reg->{id} !~ /^[A-Za-z0-9]+$/;
 	return _err($where,"name is required and may not be empty")
 		if !defined($reg->{name}) || $reg->{name} !~ /\S/;
+
+	# AN ID IS UNIQUE WITHIN ITS WHOLE REGION, not merely among its
+	# siblings, and this used to be enforced only among siblings while
+	# three other things already assumed the stronger rule.  addSubregion
+	# has always refused a duplicate anywhere in the tree; regionSourceMap
+	# keys nodes by their PATH, and two nodes with the same path are one
+	# entry; and an exporter that writes a file per node needs a name that
+	# cannot collide with another node's.  So the loader now agrees with
+	# what the rest of the model already believed.
+	#
+	# The region's own id is in the same namespace as its subregions',
+	# because a node is a node - 'Bocas' containing a subregion 'Bocas' has
+	# the same collision as two subregions called 'Bocas'.
+
+	return _err($where,"id '$reg->{id}' is used more than once in this region ".
+			"- an id must be unique within the whole region, not merely ".
+			"among its siblings")
+		if $seen->{ _foldId($reg->{id}) }++;
 
 	if ($depth)
 	{
@@ -531,16 +554,13 @@ sub _validateRegion
 	return _err($where,"subregions must be an array")
 		if ref($reg->{subregions}) ne 'ARRAY';
 
-	my %seen;
 	for my $sub (@{$reg->{subregions}})
 	{
-		return undef if !_validateRegion($where,$sub,$depth+1);
+		# The id check is at the TOP of this sub and the %seen hash is
+		# threaded through, so a duplicate is caught wherever in the tree
+		# it appears rather than only between two siblings.
 
-		# Ids need only be unique within the file - nothing outside one
-		# ever refers to a subregion.
-
-		return _err($where,"subregion id '$sub->{id}' appears twice under '$reg->{id}'")
-			if $seen{ _foldId($sub->{id}) }++;
+		return undef if !_validateRegion($where,$sub,$depth+1,$seen);
 
 		# A subregion's band runs from its parent's zmax + 1 up to its own
 		# zmax, so a zmax at or below the parent's is an EMPTY band.
@@ -1610,8 +1630,9 @@ sub setUncheckedIds
 
 sub regionSourceMap
 	# Every node in a region tree mapped to the source it is to be built
-	# from, with '$SOURCE_INHERITED' already followed.  Keys are
-	# "<depth>:<id>", which is the shape the coverage walk reports nodes in.
+	# from, with '$SOURCE_INHERITED' already followed.  Keys are the node's
+	# PATH - 'Bocas', 'Bocas/Popa00' - which is the shape the coverage walk
+	# reports nodes in.
 	#
 	# THE CHAIN ALWAYS TERMINATES.  A subregion inherits its parent's
 	# answer and a region that inherits falls through to $fallback -- so one
@@ -1623,23 +1644,27 @@ sub regionSourceMap
 	# it, and the two disagreeing would make preview a picture of something
 	# that is not what would be built.  The build will be the third.
 	#
-	# Keyed by DEPTH AND ID rather than by walk order.  The coverage walk
-	# skips a node whose whole band sits above a build's cap, so the two
-	# sequences are not the same length and pairing them positionally would
-	# silently shift every source by one.  Depth is part of the key because
-	# a subregion id need only be unique among its SIBLINGS -- it may
-	# legitimately repeat its parent's id, and id alone would let the child
-	# overwrite the parent's answer.
+	# KEYED BY PATH rather than by walk order.  The coverage walk skips a
+	# node whose whole band sits above a build's cap, so the two sequences
+	# are not the same length and pairing them positionally would silently
+	# shift every source by one.
+	#
+	# It was keyed "<depth>:<id>" until 2026-07-31, on the reasoning that
+	# an id is unique only among siblings so depth had to be part of it.
+	# That reasoning was right and the key was still wrong: two subregions
+	# of DIFFERENT parents at the same depth may share an id, and both
+	# landed on one entry, so one of them was built from the other's
+	# source. The path is the only thing that identifies a node.
 {
-	my ($reg,$fallback,$map,$depth) = @_;
-	$map   ||= {};
-	$depth ||= 0;
+	my ($reg,$fallback,$map,$path) = @_;
+	$map  ||= {};
+	$path = $reg->{id} if !defined($path);
 
 	my $mine = $reg->{source} // $SOURCE_INHERITED;
 	$mine = $fallback if $mine eq $SOURCE_INHERITED;
-	$map->{"$depth:$reg->{id}"} = $mine;
+	$map->{$path} = $mine;
 
-	regionSourceMap($_,$mine,$map,$depth+1)
+	regionSourceMap($_,$mine,$map,"$path/$_->{id}")
 		for @{$reg->{subregions} || []};
 
 	return $map;
@@ -1671,7 +1696,7 @@ sub mergedCoverageSources
 
 		for my $node (@$nodes)
 		{
-			my $src = $srcs->{"$node->{depth}:$node->{id}"} || $fallback;
+			my $src = $srcs->{$node->{path}} || $fallback;
 			for my $z (keys %{$node->{levels}})
 			{
 				$merged->{$z} ||= {};

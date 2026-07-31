@@ -299,7 +299,7 @@ sub fillCoverage
 
 		for my $node (@$nodes)
 		{
-			my $src_id = $sources->{"$node->{depth}:$node->{id}"} || $fallback;
+			my $src_id = $sources->{$node->{path}} || $fallback;
 			my $src    = $src_id ? getSource($src_id) : undef;
 
 			# REFUSED HERE RATHER THAN AT THE FIRST TILE.  A source that

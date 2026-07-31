@@ -877,6 +877,13 @@ sub onSelect
 
 	return if $this->{populating};
 
+	# WHAT THE STATE WAS BEFORE THIS CLICK PUBLISHED ANYTHING.  Advancing
+	# seen_seq past our own bump is right; advancing it past somebody
+	# else's is how a change made on the map gets marked SEEN by a pane
+	# that never rebuilt for it.  See the test at the bottom of this sub.
+
+	my $before = getStateSeq();
+
 	$this->showProperties();
 
 	my $node = $this->selectedIds();
@@ -889,7 +896,17 @@ sub onSelect
 		setSelection($node->{root_id},
 			$node->{is_root} ? '' : $node->{id});
 	}
-	$this->{seen_seq} = getStateSeq();
+
+	# ONLY IF THERE WAS NOTHING ELSE OUTSTANDING.  If this pane was
+	# already behind when the click arrived - a subregion created on the
+	# map a fraction of a second ago, the timer not yet ticked - then it
+	# stays behind, and the next tick rebuilds as it always would have.
+	# Taking the counter forward here instead would record that change as
+	# shown, and nothing would redraw until something else moved the
+	# state, which in practice was the next save.
+
+	$this->{seen_seq} = getStateSeq()
+		if $this->{seen_seq} == $before;
 }
 
 
@@ -1126,6 +1143,10 @@ sub onSave
 	my ($reg,$root,$node) = $this->_selectedRegion();
 	return if !$reg;
 
+	# The same question onSelect asks, for the same reason - see there.
+
+	my $before = getStateSeq();
+
 	my $is_root = $node && $node->{is_root};
 	my $name    = $this->{ctl_name}->GetValue();
 	my $new_id  = $this->{ctl_id}->GetValue();
@@ -1244,9 +1265,12 @@ sub onSave
 
 	# Otherwise move this pane's own idea of the version forward, so the
 	# next timer tick does not rebuild the tree over a change made here
-	# and take the selection with it.
+	# and take the selection with it - but ONLY over the bumps this save
+	# made, exactly as in onSelect.  A change that arrived from elsewhere
+	# while the user was typing is still owed a rebuild.
 
-	$this->{seen_seq} = getStateSeq();
+	$this->{seen_seq} = getStateSeq()
+		if $this->{seen_seq} == $before;
 	$this->_relabelSelected($reg,$is_root);
 	$this->{ctl_save}->Enable(0);
 	$this->showProperties();

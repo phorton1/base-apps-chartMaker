@@ -304,7 +304,7 @@ my ($p_need,$p_absent,$p_cached) = (0,0,0);
 	my (undef,$nodes) = regionCoverageNodes(getRegion('Alpha'),{});
 	for my $node (@$nodes)
 	{
-		my $s = getSource($srcs->{"$node->{depth}:$node->{id}"}) or next;
+		my $s = getSource($srcs->{$node->{path}}) or next;
 		for my $z (keys %{$node->{levels}})
 		{
 			for my $key (keys %{$node->{levels}{$z}})
@@ -383,7 +383,7 @@ mkdir $OUT if !-d $OUT;
 # Real cards, written by the real exporter - a hand-made file would prove
 # only that the header reader agrees with the test's own idea of a header.
 
-my $srcs_a = { map { $_ => getSource($_ eq '0:Alpha' ? 'pre_a' : 'pre_b') }
+my $srcs_a = { map { $_ => getSource($_ eq 'Alpha' ? 'pre_a' : 'pre_b') }
 			   keys %{regionSourceMap(getRegion('Alpha'),'pre_a')} };
 writeRct(getRegion('Alpha'),$srcs_a,"$OUT/Alpha.rct");
 my $srcs_b = { map { $_ => getSource('pre_a') }

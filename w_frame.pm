@@ -74,6 +74,7 @@ sub new
 	EVT_MENU($this, $COMMAND_PREFS,       \&onCommand);
 	EVT_MENU($this, $COMMAND_FETCH,       \&onCommand);
 	EVT_MENU($this, $COMMAND_BUILD_RCT,   \&onCommand);
+	EVT_MENU($this, $COMMAND_BUILD_MBTILES, \&onCommand);
 
 	# A MENU ITEM ANSWERS FOR ITSELF rather than being switched on and off
 	# by whatever last changed the state.  There is no list of places that
@@ -87,6 +88,7 @@ sub new
 	EVT_UPDATE_UI($this, $COMMAND_NEW_REGION, \&onUpdateUI);
 	EVT_UPDATE_UI($this, $COMMAND_FETCH,      \&onUpdateUI);
 	EVT_UPDATE_UI($this, $COMMAND_BUILD_RCT,  \&onUpdateUI);
+	EVT_UPDATE_UI($this, $COMMAND_BUILD_MBTILES, \&onUpdateUI);
 
 	$this->{shown_title} = '';
 	$this->{title_timer} = Wx::Timer->new($this,-1);
@@ -352,7 +354,8 @@ sub _buildWorker
 {
 	my ($prog,$ids,$opts) = @_;
 
-	my $report = buildRct($ids,{ %$opts, progress => $prog });
+	my $report = buildOutput($ids,{ %$opts, progress => $prog },
+		$opts->{format} || 'rct');
 
 	$prog->{ok}    = $report->{ok} ? 1 : 0;
 	$prog->{guard} = $report->{guard} // '';
@@ -542,7 +545,8 @@ sub onCommand
 		my $pane = $this->findPane($WIN_REGIONS);
 		$pane->newRegionDialog() if $pane;
 	}
-	elsif ($id == $COMMAND_FETCH || $id == $COMMAND_BUILD_RCT)
+	elsif ($id == $COMMAND_FETCH || $id == $COMMAND_BUILD_RCT ||
+		   $id == $COMMAND_BUILD_MBTILES)
 	{
 		$this->onLongAct($id);
 	}
@@ -566,13 +570,33 @@ sub onLongAct
 	# Back returns to dialog one with the selection already persisted, so
 	# the loop costs nothing and loses nothing.
 {
+	# THREE MODES, NOT A BOOLEAN, and the third is what turned the boolean
+	# into a liar.  'is_build' used to mean four different things at once -
+	# writes something, has an output folder, may overwrite a card, needs
+	# the chartset to agree - and they stopped being the same question the
+	# moment a second output existed.  So:
+	#
+	#	$what     which act this is: fetch, build (rct), or mbtiles
+	#	$writes   it produces files, so it has a destination to show
+	#	$is_card  it is an E-Series chartset, so the card rules apply
+	#
+	# Only $is_card gates the card-shaped questions, and that is the whole
+	# of what an mbtiles build skips.
+
 	my ($this,$id) = @_;
-	my $is_build = ($id == $COMMAND_BUILD_RCT);
-	my $what = $is_build ? 'build' : 'fetch';
+
+	my $what =
+		$id == $COMMAND_BUILD_RCT		? 'build'	:
+		$id == $COMMAND_BUILD_MBTILES	? 'mbtiles'	: 'fetch';
+	my $writes   = ($what ne 'fetch');
+	my $is_card  = ($what eq 'build');
+	my $is_build = $writes;
+
+	my $verb = $writes ? 'build' : 'fetch';
 
 	if (!getRegionIds())
 	{
-		Wx::MessageBox("There is nothing in '".openSetName()."' to $what.",
+		Wx::MessageBox("There is nothing in '".openSetName()."' to $verb.",
 			$$resources{app_title},wxOK | wxICON_INFORMATION,$this);
 		return;
 	}
@@ -638,8 +662,13 @@ sub onLongAct
 		# every default-folder build refuse the first time, on the one
 		# path a user is most likely to take.
 
-		my $out_dir = $is_build ?
-			($cfg->{out_dir} || defaultOutDir()) : '';
+		# MBTILES HAS ONE PLACE IT GOES and the configuration says nothing
+		# about it - see cm_config::defaultMbtilesOutDir.  So this is the
+		# resolved path for SHOWING, and there is no choice to pass on.
+
+		my $out_dir =
+			$is_card	? ($cfg->{out_dir} || defaultOutDir())	:
+			$writes		? defaultMbtilesOutDir()				: '';
 
 		# THE ANALYSIS IS A PURE READ and takes about a tenth of a second,
 		# so it happens between the two dialogs with nothing to look at in
@@ -651,7 +680,8 @@ sub onLongAct
 		my $an = analyseFetch($ids,{
 			fallback => $fallback,
 			config   => $cfg,
-			$is_build ? ( out_dir => $out_dir ) : (),
+			format   => ($is_card ? 'rct' : 'mbtiles'),
+			$writes ? ( out_dir => $out_dir ) : (),
 		});
 		undef $busy;
 
@@ -666,12 +696,14 @@ sub onLongAct
 			fallback => $fallback,
 			config   => $cfg,
 			allow_dirty => $allow_dirty,
-			$is_build ? ( out_dir => $cfg->{out_dir} ) : (),
+			format   => ($is_card ? 'rct' : 'mbtiles'),
+			$is_card ? ( out_dir => $cfg->{out_dir} ) : (),
 		};
 
 		return $this->runLongAct(
-			$is_build ? 'Building RCT Card' : 'Fetching Tiles',
-			$is_build ? \&_buildWorker : \&_fetchWorker,
+			$what eq 'build'	? 'Building RCT Card'	:
+			$what eq 'mbtiles'	? 'Building MBTiles'	: 'Fetching Tiles',
+			$writes ? \&_buildWorker : \&_fetchWorker,
 			$ids,$opts);
 	}
 }
@@ -700,7 +732,8 @@ sub onUpdateUI
 		$event->Enable(setIsOpen() && isSetDirty() ? 1 : 0);
 		return;
 	}
-	if ($id == $COMMAND_FETCH || $id == $COMMAND_BUILD_RCT)
+	if ($id == $COMMAND_FETCH || $id == $COMMAND_BUILD_RCT ||
+		$id == $COMMAND_BUILD_MBTILES)
 	{
 		# A set with regions in it, and a source for the ones that inherit.
 		# Both acts read the cache through a source, so neither has

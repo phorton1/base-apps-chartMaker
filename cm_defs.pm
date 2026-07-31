@@ -38,6 +38,7 @@ BEGIN
 		$COMMAND_NEW_REGION
 		$COMMAND_PREFS
 		$COMMAND_BUILD_RCT
+		$COMMAND_BUILD_MBTILES
 		$COMMAND_FETCH
 	);
 }
@@ -130,8 +131,9 @@ our $COMMAND_PREFS		= 10032;
 # exists to do, and burying it under one of the others would say
 # otherwise.
 
-our $COMMAND_BUILD_RCT	= 10041;
-our $COMMAND_FETCH		= 10042;
+our $COMMAND_BUILD_RCT		= 10041;
+our $COMMAND_FETCH			= 10042;
+our $COMMAND_BUILD_MBTILES	= 10043;
 
 
 1;

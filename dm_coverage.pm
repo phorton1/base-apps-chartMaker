@@ -373,9 +373,13 @@ sub _walk
 	# exporter needs to know which tiles form one detail cluster -- a
 	# coverage block wants to wrap an actual cluster, and the merge has
 	# already thrown that away.  Same walk, so the two can never disagree.
+	#
+	# $path is the node's ancestry as ids joined by '/', and it is what
+	# every consumer keys a node BY -- see the note on the node hash below.
 {
-	my ($cov,$reg,$floor,$opts,$depth,$nodes) = @_;
+	my ($cov,$reg,$floor,$opts,$depth,$nodes,$path) = @_;
 	$depth ||= 0;
+	$path  = $reg->{id} if !defined($path);
 
 	my $cap  = $opts->{zmax};
 	my $mine = {};
@@ -428,11 +432,22 @@ sub _walk
 		}
 	}
 
-	push @$nodes,{ id => $reg->{id}, depth => $depth, levels => $mine }
+	# THE PATH IS THE NODE'S IDENTITY, and id is not.  An id is unique
+	# within a region but says nothing across regions, and depth+id was
+	# not even unique within one - two subregions of different parents at
+	# the same depth may share an id, and every consumer keying on
+	# "<depth>:<id>" silently gave one of them the other's answer.  The
+	# path cannot collide, because siblings are unique by validation.
+	#
+	# 'Bocas', 'Bocas/Popa00', 'Bocas/Popa00/Dock'.  '/' is safe as the
+	# joiner because an id is [A-Za-z0-9] and can never contain one.
+
+	push @$nodes,{ id => $reg->{id}, depth => $depth, path => $path,
+				   levels => $mine }
 		if $nodes;
 
 	# A subregion supplies only the band above this level's zmax.
-	_walk($cov,$_,$reg->{zmax}+1,$opts,$depth+1,$nodes)
+	_walk($cov,$_,$reg->{zmax}+1,$opts,$depth+1,$nodes,"$path/$_->{id}")
 		for @{$reg->{subregions} || []};
 }
 

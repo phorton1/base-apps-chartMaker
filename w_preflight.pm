@@ -54,10 +54,16 @@ sub new
 {
 	my ($class,$parent,$what,$an,$out_dir) = @_;
 	$what ||= 'build';
-	my $is_build = ($what eq 'build');
+
+	# $is_card gates what is true of an E-SERIES CHARTSET; $writes gates
+	# what is true of anything that produces files.  They were one flag
+	# until there was a second output - see w_frame::onLongAct.
+
+	my $is_card = ($what eq 'build');
+	my $writes  = ($what ne 'fetch');
 
 	my $this = $class->SUPER::new($parent,-1,
-		$is_build ? 'Build - what this will cost' : 'Fetch - what this will cost',
+		$writes ? 'Build - what this will cost' : 'Fetch - what this will cost',
 		[-1,-1],[640,560]);
 
 	$this->{an} = $an;
@@ -65,18 +71,20 @@ sub new
 	my $y = 12;
 
 	Wx::StaticText->new($this,-1,
-		$is_build ? "Cards will be written to:" : "Tiles will be fetched for:",
-		[16,$y],[200,18]);
+		$is_card	? "Cards will be written to:"	:
+		$writes		? "Charts will be written to:"	:
+					  "Tiles will be fetched for:",
+		[16,$y],[260,18]);
 	$y += 20;
 
 	# SAY WHEN THE FOLDER IS NOT THERE YET.  It is about to be created,
 	# which is correct for the default and is exactly the moment somebody
 	# should notice they are writing somewhere new.
 
-	my $where = $is_build ? $out_dir :
+	my $where = $writes ? $out_dir :
 		sprintf("%d region(s) of '%s'",
 			scalar(@{$an->{regions}}),getActiveSet() // '');
-	$where .= '   (will be created)' if $is_build && !-d $out_dir;
+	$where .= '   (will be created)' if $writes && !-d $out_dir;
 
 	my $wc = Wx::StaticText->new($this,-1,$where,[16,$y],[600,18]);
 	my $bold = $wc->GetFont();
@@ -96,7 +104,7 @@ sub new
 
 	# ---- everything that wants saying before somebody commits
 
-	my @notes = _notes($an,$is_build,$out_dir);
+	my @notes = _notes($an,$is_card,$writes,$out_dir);
 
 	my $nc = Wx::TextCtrl->new($this,-1,join("\n",@notes),
 		[16,$y],[600,190],
@@ -117,7 +125,7 @@ sub new
 
 	my $back = Wx::Button->new($this,$ID_BACK,'< Back',[330,$y],[85,26]);
 	Wx::Button->new($this,$ID_START,
-		$is_build ? 'Build' : 'Fetch',[423,$y],[100,26]);
+		$writes ? 'Build' : 'Fetch',[423,$y],[100,26]);
 	Wx::Button->new($this,$ID_CANCEL,'Cancel',[531,$y],[85,26]);
 
 	EVT_BUTTON($this,$ID_START, sub { $_[0]->EndModal(wxID_OK) });
@@ -131,7 +139,7 @@ sub new
 
 sub _notes
 {
-	my ($an,$is_build,$out_dir) = @_;
+	my ($an,$is_card,$writes,$out_dir) = @_;
 	my @n;
 
 	if (@{$an->{missing_src}})
@@ -161,7 +169,7 @@ sub _notes
 		push @n,'';
 	}
 
-	if ($is_build && @{$an->{overwrite}})
+	if ($is_card && @{$an->{overwrite}})
 	{
 		push @n,scalar(@{$an->{overwrite}})." card(s) will be REPLACED:";
 		push @n,sprintf("  %-14s  z%d-%-2d  %.1f MB",
@@ -170,7 +178,7 @@ sub _notes
 		push @n,'';
 	}
 
-	if ($is_build && @{$an->{foreign}})
+	if ($is_card && @{$an->{foreign}})
 	{
 		push @n,scalar(@{$an->{foreign}})." card(s) are in this folder and are ".
 			"NOT part of this build:";
@@ -184,9 +192,22 @@ sub _notes
 
 	if (!@n)
 	{
-		push @n,$is_build ?
+		push @n,$is_card ?
 			"Nothing in the output folder will be disturbed." :
+			$writes ?
+			"One .mbtiles per region and per detail area, in a folder per\n".
+			"region.  Existing charts of the same name will be REPLACED." :
 			"Nothing will be written - this only fills the tile cache.";
+	}
+	elsif ($writes && !$is_card)
+	{
+		# SAID EVEN WHEN THERE IS SOMETHING ELSE TO SAY, because "what is
+		# about to be overwritten" is the question the card build answers
+		# here with a list, and this output cannot answer it with one - it
+		# would mean opening every database in the tree to say what is in
+		# it, which is a survey nobody asked for.
+
+		push @n,"Existing charts of the same name will be REPLACED.";
 	}
 
 	return @n;

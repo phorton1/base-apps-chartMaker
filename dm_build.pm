@@ -2,16 +2,22 @@
 #---------------------------------------------
 # dm_build.pm
 #---------------------------------------------
-# THE BUILD ACT.  One region set in, one folder of .rct files out.
+# THE BUILD ACT.  One region set in, one folder of output out.
 #
 # It owns the sequencing, the guards and the ledger.  It owns neither the
-# fetch loop nor the exporter -- dm_fill and dm_rct are called from here
-# and know nothing about each other.
+# fetch loop nor the exporter -- dm_fill, dm_rct and dm_mbtiles are called
+# from here and know nothing about each other.
 #
 #	VALIDATE   fast, before anything expensive      -> may refuse
 #	FILL       ask for every tile in coverage       -> builds the LEDGER
 #	--------   the refusal point   ------------------
-#	EXPORT     one .rct per region, temp + rename   -> short
+#	EXPORT     per region, temp + rename            -> short
+#
+# ONE ACT, SEVERAL FORMATS.  What an output format changes is four guards
+# and the write call, and those are declared in %FORMATS below rather than
+# branched on at each site -- see the note there.  The expensive middle is
+# format-blind, which is why a set already built to one format builds to
+# the other for nothing.
 #
 # THE ORDER IS THE POINT.  Everything that can refuse a build refuses
 # before the long phase, except the one thing that cannot be known until
@@ -55,6 +61,7 @@ use dm_region;
 use dm_coverage;
 use dm_fill;
 use dm_rct;
+use dm_mbtiles;
 use dm_analysis;
 
 
@@ -63,6 +70,9 @@ BEGIN
 	use Exporter qw( import );
 	our @EXPORT = qw(
 		buildRct
+		buildMbtiles
+		buildOutput
+		buildFormats
 		buildReportLines
 	);
 }
@@ -71,6 +81,105 @@ BEGIN
 our $dbg_build:shared = 0;
 	# 0  = the phases and one line per region
 	# -1 = the guards as they pass
+
+
+#---------------------------------------------
+# the output formats
+#---------------------------------------------
+# WHAT DIFFERS BETWEEN EXPORTERS, AND NOTHING ELSE.  The act is one act:
+# validate, fill, refuse or export.  Which container the tiles land in
+# changes four of the guards and the write call, and if that had been said
+# with an if-statement at each of those five places then adding a third
+# output would mean finding all five again -- and the one that got missed
+# would be a guard silently not running.
+#
+# So each format states its own answers here and the act reads them.  A
+# format that cannot answer one of these questions has no business being
+# an output of this build.
+#
+# EVERY FIELD EARNS ITS PLACE by a real difference:
+#
+#   carry / formats  RCT is JPEG only; MBTiles holds JPEG or PNG.
+#   uniform          the E80 fuses every .rct on a card into ONE pyramid
+#                    and cuts the reveal aperture at the coarsest zauthor
+#                    present, so the files must agree.  MBTiles files are
+#                    independent charts and there is nothing to agree on.
+#   check_name       an .rct stem is 8.3; an mbtiles path is not.
+#   base_dir         they are different folders, and mixing a tree of
+#                    region folders in among the cards would make the
+#                    E-Series card directory something a user has to read
+#                    carefully rather than copy wholesale.
+#   write / discard  one writes a file, the other a folder of them, so
+#                    "take that back" is not the same call either.
+
+my %FORMATS;
+
+sub _initFormats
+{
+	%FORMATS = (
+	rct => {
+		id			=> 'rct',
+		label		=> 'an RCT',
+		holds		=> 'RCT holds',
+		noun		=> 'card',
+		unit		=> 'blk',
+		blank		=> 'the card would be structurally valid and blank '.
+					   'on the plotter',
+		uniform		=> 1,
+		formats		=> \&rctFormats,
+		can_carry	=> \&rctCanCarry,
+		check_name	=> \&rctCardName,
+		name_help	=> 'at most 8 characters, letters and digits only',
+		base_dir	=> \&rasterDir,
+		base_help	=> 'set RASTER_DIR in Preferences, or create it',
+		write		=> sub {
+			my ($reg,$srcs,$out_dir,$opts) = @_;
+			return writeRct($reg,$srcs,
+				"$out_dir/".rctCardName($reg->{id}),$opts);
+		},
+		discard		=> sub {
+			my ($st) = @_;
+			unlink($st->{path});
+		},
+	},
+	mbtiles => {
+		id			=> 'mbtiles',
+		label		=> 'an mbtiles',
+		holds		=> 'MBTiles holds',
+		noun		=> 'chart folder',
+		unit		=> 'file',
+		blank		=> 'the metadata would describe the tiles wrongly',
+		uniform		=> 0,
+		formats		=> \&mbtilesFormats,
+		can_carry	=> \&mbtilesCanCarry,
+		check_name	=> \&mbtilesNodeName,
+		name_help	=> 'letters and digits only',
+		base_dir	=> \&mbtilesDir,
+		base_help	=> 'set MBTILES_DIR in Preferences, or create it',
+		write		=> sub {
+			my ($reg,$srcs,$out_dir,$opts) = @_;
+			return writeMbtiles($reg,$srcs,"$out_dir/$reg->{id}",$opts);
+		},
+		discard		=> sub {
+			my ($st) = @_;
+
+			# The FILES, not the folder.  Removing what this build just
+			# wrote is taking back its own work; removing a directory is
+			# not something this application does.
+
+			unlink($_->{path}) for @{$st->{files} || []};
+		},
+	},
+	);
+}
+
+
+sub buildFormats
+	# The ids a build can be asked for, for whoever has to offer them.
+{
+	_initFormats() if !%FORMATS;
+	return sort keys %FORMATS;
+}
 
 
 #---------------------------------------------
@@ -146,7 +255,7 @@ sub _validateSources
 	# the same maps the exporter is handed, so the thing that was
 	# validated is the thing that gets used.
 {
-	my ($ids,$fallback,$report) = @_;
+	my ($ids,$fallback,$report,$fmt) = @_;
 
 	my %by_region;
 	my %seen;			# source id => [ the nodes that named it ]
@@ -157,12 +266,11 @@ sub _validateSources
 		my $map = regionSourceMap($reg,$fallback);
 		$by_region{$id} = $map;
 
-		for my $key (sort keys %$map)
-		{
-			my (undef,$node) = split(/:/,$key,2);
-			push @{$seen{$map->{$key}}},
-				$node eq $id ? $id : "$id/$node";
-		}
+		# THE KEY IS ALREADY THE ANSWER.  A node's key is its path -
+		# 'Bocas', 'Bocas/Popa00' - which is exactly how a node should be
+		# named to somebody being told which one to go and fix.
+
+		push @{$seen{$map->{$_}}},$_ for sort keys %$map;
 	}
 
 	my %build_ok = map { $_ => 1 } getBuildSourceIds();
@@ -201,24 +309,25 @@ sub _validateSources
 			return (0,undef);
 		}
 
-		# 3 - CARRIABLE.  RCT holds JPEG.  Nothing stops a png source
-		# declaring 'build', so the combination is reachable without
-		# anybody doing anything wrong -- and the exporter copies cached
-		# bytes into the blob table without inspecting them, which is what
-		# keeps an image stack out of the build and is worth keeping.  The
-		# consequence is a structurally valid card full of bytes the
-		# plotter cannot decode: built, reported successful, blank on the
-		# water.  That is the worst failure this application can produce,
-		# because every signal says it worked.
+		# 3 - CARRIABLE, and WHICH FORMAT ASKS depends on the output.  RCT
+		# holds JPEG alone.  Nothing stops a png source declaring 'build',
+		# so the combination is reachable without anybody doing anything
+		# wrong -- and the exporter copies cached bytes into the container
+		# without inspecting them, which is what keeps an image stack out
+		# of the build and is worth keeping.  The consequence is a
+		# structurally valid file full of bytes the reader cannot use:
+		# built, reported successful, blank on the water.  That is the
+		# worst failure this application can produce, because every signal
+		# says it worked.
 
-		if (!rctCanCarry($src->{tile_format}))
+		if (!$fmt->{can_carry}->($src->{tile_format}))
 		{
 			_refuse($report,'format',
-				"source '$src_id' serves $src->{tile_format}, which an RCT ".
-					"cannot carry",
+				"source '$src_id' serves $src->{tile_format}, which ".
+					"$fmt->{label} cannot carry",
 				"named by: $who",
-				"RCT holds ".join(', ',rctFormats())." only",
-				"the card would be structurally valid and blank on the plotter");
+				"$fmt->{holds} ".join(', ',$fmt->{formats}->())." only",
+				$fmt->{blank});
 			return (0,undef);
 		}
 
@@ -243,7 +352,7 @@ sub _validateSources
 
 sub _validate
 {
-	my ($ids,$opts,$report) = @_;
+	my ($ids,$opts,$report,$fmt) = @_;
 
 	my $set = getActiveSet();
 	if (!$set)
@@ -274,11 +383,16 @@ sub _validate
 
 	# 1..3 - the sources, per resolved source across every tree.
 
-	my ($ok,$by_region) = _validateSources($ids,$opts->{fallback},$report);
+	my ($ok,$by_region) = _validateSources($ids,$opts->{fallback},$report,$fmt);
 	return (0,undef) if !$ok;
 
 	# 4 - EVERY REGION ON ONE CARD MUST AGREE on zauthor and zmin, and this
 	# is a WARNING RATHER THAN A REFUSAL.
+	#
+	# IT IS ALSO ONLY TRUE OF A CARD.  The check exists because the E80
+	# fuses every .rct present into one pyramid; an output whose files are
+	# independent charts has nothing to agree about, and warning there
+	# would be teaching the user to ignore a real warning.
 	#
 	# What it is about: the firmware holds both on the CHARTSET, not per
 	# file - it fuses every .rct on the card into one pyramid and indexes
@@ -299,11 +413,14 @@ sub _validate
 	# console, where there is no preflight.
 
 	my (%zauthor,%zmin);
-	for my $id (@$ids)
+	if ($fmt->{uniform})
 	{
-		my $reg = getRegion($id) or next;
-		push @{$zauthor{$reg->{zauthor}}},$id;
-		push @{$zmin{$reg->{zmin}}},$id;
+		for my $id (@$ids)
+		{
+			my $reg = getRegion($id) or next;
+			push @{$zauthor{$reg->{zauthor}}},$id;
+			push @{$zmin{$reg->{zmin}}},$id;
+		}
 	}
 	for my $pair ([\%zauthor,'zauthor'],[\%zmin,'zmin'])
 	{
@@ -319,15 +436,16 @@ sub _validate
 		display(0,1,"$name $_ : ".join(', ',@{$h->{$_}})) for sort keys %$h;
 	}
 
-	# 5 - EVERY NAME MUST BE A GENUINE 8.3 STEM, checked for the whole set
-	# here rather than discovered when region five fails after an hour.
+	# 5 - EVERY NAME MUST BE ONE THE FORMAT CAN USE, checked for the whole
+	# set here rather than discovered when region five fails after an hour.
 
-	my @bad = grep { !rctCardName($_) } @$ids;
+	my @bad = grep { !$fmt->{check_name}->($_) } @$ids;
 	if (@bad)
 	{
 		_refuse($report,'name',
-			"these region ids are not usable 8.3 card names: ".join(', ',@bad),
-			"at most 8 characters, letters and digits only");
+			"these region ids cannot name $fmt->{label} output: ".
+				join(', ',@bad),
+			$fmt->{name_help});
 		return (0,undef);
 	}
 
@@ -357,16 +475,16 @@ sub _validate
 	}
 	else
 	{
-		my $raster = rasterDir();
-		if (!-d $raster)
+		my $base = $fmt->{base_dir}->();
+		if (!-d $base)
 		{
 			_refuse($report,'out',
-				"the raster folder does not exist: $raster",
-				"set RASTER_DIR in Preferences, or create it");
+				"the output folder does not exist: $base",
+				$fmt->{base_help});
 			return (0,undef);
 		}
 
-		$out_dir = "$raster/$set";
+		$out_dir = "$base/$set";
 		if (!-d $out_dir && !mkdir($out_dir))
 		{
 			_refuse($report,'out',"could not create $out_dir: $!");
@@ -385,23 +503,58 @@ sub _validate
 #---------------------------------------------
 
 sub buildRct
-	# Build these region ids into one folder of .rct files.
+	# One folder of .rct files, for the E-Series.
+{
+	my ($ids,$opts) = @_;
+	return buildOutput($ids,$opts,'rct');
+}
+
+
+sub buildMbtiles
+	# One folder of region folders, each holding one .mbtiles per node.
+{
+	my ($ids,$opts) = @_;
+	return buildOutput($ids,$opts,'mbtiles');
+}
+
+
+sub buildOutput
+	# Build these region ids into one folder, in the named format.
 	#
 	# opts: zmax         a hard cap applied to both the fill and the export
 	#       fallback     the source a region that inherits resolves to
 	#       progress     a shared record from newProgress()
 	#       config       the build configuration (advisory rates)
-	#       out_dir      where the cards go; '' or absent = the default
+	#       out_dir      where the output goes; '' or absent = the default
 	#       allow_dirty  build anyway from unsaved edits
 	#       allow_failed export anyway with tiles that never arrived
 	#
 	# Returns a report.  Never dies, never prompts, and writes nothing
 	# outside the set's own output folder.
+	#
+	# THE FILL IS FORMAT-BLIND, and that is worth noticing rather than
+	# arranging: it asks the coverage enumerator for every tile and the
+	# cache is keyed by source, so building a set to mbtiles after building
+	# it to RCT fetches nothing at all.  The two outputs are peers over the
+	# cache, so the second one is nearly free.
 {
-	my ($ids,$opts) = @_;
+	my ($ids,$opts,$fmt_id) = @_;
 	$opts ||= {};
 
+	_initFormats() if !%FORMATS;
+	my $fmt = $FORMATS{$fmt_id || 'rct'};
+
 	my $report = _newReport();
+	if (!$fmt)
+	{
+		return _refuse($report,'format',
+			"there is no output format called '".($fmt_id // '')."'",
+			"this build knows: ".join(', ',sort keys %FORMATS));
+	}
+	$report->{format} = $fmt->{id};
+	$report->{unit}   = $fmt->{unit};
+	$report->{noun}   = $fmt->{noun};
+
 	my $started = time();
 	my $prog = $opts->{progress};
 
@@ -409,9 +562,9 @@ sub buildRct
 	$opts->{fallback} ||= getDefaultSource();
 
 	$prog->{phase} = 'Validating' if $prog;
-	display($dbg_build,0,"build rct: validating");
+	display($dbg_build,0,"build $fmt->{id}: validating");
 
-	my ($ok,$by_region) = _validate($ids,$opts,$report);
+	my ($ok,$by_region) = _validate($ids,$opts,$report,$fmt);
 	if (!$ok)
 	{
 		$report->{secs} = time() - $started;
@@ -421,7 +574,7 @@ sub buildRct
 	# ---- FILL.  The long phase, and the only one with a progress bar.
 
 	$prog->{phase} = 'Fetching' if $prog;
-	display($dbg_build,0,"build rct: filling the cache for ".
+	display($dbg_build,0,"build $fmt->{id}: filling the cache for ".
 		scalar(@$ids)." region(s)");
 
 	my $fill = fillCoverage($ids,{
@@ -449,7 +602,7 @@ sub buildRct
 		$report->{cancelled} = 1;
 		$report->{refused}   = "cancelled while fetching";
 		$report->{secs}      = time() - $started;
-		warning(0,0,"build rct: cancelled - nothing was written");
+		warning(0,0,"build $fmt->{id}: cancelled - nothing was written");
 		return $report;
 	}
 
@@ -499,7 +652,7 @@ sub buildRct
 		$prog->{sub_done}  = 0;
 		$prog->{sub_label} = '';
 	}
-	display($dbg_build,0,"build rct -> $report->{out_dir}");
+	display($dbg_build,0,"build $fmt->{id} -> $report->{out_dir}");
 
 	for my $id (@$ids)
 	{
@@ -518,8 +671,8 @@ sub buildRct
 			$report->{partial}   = scalar(@{$report->{regions}}) ? 1 : 0;
 			$report->{refused}   = "cancelled while writing";
 			$report->{secs}      = time() - $started;
-			warning(0,0,"build rct: cancelled after ".
-				scalar(@{$report->{regions}})." card(s)");
+			warning(0,0,"build $fmt->{id}: cancelled after ".
+				scalar(@{$report->{regions}})." $fmt->{noun}(s)");
 			return $report;
 		}
 
@@ -530,8 +683,7 @@ sub buildRct
 
 		$prog->{label} = $id if $prog;
 
-		my $path = "$report->{out_dir}/".rctCardName($id);
-		my $st = writeRct($reg,$by_region->{$id},$path,
+		my $st = $fmt->{write}->($reg,$by_region->{$id},$report->{out_dir},
 			{ defined $opts->{zmax} ? ( zmax => int($opts->{zmax}) ) : () });
 
 		if (!$st)
@@ -541,7 +693,7 @@ sub buildRct
 			return _refuse($report,'export',
 				"'$id' could not be written",
 				$report->{partial} ?
-					"cards already written for: ".join(', ',
+					"already written for: ".join(', ',
 						map { $_->{id} } @{$report->{regions}}) : ());
 		}
 
@@ -549,12 +701,12 @@ sub buildRct
 		# for every one of these tiles and reported no errors.  If the
 		# exporter still found one missing, something moved underneath us
 		# -- a cache pruned mid-build, a source key that does not match --
-		# and the card in hand is wrong.  Take it away rather than leave
+		# and the output in hand is wrong.  Take it away rather than leave
 		# a plausible file behind.
 
 		if ($st->{failed} && !$opts->{allow_failed})
 		{
-			unlink($path);
+			$fmt->{discard}->($st);
 			$report->{partial} = scalar(@{$report->{regions}}) ? 1 : 0;
 			$report->{secs} = time() - $started;
 			return _refuse($report,'failed',
@@ -562,7 +714,7 @@ sub buildRct
 					"fill that reported none - the cache changed underneath ".
 					"the build",
 				_firstN($st->{failed_tiles},5),
-				"$path has been removed");
+				"$st->{path} has been removed");
 		}
 
 		push @{$report->{regions}},{
@@ -609,6 +761,12 @@ sub buildReportLines
 	my ($report) = @_;
 	my @out;
 
+	# A report that never reached a format still has to render - a refusal
+	# on the format name itself is exactly that case.
+
+	my $noun = $report->{noun} || 'card';
+	my $unit = $report->{unit} || 'blk';
+
 	if ($report->{cancelled})
 	{
 		# A CANCEL DURING THE WRITE IS NOT THE SAME AS ONE DURING THE
@@ -618,13 +776,13 @@ sub buildReportLines
 		if ($report->{partial})
 		{
 			push @out,"CANCELLED after writing ".
-				scalar(@{$report->{regions}})." card(s).";
+				scalar(@{$report->{regions}})." $noun(s).";
 			push @out,$report->{out_dir};
 			push @out,'';
 			push @out,"  $_->{name}" for @{$report->{regions}};
 			push @out,'';
-			push @out,"Those cards are complete and the rest were not written,";
-			push @out,"so the folder is a PARTIAL card set.  Build again to";
+			push @out,"Those are complete and the rest were not written,";
+			push @out,"so the folder is a PARTIAL $noun set.  Build again to";
 			push @out,"finish it - the tiles are cached, so it will be quick.";
 			return \@out;
 		}
@@ -640,13 +798,13 @@ sub buildReportLines
 		push @out,"REFUSED - $report->{refused}";
 		push @out,'';
 		push @out,@{$report->{detail}};
-		push @out,'',"Cards written before this were left in place."
+		push @out,'',"What was written before this was left in place."
 			if $report->{partial};
 		return \@out;
 	}
 
-	push @out,sprintf("Built %d card(s) in %s",
-		scalar(@{$report->{regions}}),_hms($report->{secs}));
+	push @out,sprintf("Built %d %s(s) in %s",
+		scalar(@{$report->{regions}}),$noun,_hms($report->{secs}));
 	push @out,$report->{out_dir};
 
 	# A WARNING SURVIVES INTO THE REPORT.  It was shown in the preflight
@@ -665,9 +823,9 @@ sub buildReportLines
 
 	for my $r (@{$report->{regions}})
 	{
-		push @out,sprintf("  %-12s z%2d-%-2d %7d tiles %5d absent %3d blk %8.1f MB",
+		push @out,sprintf("  %-12s z%2d-%-2d %7d tiles %5d absent %3d %-5s %8.1f MB",
 			$r->{name},$r->{zoom_min},$r->{zoom_max},$r->{tiles},
-			$r->{absent},$r->{blocks},$r->{bytes}/1048576);
+			$r->{absent},$r->{blocks},$unit,$r->{bytes}/1048576);
 	}
 
 	push @out,'';
@@ -685,7 +843,7 @@ sub buildReportLines
 		push @out,'';
 		push @out,"$report->{totals}{absent} tile(s) are absent because the ".
 			"source has no imagery there.";
-		push @out,"The plotter will magnify a coarser tile over those areas.";
+		push @out,"The reader will magnify a coarser tile over those areas.";
 	}
 
 	if ($report->{fill})

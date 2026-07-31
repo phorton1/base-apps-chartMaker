@@ -278,6 +278,7 @@ and how one becomes the other. No wx, and no user.
     dm_fill      walk the coverage and ask for every tile
     dm_analysis  what a run would cost, before committing to it
     dm_rct       the RCT exporter
+    dm_mbtiles   the MBTiles exporter - a peer, not a conversion
     dm_build     the build act: validate, fill, refuse or export
 ```
 

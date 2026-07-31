@@ -155,6 +155,16 @@ see an edit it is not holding - see [Editing](editing.md). What that looks like 
 The last one already holds and is worth keeping deliberately: a rebuild reloads the controls
 from the model, which is exactly how a half-typed name gets thrown away.
 
+**Deferring a rebuild is not the same as having done one**, and the difference is a rule the
+pane has to keep. A pane records the model version it last drew, so a change made *by* that
+pane does not make it rebuild over its own work and lose the user's place. That is right;
+what is not right is taking the version forward when no rebuild happened. A click or a save
+that arrives in the same instant as somebody else's change would otherwise mark that change
+as *seen* having never drawn it, and the pane then sits stale until the next thing moves the
+model - which, in practice, is the next save. So the version may only be advanced over the
+bumps the pane itself caused: it is captured on the way in and taken forward only if nothing
+else moved it meanwhile.
+
 ## Which pane is in front is the user's decision
 
 Nothing the application does on its own may change it - not a poll, not a rebuild, not a

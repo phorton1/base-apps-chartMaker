@@ -74,7 +74,8 @@ my @view_menu = (
 my @build_menu = (
 	$COMMAND_FETCH,
 	$ID_SEPARATOR,
-	$COMMAND_BUILD_RCT );
+	$COMMAND_BUILD_RCT,
+	$COMMAND_BUILD_MBTILES );
 
 
 my @main_menu = (
@@ -99,6 +100,8 @@ my $command_data = {
 	$COMMAND_PREFS		=> ['Preferences...','Folders, the map, and what a new region starts with'],
 	$COMMAND_FETCH		=> ['Fetch Tiles',	'Fill the cache with every tile the build will read'],
 	$COMMAND_BUILD_RCT	=> ['Build RCT Card','Fetch, then write the set as .rct card files'],
+	$COMMAND_BUILD_MBTILES => ['Build MBTiles',
+		'Fetch, then write the set as .mbtiles charts - one per detail area'],
 };
 
 

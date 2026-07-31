@@ -60,9 +60,19 @@ sub new
 {
 	my ($class,$parent,$what) = @_;
 	$what ||= 'build';
-	my $is_build = ($what eq 'build');
 
-	my $title = $is_build ? 'Build - what and where' : 'Fetch - what';
+	# THE FOLDER SECTION IS THE CARD'S, not every build's.  An mbtiles
+	# build has one destination and nothing to choose, so this dialog is
+	# 'what' for it exactly as it is for a fetch - see
+	# cm_config::defaultMbtilesOutDir.  It is still a BUILD, which is what
+	# the labels below say.
+
+	my $is_build = ($what eq 'build');
+	my $writes   = ($what ne 'fetch');
+
+	my $title =
+		$what eq 'build'	? 'Build - what and where'	:
+		$what eq 'mbtiles'	? 'Build MBTiles - what'	: 'Fetch - what';
 	my $h = $is_build ? 470 : 380;
 
 	my $this = $class->SUPER::new($parent,-1,$title,[-1,-1],[520,$h]);
@@ -79,7 +89,7 @@ sub new
 		[16,12],[480,18]);
 
 	Wx::StaticText->new($this,-1,
-		$is_build ? 'Build these regions:' : 'Fetch tiles for these regions:',
+		$writes ? 'Build these regions:' : 'Fetch tiles for these regions:',
 		[16,38],[300,18]);
 
 	# A CHECK LIST, NOT THE REGION TREE.  What is on the card and what is

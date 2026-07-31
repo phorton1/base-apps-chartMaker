@@ -123,9 +123,30 @@ edit.
 
 The **name** is free text with no structural role at all. Renaming is the cheap operation.
 
-**Subregion ids are unique within their file only.** Nothing outside a region file ever
-refers to a subregion, so there is no global namespace to collide in and no renaming
-required when two people exchange regions.
+**Subregion ids are unique within their region, and unique across nothing else.** There is
+no global namespace to collide in and no renaming required when two people exchange regions:
+two sets may each hold a `Popa00` and they are simply not the same detail area.
+
+Within one region the rule is stronger than it looks, and it is stronger than it used to be.
+An id must not repeat **anywhere in the tree** - not merely between two siblings, and not
+between a subregion and the region containing it. Two subregions of different parents at the
+same depth are the case that makes this matter, because everything downstream identifies a
+node by its **path**:
+
+```
+    Bocas                    a region is a node too, and shares the namespace
+    Bocas/Popa00
+    Bocas/Popa00/Marina
+```
+
+That path is what the build resolves a source against and what an
+[mbtiles](mbtiles.md) file is named for. It is unique precisely because siblings are unique,
+so validating the ids is what makes the path an identity rather than a hopeful convention.
+`/` is safe as the joiner for the same reason the id charset is restricted: an id can never
+contain one.
+
+The rule is enforced when a region is **loaded**, not only when one is created, because a
+file is the only way in - nothing in the application can build a duplicate.
 
 **A region's geometry is one or more polygons, and this is not a generalisation for its
 own sake.** Bocas del Toro is a main body plus a detached area fifteen miles east; San Blas

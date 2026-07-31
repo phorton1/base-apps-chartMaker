@@ -29,9 +29,17 @@ asked before the first request goes out.**
 folder. It is the *build configuration*, and it persists: `region_sets/<set>/build.json`.
 
 **Two - what it will cost.** Tiles to fetch, already cached, and recorded absences, grouped
-by source; the estimated time; the size of the card; which cards will be replaced; which
+by source; the estimated time; the size of the output; which cards will be replaced; which
 cards are in that folder and are *not* part of this build; and whether the chartset would
 disagree with itself. Then Build, Back, or Cancel.
+
+**Half of that second dialog is about a CARD, not about building.** Replacement, foreign
+files in the folder, and chartset agreement are all questions about one fused E-Series
+pyramid; an output whose files are independent charts has no chartset to disagree with and
+no headers to survey. So the analysis is told which format it is for and does not compute
+them - and the preflight does not display a warning about nothing, which is how a real
+warning gets trained out of being read. What is left is common to both: what will be
+fetched, what it will cost, and where it is going.
 
 **The configuration is not hidden state, and that is the point of it.** Before it, "what am I
 working on" lived only in the user's head and was re-decided at every invocation. Single
@@ -72,14 +80,37 @@ unmounted drive, or a configuration copied from another machine than an instruct
 a tree somewhere unexpected, and building it would look like success while hiding the real
 problem. The folder browser's own *Make New Folder* is what creates one, as a user action.
 
+**That choice belongs to the card, and only to it.** The remembered `out_dir` is where an
+E-Series card gets assembled - the folder copied wholesale to CF - so an
+[mbtiles](mbtiles.md) build landing a tree of region folders in the middle of it would make
+that copy a decision instead of a copy. MBTiles therefore has one destination and nothing to
+configure, which is why its half of the preflight asks *what* and not *where*.
+
 ## The build is one act in three phases
 
 ```
     VALIDATE   fast, before anything expensive       ->  may refuse
     FILL       ask for every tile in coverage        ->  builds the LEDGER
     ---------  the refusal point  --------------------
-    EXPORT     one .rct per region, temp + rename    ->  short
+    EXPORT     per region, temp + rename             ->  short
 ```
+
+**One act, several formats.** `build rct` and `build mbtiles` are the same act; what an
+output format changes is four of the guards and the write call, and those are declared in
+one table rather than branched on at each of the five sites. The reason is not tidiness: a
+fifth difference added as a branch is a guard that silently stops running for the other
+format, and a guard that does not run looks exactly like a guard that passed.
+
+| | RCT | MBTiles |
+|---|---|---|
+| carries | JPEG | JPEG or PNG |
+| files must agree on `zauthor`/`zmin` | yes - the E-Series fuses them into one pyramid | no - each file is an independent chart |
+| name check | an 8.3 stem | any valid id |
+| default folder | `RASTER_DIR/<set>` | `MBTILES_DIR/<set>` |
+
+**The middle phase is format-blind, so a second output is nearly free.** The fill asks the
+coverage enumerator for every tile and the cache is keyed by source, not by destination - so
+a set already built to one format builds to the other without fetching anything at all.
 
 **The order is the point.** Everything that can refuse a build refuses before the long
 phase, except the one thing that cannot be known until the long phase has run - whether any
@@ -476,10 +507,6 @@ from one source, it is one row.
 - **Resume** - a run of thousands of tiles that is interrupted must continue rather than
   restart. The cache makes this nearly free; what is missing is the specification of what a
   run records about itself.
-- **The exporter seam** - what an output format has to implement. The boundary is settled
-  (the coverage enumerator plus the cache, with [mbtiles](mbtiles.md) and
-  [RCT](rct.md) as peers over it); what an exporter has to provide is not. RCT is still the
-  only exporter, so there is nothing yet for the seam to be abstract against.
 - **Format conversion at the exporter seam** - decoding and re-encoding one tile, which is
   an encoder and not the image-processing stack this application refuses: no resampling, no
   reprojection, no compositing. It carries a quality preference, and that preference is a

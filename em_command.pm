@@ -134,6 +134,8 @@ sub commandHelp
 		[ 'analyse [id|set|all]','what a fetch/build would cost - reads nothing else'],
 		[ 'fetch <id|set|all> [zmax]',	'fill the cache with every tile the build will read'],
 		[ 'build rct <id|set> [zmax]',	'fetch, then export region(s) as .rct card files'	],
+		[ 'build mbtiles <id|set> [zmax]',
+										'the same, as one .mbtiles per node'				],
 		[ '  --dirty',					'build anyway from unsaved edits'					],
 		[ '  --failed',					'export anyway with tiles that never arrived'		],
 		[ 'check <id>',			'show a region on the map'									],
@@ -643,7 +645,7 @@ sub _analyseCommand
 
 
 sub _buildCommand
-	# build rct <id|set|all> [zmax]
+	# build <rct|mbtiles> <id|set|all> [zmax]
 	#
 	# 'set' MEANS THE WHOLE ACTIVE SET, not the checked part of it.  The
 	# set is a folder and every region file in it is part of the card,
@@ -664,10 +666,15 @@ sub _buildCommand
 
 	my ($what,$which,$zmax) = split(/\s+/,$rest);
 
-	if (!defined($what) || $what ne 'rct')
+	# THE FORMAT IS A WORD IN THE COMMAND, not a flag, because it is what
+	# the command IS.  dm_build knows which ones exist; this asks it rather
+	# than carrying a second list that could fall behind.
+
+	my %known = map { $_ => 1 } buildFormats();
+	if (!defined($what) || !$known{$what})
 	{
-		warning(0,0,"build: usage is 'build rct <id|set|all> [zmax] ".
-			"[--dirty] [--failed]'");
+		warning(0,0,"build: usage is 'build <".join('|',buildFormats()).
+			"> <id|set|all> [zmax] [--dirty] [--failed]'");
 		return;
 	}
 	$which = 'set' if !defined($which) || $which !~ /\S/;
@@ -675,7 +682,7 @@ sub _buildCommand
 	my $set = getActiveSet();
 	if (!$set)
 	{
-		warning(0,0,"build rct: there is no active region set");
+		warning(0,0,"build $what: there is no active region set");
 		return;
 	}
 
@@ -692,13 +699,13 @@ sub _buildCommand
 
 	if (!@ids)
 	{
-		warning(0,0,"build rct: nothing to build");
+		warning(0,0,"build $what: nothing to build");
 		return;
 	}
 
 	if (defined($zmax) && ($zmax !~ /^\d+$/ || $zmax > 22))
 	{
-		warning(0,0,"build rct: '$zmax' is not a zoom level");
+		warning(0,0,"build $what: '$zmax' is not a zoom level");
 		return;
 	}
 
@@ -710,7 +717,7 @@ sub _buildCommand
 	my $fallback = getDefaultSource();
 	if (!$fallback)
 	{
-		warning(0,0,"build rct: no active source - try 'source use <id>'");
+		warning(0,0,"build $what: no active source - try 'source use <id>'");
 		return;
 	}
 
@@ -722,14 +729,20 @@ sub _buildCommand
 	# --dirty and --failed are the overrides, spelled out rather than
 	# offered as buttons, because on this surface there is nobody to ask.
 
-	my $report = buildRct(\@ids,{
+	# THE CONFIGURED OUTPUT FOLDER BELONGS TO THE CARD, and only to it.
+	# It is where an E-Series card gets assembled, chosen once and
+	# remembered per set; an mbtiles build has no business landing a tree
+	# of region folders in the middle of it.  So mbtiles takes its own
+	# default and the configuration is left saying what it has always said.
+
+	my $report = buildOutput(\@ids,{
 		fallback     => $fallback,
 		config       => $cfg,
-		out_dir      => $cfg->{out_dir},
+		out_dir      => ($what eq 'rct' ? $cfg->{out_dir} : ''),
 		allow_dirty  => $allow_dirty,
 		allow_failed => $allow_failed,
 		defined $zmax ? ( zmax => int($zmax) ) : (),
-	});
+	},$what);
 
 	display(0,0,$_) for @{buildReportLines($report)};
 

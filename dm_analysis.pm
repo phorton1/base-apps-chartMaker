@@ -183,6 +183,7 @@ sub analyseFetch
 	#       fallback the source a region that inherits resolves to
 	#       config   the build configuration (for advisory rates)
 	#       out_dir  a folder to survey for what is already in it
+	#       format   which output this is for; only 'rct' has a chartset
 {
 	my ($ids,$opts) = @_;
 	$opts ||= {};
@@ -222,7 +223,7 @@ sub analyseFetch
 
 		for my $node (@$nodes)
 		{
-			my $sid = $srcs->{"$node->{depth}:$node->{id}"} || $fallback;
+			my $sid = $srcs->{$node->{path}} || $fallback;
 			my $src = $sid ? getSource($sid) : undef;
 
 			if (!$src)
@@ -308,10 +309,22 @@ sub analyseFetch
 	$out->{bytes} = _estimateBytes($out,\%index);
 
 	# ---- the card's own consistency, and what is already in the folder
+	#
+	# BOTH OF THESE ARE ABOUT A CARD, and neither means anything about any
+	# other output.  Agreement exists because the E-Series fuses every .rct
+	# present into ONE pyramid and cuts the reveal aperture at the coarsest
+	# zauthor among them; the folder survey reads .rct headers to find out
+	# what else is on that card.  An output whose files are independent
+	# charts has no chartset to disagree with and no headers to read, so
+	# asking would produce a warning about nothing - which is how a real
+	# warning gets trained out of being read.
 
-	$out->{zagree}    = _checkAgreement($out->{regions},$opts->{out_dir},$ids);
-	($out->{overwrite},$out->{foreign}) =
-		_surveyFolder($opts->{out_dir},$ids);
+	if (($opts->{format} || 'rct') eq 'rct')
+	{
+		$out->{zagree}    = _checkAgreement($out->{regions},$opts->{out_dir},$ids);
+		($out->{overwrite},$out->{foreign}) =
+			_surveyFolder($opts->{out_dir},$ids);
+	}
 
 	$out->{elapsed} = time() - $t0;
 	return $out;
@@ -527,6 +540,8 @@ sub analysisLines
 
 	push @out,sprintf("The card would be about %.1f MB.",$an->{bytes}/1048576)
 		if $what eq 'build' && $an->{bytes};
+	push @out,sprintf("The charts would be about %.1f MB.",$an->{bytes}/1048576)
+		if $what eq 'mbtiles' && $an->{bytes};
 
 	return \@out;
 }
