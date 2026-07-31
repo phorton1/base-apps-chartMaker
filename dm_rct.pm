@@ -17,6 +17,24 @@
 # is set and the plotter overzooms from a present ancestor).  Filling the
 # cache is the build's job and happens before this runs.
 #
+# ONE BLOCK IS ONE NODE, SO ONE BLOCK HAS ONE SOURCE.  A subregion may
+# name a source of its own, so this module is handed the whole tree's
+# source map rather than a single source -- but it never needs a per-tile
+# lookup, because the block structure already follows the node structure
+# exactly.  The map is of RESOLVED SOURCE OBJECTS, keyed "<depth>:<id>"
+# the way dm_region::regionSourceMap reports them: this module does not
+# know how to turn a source id into a source, and must not learn, because
+# whether a source is installed, may build, and can be carried by THIS
+# format are three questions the build answers before it gets here.
+#
+# ABSENT AND FAILED ARE NOT THE SAME MISSING TILE, even though the card
+# cannot tell them apart.  A cached '.none' marker is the source asserting
+# it has no such tile, which is a fact about the ground and correct to
+# ship.  Nothing on disk at all means the fetch never succeeded, which is
+# a hole that should not have been there.  Both set the miss bit and both
+# overzoom; only the second one is a defect, so they are counted apart and
+# the build refuses on the second.  See docs/design/build.md.
+#
 # BLOCKS ARE FEW AND LARGE, deliberately.  The firmware builds its reveal
 # aperture as a list of screen rectangles, closing a run at every block
 # edge as well as at every absent cell, out of a budget shared across the
@@ -45,6 +63,10 @@ BEGIN
 	our @EXPORT = qw(
 		writeRct
 		rctCardName
+		rctCanCarry
+		rctFormats
+		rctCardInfo
+		rctScanFolder
 	);
 }
 
@@ -64,6 +86,13 @@ my $PROJECTION		= 3857;
 my $ZDIR_ENTRY		= 32;
 my $BLK_ENTRY		= 48;
 my $IDX_ENTRY		= 8;
+
+# How many failed tiles to NAME rather than merely count.  A source that
+# went away fails every tile in a region, and a list of nine thousand of
+# them is not more useful than a list of twenty and a total -- it is just
+# slower to produce and impossible to read.
+
+my $MAX_FAILED_LISTED = 100;
 
 # E80 display mercator.  NOT WGS84 -- the geodetic-to-geocentric
 # reduction is about 6.9 km at 9.3N, which is a real offset rather than a
@@ -105,6 +134,41 @@ sub _semiNorthing
 }
 
 
+#---------------------------------------------
+# what this format can carry
+#---------------------------------------------
+# THE FORMAT'S OWN KNOWLEDGE, asked by the build before it spends an hour
+# and again per tile while it writes.  It lives here because "what can an
+# .rct hold" is a fact about .rct files, and the day a second exporter
+# arrives it will answer for itself rather than the build carrying a table
+# of everybody's formats.
+#
+# This is a whitelist and not a blacklist on purpose.  A format nobody has
+# considered is refused rather than shipped, because the failure it
+# produces is a card that builds, reports success, and is blank on the
+# water.
+#
+# It also survives format conversion arriving later: this becomes the
+# place a format that still cannot be carried is refused, instead of the
+# place every non-JPEG is refused.
+
+my @CARRIED = qw( jpeg );
+
+
+sub rctFormats
+{
+	return @CARRIED;
+}
+
+
+sub rctCanCarry
+{
+	my ($fmt) = @_;
+	return 0 if !defined($fmt);
+	return scalar(grep { $_ eq $fmt } @CARRIED);
+}
+
+
 sub rctCardName
 	# The 8.3 short name the card carries.  The stem is the region id and
 	# nothing else -- see docs/design/rct.md on why this is asserted here
@@ -113,6 +177,203 @@ sub rctCardName
 	my ($id) = @_;
 	return undef if !defined($id) || $id !~ /^[A-Za-z0-9]{1,8}$/;
 	return "$id.rct";
+}
+
+
+#---------------------------------------------
+# the attribution blob
+#---------------------------------------------
+# Free-form credit text for the imagery in ONE file, located by
+# attrib_offset (0x38) and attrib_length (0x3C) and written at the very
+# end, after the tile data.  Normative spec:
+# Pub/Ray/docs/e80_firmware/deployment/raster_chart_format.md.
+#
+# PER FILE, NOT PER CARD, and that is the one place it differs from
+# zauthor and zmin.  Those are properties of the chartset because the
+# firmware fuses every .rct into one pyramid; a credit is a property of
+# the imagery in this region, and a region may legitimately be built from
+# a different source than the one beside it.  So each file carries its
+# own and a consumer collects the distinct strings across the set.
+#
+# 0/0 MEANS NO ATTRIBUTION, which is also exactly what a card written
+# before the field existed reads as -- 0x38 was reserved-zero.  That
+# indistinguishability is deliberate and is why nothing needs a version
+# bump.
+
+my $ATTRIB_MAX_LINE = 200;
+	# Not a format limit -- the blob is unbounded.  It is a sanity clamp on
+	# a string that came out of somebody's .tsd file.
+
+
+sub _asciify
+	# 7-BIT ASCII OR NOTHING.  The eventual consumer is a firmware font
+	# renderer, so the encoding question is settled by the producer rather
+	# than left to it: bytes 0x20-0x7E plus 0x0A, and nothing else.
+	#
+	# TRANSLITERATED RATHER THAN STRIPPED, because dropping is worse than
+	# it looks -- a stripped copyright sign leaves "Imagery  Google" and a
+	# stripped accent turns "Jose" into "Jos".  A credit line is the one
+	# piece of text on a card that somebody may have a legal interest in
+	# being legible.
+{
+	my ($text) = @_;
+	return '' if !defined($text) || $text !~ /\S/;
+
+	# The symbols worth spelling out.  Written as escapes because no
+	# source file in this tree carries a byte above 0x7F.
+
+	$text =~ s/\x{00A9}/(c)/g;
+	$text =~ s/\x{00AE}/(r)/g;
+	$text =~ s/\x{2122}/(tm)/g;
+	$text =~ s/\x{00B0}/ deg/g;
+	$text =~ s/[\x{2018}\x{2019}]/'/g;
+	$text =~ s/[\x{201C}\x{201D}]/"/g;
+	$text =~ s/[\x{2013}\x{2014}]/-/g;
+	$text =~ s/\x{2026}/.../g;
+
+	# Latin-1 letters to their unaccented forms.
+
+	$text =~ tr/\x{00C0}-\x{00C5}\x{00C7}\x{00C8}-\x{00CB}\x{00CC}-\x{00CF}\x{00D1}\x{00D2}-\x{00D6}\x{00D9}-\x{00DC}\x{00DD}/AAAAAACEEEEIIIINOOOOOUUUUY/;
+	$text =~ tr/\x{00E0}-\x{00E5}\x{00E7}\x{00E8}-\x{00EB}\x{00EC}-\x{00EF}\x{00F1}\x{00F2}-\x{00F6}\x{00F9}-\x{00FC}\x{00FD}\x{00FF}/aaaaaaceeeeiiiinooooouuuuyy/;
+
+	# Line endings to a single LF, tabs to a space, and then anything
+	# still outside the permitted set simply goes.
+
+	$text =~ s/\r\n?/\n/g;
+	$text =~ s/\t/ /g;
+	$text =~ s/[^\x20-\x7E\n]//g;
+
+	my @lines;
+	for my $line (split(/\n/,$text))
+	{
+		$line =~ s/\s+/ /g;
+		$line =~ s/^\s+|\s+$//g;
+		next if $line !~ /\S/;
+		$line = substr($line,0,$ATTRIB_MAX_LINE);
+		push @lines,$line;
+	}
+	return join("\n",@lines);
+}
+
+
+sub _attributionFor
+	# The distinct credits of the sources this file's tiles actually came
+	# from, in walk order - the region's own first, then its subregions'.
+	#
+	# DEDUPLICATED, because the common case is a region and its detail
+	# boxes all built from one source, and repeating one credit three
+	# times would be noise on a small display.
+{
+	my ($nodes,$sources) = @_;
+	my (@out,%seen);
+
+	for my $node (@$nodes)
+	{
+		my $src = $sources->{"$node->{depth}:$node->{id}"} or next;
+		my $text = _asciify($src->{attribution});
+		next if !length($text);
+		next if $seen{$text}++;
+		push @out,$text;
+	}
+	return join("\n",@out);
+}
+
+
+#---------------------------------------------
+# reading a card back
+#---------------------------------------------
+
+sub rctCardInfo
+	# What one .rct on disk says about itself, from its first 24 bytes.
+	#
+	# THE CARD IS A BETTER WITNESS THAN THE SET, which is the whole reason
+	# this exists.  "Every file on one card must agree on zauthor and zmin"
+	# is a statement about a FOLDER, and a folder can hold files built at
+	# different times from different sets or from a region since renamed.
+	# Asking the region files answers a question about what would be built
+	# now; asking the cards answers the question the firmware will ask.
+	#
+	# 128 bytes per file and no seeking, so a folder of cards costs
+	# nothing to survey.
+{
+	my ($path) = @_;
+	return undef if !-f $path;
+
+	my $fh;
+	return undef if !open($fh,'<',$path);
+	binmode $fh;
+	my $got = read($fh,my $head,64);
+	if (!$got || $got < 64)
+	{
+		close $fh;
+		return undef;
+	}
+
+	my ($magic,$ver,$hbytes,$tsize,$zauthor,undef,$zmin,$zmax,undef,
+		$proj,$flags,undef,$aoff,$alen)
+		= unpack('a4 v v v C C C C v V V a32 V V',$head);
+
+	if ($magic ne $MAGIC)
+	{
+		close $fh;
+		return undef;
+	}
+
+	# THE CREDIT IS READ BACK BECAUSE THE FILE IS ALREADY OPEN.  A folder
+	# survey opens every card anyway, so knowing what each one credits
+	# costs one seek - and "what does this chartset say it is made from"
+	# is a question only the cards can answer once they are on a card.
+	#
+	# CLAMPED, because attrib_length is a file-supplied u32 and must never
+	# reach an allocator unchecked.  A corrupt or truncated file fails to
+	# a blank credit, which is always correct.
+
+	my $attrib = '';
+	if ($aoff && $alen && $alen <= 65536 && $aoff + $alen <= (-s $path))
+	{
+		seek($fh,$aoff,0);
+		read($fh,$attrib,$alen);
+		$attrib = '' if $attrib =~ /[^\x20-\x7E\n]/;
+	}
+	close $fh;
+
+	my $leaf = $path;
+	$leaf =~ s{^.*[/\\]}{};
+
+	return {
+		path		=> $path,
+		leaf		=> $leaf,
+		stem		=> ($leaf =~ /^(.*)\.[^.]*$/ ? $1 : $leaf),
+		version		=> $ver,
+		zauthor		=> $zauthor,
+		zoom_min	=> $zmin,
+		zoom_max	=> $zmax,
+		attribution	=> $attrib,
+		bytes		=> -s $path,
+	};
+}
+
+
+sub rctScanFolder
+	# Every readable .rct in one folder, by lower-cased stem.  Files that
+	# are not cards are skipped rather than reported: a folder the user
+	# nominated is theirs and may hold anything.
+{
+	my ($dir) = @_;
+	my %out;
+	return \%out if !$dir || !-d $dir;
+
+	my $dh;
+	return \%out if !opendir($dh,$dir);
+	my @leaves = sort grep { /\.rct$/i && -f "$dir/$_" } readdir($dh);
+	closedir $dh;
+
+	for my $leaf (@leaves)
+	{
+		my $info = rctCardInfo("$dir/$leaf") or next;
+		$out{lc($info->{stem})} = $info;
+	}
+	return \%out;
 }
 
 
@@ -157,17 +418,30 @@ sub _planBlocks
 	# and only the detail clusters appear -- which is precisely the
 	# "one small rectangle per area of actual coverage" the format asks
 	# for, with no clustering heuristic anywhere.
+	#
+	# THE SOURCE RIDES ON THE BLOCK, and that is the whole of per-node
+	# sources in this exporter.  Because a block is exactly one node's
+	# tiles at one zoom, the source a cell is read from is a property of
+	# the block rather than of the cell -- so a subregion built from a
+	# different source than its parent costs one field here and no lookup
+	# in the loop that runs nine thousand times.
+	#
+	# Keyed "<depth>:<id>" because a subregion id is unique only among its
+	# SIBLINGS.  It may legitimately repeat its parent's, and keying by id
+	# alone would let a child silently inherit the wrong answer.
 {
-	my ($nodes) = @_;
+	my ($nodes,$sources) = @_;
 	my %by_zoom;
 
 	for my $node (@$nodes)
 	{
+		my $src = $sources->{"$node->{depth}:$node->{id}"};
 		for my $z (sort { $a <=> $b } keys %{$node->{levels}})
 		{
 			my $blk = _blockOf($z,$node->{levels}{$z});
 			next if !$blk;
-			$blk->{owner} = $node->{id};
+			$blk->{owner}  = $node->{id};
+			$blk->{source} = $src;
 			push @{$by_zoom{$z}},$blk;
 		}
 	}
@@ -205,16 +479,21 @@ sub _checkDisjoint
 sub writeRct
 	# Write one region as one .rct file.
 	#
+	# $sources is the RESOLVED source map for this region's whole tree --
+	# { "<depth>:<id>" => source object } -- as dm_region::regionSourceMap
+	# produces it and the build validates it.  See the header on why this
+	# is a map rather than a source, and why the objects arrive already
+	# resolved.
+	#
 	# opts: zmax    a hard cap from the build     (default none)
-	#       source  the tile source to read       (required)
 	#
 	# Returns a stats hash, or undef on failure.
 {
-	my ($reg,$source,$path,$opts) = @_;
+	my ($reg,$sources,$path,$opts) = @_;
 	$opts ||= {};
 
-	return _err("writeRct: no region")   if !$reg;
-	return _err("writeRct: no source")   if !$source;
+	return _err("writeRct: no region")      if !$reg;
+	return _err("writeRct: no source map")  if !$sources || !%$sources;
 
 	my $name = rctCardName($reg->{id});
 	return _err("writeRct: region id '$reg->{id}' is not a usable 8.3 stem ".
@@ -223,7 +502,22 @@ sub writeRct
 	display($dbg_rct,0,"writeRct($reg->{id}) -> $path");
 
 	my ($cov,$nodes) = regionCoverageNodes($reg,{ zmax => $opts->{zmax} });
-	my $by_zoom = _planBlocks($nodes);
+	my $by_zoom = _planBlocks($nodes,$sources);
+
+	# A NODE WITH NO SOURCE IS A BUILD ERROR THAT GOT THIS FAR.  The build
+	# resolves and validates every node's source before any of this runs,
+	# so reaching here means the map and the tree disagree -- which would
+	# otherwise show up as a whole subregion silently absent from the card.
+
+	for my $z (keys %$by_zoom)
+	{
+		for my $blk (@{$by_zoom->{$z}})
+		{
+			return _err("writeRct: '$reg->{id}' node '$blk->{owner}' has no ".
+				"resolved source - the source map does not match the region ".
+				"tree") if !$blk->{source};
+		}
+	}
 
 	my @zooms = sort { $a <=> $b } keys %$by_zoom;
 	return _err("writeRct: '$reg->{id}' has no coverage at all") if !@zooms;
@@ -247,8 +541,8 @@ sub writeRct
 
 	# ---- collect the tile bytes, and learn which cells are really there
 
-	my $stats = { tiles => 0, absent => 0, bytes => 0, blocks => 0,
-				  zooms => {} };
+	my $stats = { tiles => 0, absent => 0, failed => 0, bytes => 0, blocks => 0,
+				  zooms => {}, failed_tiles => [] };
 	my @blobs;			# [ \$data ] in write order
 	my $blob_bytes = 0;
 
@@ -256,6 +550,7 @@ sub writeRct
 	{
 		my $zt = 0;
 		my $za = 0;
+		my $zf = 0;
 		for my $blk (@{$by_zoom->{$z}})
 		{
 			$blk->{cells} = {};
@@ -274,13 +569,47 @@ sub writeRct
 						 keys %{$blk->{keys}})
 			{
 				my ($x,$y) = split(/_/,$key);
-				my $got = cacheGet($source,$z,$x,$y);
+				my $got = cacheGet($blk->{source},$z,$x,$y);
 
-				if (!$got || $got->{status} ne 'ok')
+				# NOTHING ON DISK is not the same answer as a cached
+				# absence.  The card writes the same miss bit for both, so
+				# this is the last moment the difference exists at all.
+
+				if (!$got)
+				{
+					$zf++;
+					push @{$stats->{failed_tiles}},
+						"$blk->{source}{id} $z/$x/$y"
+						if @{$stats->{failed_tiles}} < $MAX_FAILED_LISTED;
+					next;
+				}
+				if ($got->{status} ne 'ok')
 				{
 					$za++;
 					next;
 				}
+
+				# THE DECLARATION IS NOT THE EVIDENCE.  The build already
+				# refused any source whose declared tile_format this
+				# format cannot carry, but a source may declare jpeg and
+				# serve png -- and dm_cache records the format DETECTED
+				# FROM THE BYTES at fetch time, so the truth is sitting
+				# right here for the price of a string compare.
+				#
+				# This is not the image inspection this module refuses to
+				# do.  It reads a fact the cache already established; it
+				# does not decode anything, and no image ever enters this
+				# process.
+
+				if (!rctCanCarry($got->{format}))
+				{
+					return _err("writeRct: '$reg->{id}' - source ".
+						"'$blk->{source}{id}' served $got->{format} at ".
+						"$z/$x/$y, which an RCT cannot carry, although it ".
+						"declares $blk->{source}{tile_format} - the card ".
+						"would be structurally valid and blank on the plotter");
+				}
+
 				push @blobs,$got->{bytes};
 				$blk->{cells}{$key} = {
 					index	=> $#blobs,
@@ -291,12 +620,13 @@ sub writeRct
 			}
 			$stats->{blocks}++;
 		}
-		$stats->{zooms}{$z} = { tiles => $zt, absent => $za,
+		$stats->{zooms}{$z} = { tiles => $zt, absent => $za, failed => $zf,
 								blocks => scalar(@{$by_zoom->{$z}}) };
 		$stats->{tiles}  += $zt;
 		$stats->{absent} += $za;
-		display($dbg_rct,1,sprintf("z%-2d %6d tiles %5d absent  %d block(s)",
-			$z,$zt,$za,scalar(@{$by_zoom->{$z}})));
+		$stats->{failed} += $zf;
+		display($dbg_rct,1,sprintf("z%-2d %6d tiles %5d absent %5d failed  %d block(s)",
+			$z,$zt,$za,$zf,scalar(@{$by_zoom->{$z}})));
 	}
 	$stats->{bytes} = $blob_bytes;
 
@@ -328,22 +658,45 @@ sub writeRct
 		$off += length(${$blobs[$i]});
 	}
 
-	# ---- write
+	# THE ATTRIBUTION BLOB IS LAST, after the tile data, and that position
+	# is why it costs nothing.  Variable-length data anywhere earlier would
+	# move the zoom directory, whose position is a compiled-in constant in
+	# the consumer - so putting it at the end means NOTHING ELSE IN THE
+	# LAYOUT MOVES: every existing offset stays valid, a reader built
+	# before the field ignores it, and one built after reads an older card
+	# as "no attribution".
 
+	my $attrib = _attributionFor($nodes,$sources);
+	my $attrib_offset = length($attrib) ? $off : 0;
+	my $attrib_length = length($attrib);
+	$stats->{attribution} = $attrib;
+
+	# ---- write
+	#
+	# THROUGH A TEMP FILE AND A RENAME, for the reason dm_cache writes
+	# tiles the same way: a card is written over many seconds and a
+	# cancel, a crash or a full disk in the middle of it would otherwise
+	# leave a .rct that looks like a card and is a fragment.  The plotter
+	# would read the header, believe the zoom directory, and follow
+	# offsets into a file that stops early.  The rename is the moment the
+	# card exists, and nothing before it is visible under the real name.
+
+	my $tmp = "$path.tmp";
 	my $fh;
-	if (!open($fh,'>',$path))
+	if (!open($fh,'>',$tmp))
 	{
-		error("writeRct: could not open $path: $!");
+		error("writeRct: could not open $tmp: $!");
 		return undef;
 	}
 	binmode $fh;
 
-	print $fh pack('a4 v v v C C C C v V V a32 a8 a48 a16',
+	print $fh pack('a4 v v v C C C C v V V a32 V V a48 a16',
 		$MAGIC, $FORMAT_VERSION, $HEADER_BYTES, $TILE_SIZE,
 		$reg->{zauthor}, 0, $zoom_min, $zoom_max, 0,
 		$PROJECTION, 0,
 		"\0" x 32,
-		"\0" x 8,					# reserved: there is no coded region field
+		$attrib_offset,				# 0x38
+		$attrib_length,				# 0x3C
 		substr($reg->{name} // '',0,47),
 		"\0" x 16);
 
@@ -414,7 +767,32 @@ sub writeRct
 	}
 
 	print $fh ${$_} for @blobs;
-	close $fh;
+
+	# NOT NUL TERMINATED AND NOT PADDED - attrib_length counts text bytes
+	# exactly, so a consumer wanting a C string allocates length+1 and
+	# terminates it itself.  Correctness never depends on the producer
+	# having written a terminator.
+
+	print $fh $attrib if $attrib_length;
+
+	if (!close($fh))
+	{
+		error("writeRct: could not finish writing $tmp: $!");
+		unlink($tmp);
+		return undef;
+	}
+
+	# Windows rename() will not replace an existing file, so the previous
+	# card has to go first.  The window between the two is the one moment
+	# a rebuild is destructive, and it is as short as it can be made.
+
+	unlink($path) if -e $path;
+	if (!rename($tmp,$path))
+	{
+		error("writeRct: could not rename $tmp to $path: $!");
+		unlink($tmp);
+		return undef;
+	}
 
 	$stats->{path}     = $path;
 	$stats->{name}     = $name;

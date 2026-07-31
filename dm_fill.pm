@@ -33,6 +33,8 @@ use threads::shared;
 use Time::HiRes qw( time sleep );
 use Pub::Utils;
 use cm_defs;
+use cm_utils;
+use cm_config;
 use dm_source;
 use dm_region;
 use dm_coverage;
@@ -67,6 +69,20 @@ my $MAX_CONSECUTIVE_ERRORS = 10;
 
 my $PROGRESS_EVERY = 250;
 
+# How often the DIALOG's readout is refreshed, in seconds.  Nothing to do
+# with the console line above it: a watcher needs to see a number move
+# often enough to believe the thing is alive, and that is a clock.
+
+my $UI_EVERY_SECS = 0.4;
+
+# How many failed tiles to NAME rather than merely count.  A build refuses
+# on any failure at all, so what the report needs is enough of them to see
+# the pattern -- one zoom, one corner, one source -- not all of them.  The
+# consecutive-error abort caps the runaway case; this caps the scattered
+# one, which nothing else bounds.
+
+my $MAX_FAILED_LISTED = 100;
+
 
 sub _fillNode
 	# One node's own tiles, from one source.  Returns 0 if the walk should
@@ -74,8 +90,13 @@ sub _fillNode
 {
 	my ($src,$levels,$stats,$opts) = @_;
 
-	my $interval = $src->{policy} && $src->{policy}{min_interval_ms} ?
-		$src->{policy}{min_interval_ms} : 0;
+	# THE SOURCE'S FLOOR OR THE USER'S, WHICHEVER IS SLOWER.  A TSD states
+	# a fact about somebody else's server and stays authoritative; the
+	# advisory rate in the build configuration is the user saying they have
+	# all night and would rather go slow and sure.  effectiveInterval is a
+	# max(), so an advisory can never be a way to go faster than declared.
+
+	my $interval = effectiveInterval($src,$opts->{config});
 
 	for my $z (sort { $a <=> $b } keys %$levels)
 	{
@@ -101,6 +122,21 @@ sub _fillNode
 			$stats->{$status}++;
 			$stats->{cached}++ if $result->{cached};
 
+			# PER SOURCE, AND ONLY WHAT ACTUALLY WENT OUT.  This is what
+			# lets the next preflight estimate a time instead of admitting
+			# it cannot.  Cache hits are excluded deliberately: they say
+			# nothing about the server, and averaging them in would make a
+			# mostly-cached run look infinitely fast - which is precisely
+			# the estimate that would then mislead somebody into starting
+			# an overnight job before dinner.
+
+			if (!$result->{cached})
+			{
+				my $by = $stats->{by_source}{$src->{id}} ||= { fetched => 0, ms => 0 };
+				$by->{fetched}++;
+				$by->{ms} += $result->{ms} || 0;
+			}
+
 			display($dbg_fill+2,2,"$z/$x/$y $status".
 				($result->{cached} ? ' (cached)' : ''));
 
@@ -109,6 +145,16 @@ sub _fillNode
 				$stats->{consecutive}++;
 				warning(0,1,"$src->{id} $z/$x/$y - $result->{reason}")
 					if $stats->{consecutive} <= 3;
+
+				# NAMED, not just counted.  An error is never cached, so
+				# this is the only record that this tile was ever asked
+				# for -- after the walk there is nothing on disk to find
+				# it by, and the build has to be able to say WHICH tiles
+				# it is refusing over.
+
+				push @{$stats->{failed_tiles}},
+					"$src->{id} $z/$x/$y - $result->{reason}"
+					if @{$stats->{failed_tiles}} < $MAX_FAILED_LISTED;
 
 				if ($stats->{consecutive} >= $MAX_CONSECUTIVE_ERRORS)
 				{
@@ -137,9 +183,43 @@ sub _fillNode
 				sleep($wait / 1000) if $wait > 0;
 			}
 
+			# THE INNER BAR MOVES EVERY TILE, the text every $PROGRESS_EVERY.
+			# A number into a shared scalar is cheap next to the request
+			# that just happened; rebuilding a status string in shared
+			# memory nine thousand times is not, and nobody can read it
+			# changing that fast anyway.
+
+			my $prog = $opts->{progress};
+			$prog->{sub_done} = $stats->{sub_done}++ if $prog;
+
+			# THE CONSOLE COUNTS TILES; THE DIALOG COUNTS SECONDS.
+			#
+			# Both used to fire every $PROGRESS_EVERY tiles, which is fine
+			# for a log and was badly wrong on screen.  A cached walk
+			# crosses 250 tiles in an instant, but a FETCHING one takes 250
+			# round trips - minutes - and the dialog's text sat unchanged
+			# for all of it while the bar crept a fraction of a percent.
+			# It read as hung, and then as jumping, because the only thing
+			# that ever moved was the number and it moved in one leap.
+			#
+			# So the readout is on a clock: what the user is watching for
+			# is evidence that something is still happening, and that is a
+			# question about elapsed time, not about tile count.
+
+			my $now = time();
+			if ($prog && $now - $stats->{last_ui} >= $UI_EVERY_SECS)
+			{
+				$stats->{last_ui} = $now;
+				$prog->{sub_label} = sprintf(
+					"%d of %d - %d fetched, %d cached, %d absent, %d failed",
+					$stats->{sub_done},$prog->{sub_total} || 0,
+					$stats->{tiles} - $stats->{cached},$stats->{cached},
+					$stats->{absent} || 0,$stats->{error} || 0);
+			}
+
 			if ($stats->{tiles} % $PROGRESS_EVERY == 0)
 			{
-				my $secs = time() - $stats->{started};
+				my $secs = $now - $stats->{started};
 				display(0,1,sprintf(
 					"%d tiles - %d fetched, %d cached, %d absent, %d errors (%.0fs)",
 					$stats->{tiles},$stats->{tiles} - $stats->{cached},
@@ -147,6 +227,7 @@ sub _fillNode
 					$stats->{error} || 0,$secs));
 			}
 
+			return 0 if progressCancelled($prog);
 			return 0 if $opts->{stop} && ${$opts->{stop}};
 		}
 	}
@@ -161,16 +242,31 @@ sub fillCoverage
 	# opts: zmax     a hard cap, exactly as the build applies one
 	#       fallback the source a region that inherits resolves to
 	#       stop     a scalar ref polled between tiles
+	#       progress a shared record from newProgress(), written as the
+	#                walk proceeds and polled for {cancelled}
+	#
+	# The progress record is OPTIONAL and everything here works without
+	# one.  The console fills a cache with no dialog anywhere, and so does
+	# every test -- a walk that required a watcher could not be tested.
 {
 	my ($ids,$opts) = @_;
 	$opts ||= {};
 
+	my $prog = $opts->{progress};
+
 	my $stats = {
 		tiles => 0, cached => 0, ok => 0, absent => 0, error => 0,
-		consecutive => 0, aborted => 0, started => time(),
+		consecutive => 0, aborted => 0, cancelled => 0, started => time(),
+		failed_tiles => [], sub_done => 0, by_source => {}, last_ui => 0,
 	};
 
 	my $fallback = $opts->{fallback} || getDefaultSource();
+
+	if ($prog)
+	{
+		$prog->{total} = scalar(@$ids);
+		$prog->{done}  = 0;
+	}
 
 	for my $id (@$ids)
 	{
@@ -185,7 +281,21 @@ sub fillCoverage
 		my ($cov,$nodes) = regionCoverageNodes($reg,
 			defined $opts->{zmax} ? { zmax => $opts->{zmax} } : {});
 
-		display(0,0,sprintf("%-16s %d tiles",$id,coverageTotal($cov)));
+		my $region_tiles = coverageTotal($cov);
+		display(0,0,sprintf("%-16s %d tiles",$id,$region_tiles));
+
+		# THE INNER TOTAL IS KNOWN BEFORE THE WALK, which is why the bar
+		# can be a bar rather than a spinner.  coverageTotal is already
+		# computed here for the display line and costs nothing more.
+
+		if ($prog)
+		{
+			$prog->{label}		= $id;
+			$prog->{sub_total}	= $region_tiles;
+			$prog->{sub_done}	= 0;
+			$prog->{sub_label}	= '';
+			$stats->{sub_done}	= 0;
+		}
 
 		for my $node (@$nodes)
 		{
@@ -208,8 +318,15 @@ sub fillCoverage
 			last if !_fillNode($src,$node->{levels},$stats,$opts);
 		}
 
+		$prog->{done}++ if $prog;
+
 		last if $stats->{aborted};
-		last if $opts->{stop} && ${$opts->{stop}};
+
+		if (progressCancelled($prog) || ($opts->{stop} && ${$opts->{stop}}))
+		{
+			$stats->{cancelled} = 1;
+			last;
+		}
 	}
 
 	$stats->{secs} = time() - $stats->{started};

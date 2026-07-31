@@ -116,14 +116,57 @@ The consequence worth stating: **block structure is an authoring decision, not a
 algorithm.** If a region ends up with an expensive block, the fix is a subregion, in the
 same place a person would have drawn one anyway.
 
+## One block is one node, so one block has one source
+
+A region and each of its subregions may name a different source, and the exporter honours
+that without any per-tile bookkeeping: a coverage block *is* one node's tiles at one zoom,
+so the source a cell is read from is a property of the block. A detail box built from a
+different provider than the ground around it costs one field on the block and no lookup in
+the loop that runs nine thousand times.
+
+The exporter is handed **resolved source objects**, keyed by depth and id, and never turns
+an id into a source itself. Whether a source is installed, whether it may build, and whether
+this format can carry its tiles are three questions the build answers before the exporter
+runs - see [Build](build.md#what-the-build-validates-before-it-runs).
+
+## The attribution blob
+
+Each `.rct` carries the credit text for the imagery in it, located by `attrib_offset`
+(`0x38`) and `attrib_length` (`0x3C`) and written after the tile data. The byte-level
+contract is normative in `Pub/Ray/docs/e80_firmware/deployment/raster_chart_format.md`; what
+belongs here is what the *producer* decides.
+
+**It is per file, not per card** - the one place it differs from `zauthor` and `zmin`. Those
+are properties of the chartset because the firmware fuses every file into one pyramid; a
+credit is a property of the imagery in this region, and a region may legitimately be built
+from a different source than the one beside it. So each file carries the distinct credits of
+the sources its own tiles came from, in walk order, deduplicated.
+
+**Placing it last is what makes it free.** Variable-length data anywhere earlier would move
+the zoom directory, whose position is a compiled-in constant in the consumer. At the end,
+nothing else in the layout moves - which is demonstrable rather than merely argued: adding
+it to the Bocas card grew the file by exactly the length of the credit and changed **five
+bytes** of the original 70 MB, all of them inside the `0x38` field.
+
+`0`/`0` means no attribution, which is also exactly what a card written before the field
+existed reads as, since `0x38` was reserved-zero. That indistinguishability is why the
+format version does not move.
+
+**chartMaker transliterates rather than strips.** The blob is 7-bit ASCII plus LF because
+the eventual consumer is a firmware font renderer, and a credit that arrives as UTF-8 has to
+become ASCII somewhere. Dropping the offending bytes is worse than it looks - a stripped
+copyright sign leaves `Imagery  Google`, and a stripped accent turns `Jose` into `Jos` - so
+the symbols are spelled out (`(c)`, `(r)`, `(tm)`) and accented letters fall back to their
+base forms. A credit line is the one piece of text on a card somebody may have a legal
+interest in being legible.
+
 ## Still to specify
 
-- **JPEG only** - and therefore what happens when a source returns a PNG. The transcode is
-  the exporter's, not the cache's: the cache stores what the source sent.
-- **Which source a region builds from.** The exporter reads whichever source is active,
-  which is right for one card from one provider and wrong the moment a detail area needs a
-  different one. The model says a region and a subregion each carry a `source`; the field
-  is not implemented yet.
+- **JPEG only** - and therefore what happens when a source returns a PNG. Today the build
+  refuses rather than transcoding, naming the source and its format, because a card full of
+  bytes the plotter cannot decode reports success and is blank on the water. The transcode,
+  when it arrives, is the exporter's and not the cache's: the cache stores what the source
+  sent.
 - **Why the card is smaller than the model** - depth caps are applied at export, so one
   deeply built region produces cards of several sizes with no additional fetching.
 

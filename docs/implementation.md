@@ -247,16 +247,92 @@ changed from an HTTP thread, and a callback firing on that thread must not touch
 widget. An observer would have to hop threads to be safe, which is a queue and a timer
 wearing a different name.
 
+## The modules, by layer
+
+Four prefixes, and they are a dependency order rather than a filing system: a module may
+use anything above it and nothing below. The rule that keeps it honest is that
+**everything above `w_` must load and run with no wx at all** - which is what lets the whole
+model, the whole build and the whole analysis be tested headlessly, and is why a defect in
+a dialog is the only kind that needs a person.
+
+**`cm_` - foundations.** Constants, preferences, and the two shared structures.
+
+```
+    cm_defs      constants, window and command ids; depends on nothing but Pub::
+    cm_prefs     the preference names, their defaults, and the folder resolution
+    cm_utils     the resource root, the output ring, and the progress record
+    cm_state     the version counter the map polls, and the view state it publishes
+    cm_config    the per-set build configuration - what, where, and how fast
+```
+
+**`dm_` - the model and the work.** Everything that knows what a region is, what a tile is,
+and how one becomes the other. No wx, and no user.
+
+```
+    dm_source    TSD files: reading, validating, addressing
+    dm_cache     the tile cache, keyed by source
+    dm_fetch     one tile from one source; no control flow of its own
+    dm_set       region sets as folders
+    dm_region    the coverage model, as a document
+    dm_coverage  which tiles a region covers - the predicate and the enumerator
+    dm_fill      walk the coverage and ask for every tile
+    dm_analysis  what a run would cost, before committing to it
+    dm_rct       the RCT exporter
+    dm_build     the build act: validate, fill, refuse or export
+```
+
+**`em_` - the doors in.** One vocabulary, three transports.
+
+```
+    em_command   the command vocabulary and dispatcher - beneath all three doors
+    em_console   keystrokes
+    em_server    HTTP: the applet's protocol and the /api drive surface
+```
+
+**`w_` - wx.** Nothing here is depended on by anything above it.
+
+```
+    w_resources  the menus and command labels
+    w_ini        the few things that survive a session
+    w_frame      the frame; owns the document and launches the long acts
+    w_prefs      the Preferences dialog
+    w_buildcfg   preflight one - what and where
+    w_preflight  preflight two - what it will cost
+    w_progress   the two-level progress dialog over a worker thread
+    w_report     what the build did
+    winRegions   the region tree
+    winSources   the source tree
+```
+
+`w_progress` and `w_prefs` are written here as **`Pub::` candidates** - general enough to
+belong in the shared tree, kept local until a second application wants them.
+
 ## Still To Come
 
-- **Module inventory by layer** - foundational utilities, portable logic, wx components,
-  and the top-level wx panes, in the order they may depend on one another.
 - **The fetch engine** - the queue, concurrency and interval limiting, retry policy, resume,
   and the failure classification that keeps a lost connection from being cached as "the
   source does not have this tile". See [Build](design/build.md).
-- **Whether the build runs on a thread or in a separate process** - it is long-running and
-  must report progress without blocking the application. The exporter itself
-  ([`dm_rct`](design/rct.md)) is synchronous and has no opinion about this.
+- **A cache maintenance command.** Declaring an `absent_fingerprint` reclassifies matching
+  tiles as they are next read, so correctness needs nothing - but the bytes stay on disk
+  until something rewrites them. Converting them all at once is a real user-facing
+  operation and currently lives only in a development script.
+
+## The build runs on a thread
+
+Settled, and worth recording because the alternative was a separate process. The build is a
+detached worker thread carrying a shared record, and the exporter stays synchronous with no
+opinion about any of it. See [Build](design/build.md#progress-and-where-the-build-runs).
+
+**This is the one thread spawned after wx exists.** The server and console threads are
+created before the application object, deliberately, so that they inherit a loaded model and
+copy an interpreter with no widgets in it. A worker launched from a menu cannot do that.
+There is precedent outside this application - the same shared-record-and-detached-worker
+shape is what drives a card write from navMate's GUI - and none inside it, which is the
+reason to say so here.
+
+**Fetch and build are one piece of machinery.** They differ only in which function the worker
+calls and what the report says; building it twice is how the two end up behaving
+differently.
 
 ---
 

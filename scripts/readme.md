@@ -63,11 +63,14 @@ read that**, rather than streaming it into a terminal that will be confused by i
 | `test_fetch.pl` | a live fetch, the cache, and negative caching |
 | `test_fill.pl` | the cache filler: which source each node resolves to, the zmax cap, an uninstalled source, and the abort. Nearly offline - it plants the cache itself and asserts a 100% hit rate, which is what proves source resolution |
 | `test_preview.pl` | the preview classification: carried at this zoom, the deepest carried ancestor past the built depth, innermost-wins on source, and outside coverage. Entirely offline - it tests the decision, never the drawing |
+| `test_build.pl` | the build act: every guard, that each one refuses **and writes nothing**, that they run before the fetch, the ledger refusal that no abort catches, the two overrides, and per-node sources reaching the exporter. Offline on every path that should succeed |
+| `test_preflight.pl` | the build configuration and the analysis: no file until something is configured, that editing it cannot make the set dirty, ALL against a list naming everything, an advisory rate that can only slow you down, the folder survey, and the index scan agreeing tile for tile with probing each tile. Entirely offline |
 | `my_test_rct.pl` | calls the exporter, then reopens the file and audits every byte it wrote, against the card that ran on the plotter |
 | `tool_app_command.pl` | send one console command to the **running** application and print only that command's output |
 | `tool_rct_inspect.pl` | run the firmware's own arithmetic over a card - the zero-step blocks it would silently skip, and the reveal-mask rectangle count against its budget |
 | `tool_coverage_time.pl` | what coverage costs cold, warm, and after one region is edited |
 | `tool_shot.ps1` | a screenshot of the running window, found by owning process |
+| `tool_progress_demo.pl` | the build's progress dialog and report dialog driven by a **fake** worker that just counts - no model, no cache, no network. What can go wrong in that half is wx and threads, and none of it is about tiles |
 | `tool_prune_absent.pl` | convert a source's cached "no data here" tiles into recorded absences |
 | `_tool_esri_probe.pl` | what resolution Esri actually holds over an area, by `MaxMapLevel` |
 | `_old_test_rct_merc.pl` | the E80 semicircle projection, against the pre-rewrite card |
@@ -90,14 +93,24 @@ produced, and both reference files still exist, so they still do real work:
     C:/dat/openCPN/RASTER/Bocas.rct         what this one wrote
 ```
 
-**Both paths are hardcoded and the second one is now wrong.** Output folders became
-preferences in Phase F, so a build writes to `<RASTER_DIR>/<set>/` - by default
-`$data_dir/raster/<set>/`. These three will need pointing at `rasterDir()` the next time
-anybody builds a card to compare against. Until then they read a file that happens to still
-be sitting where the old exporter left it.
+**The comparison is finished, and these three are inert.** They did their job: every block
+descriptor and every presence bitmap matched the card the old toolchain produced, the card
+ran on the plotter, and the semicircle projection - the one thing that fails invisibly - is
+proven. Nothing further is asked of them.
 
-The three tools are spent: they compared the new exporter against the old card, the
-comparison passed, and the card is on the hardware.
+**They also cannot pass any more, by construction.** A card now carries an attribution blob
+at the end and a pointer to it at `0x38`, which the old exporter never wrote, so a
+byte-for-byte comparison against the old card *should* differ and reports a difference that
+means nothing. Both hardcoded paths are stale as well - output folders became preferences,
+so a build writes to `<RASTER_DIR>/<set>/`.
+
+Do not repair them. They are kept only because deleting code is Patrick's call, and they go
+before the repo is published.
+
+**What replaced them** is `my_test_rct.pl`, which is a different kind of check and is not
+affected by any of this: it builds a card and audits the bytes it just wrote, against no
+external reference. Its value is undiminished - it is what proves an exporter change moved
+nothing, and it earned that twice in one day.
 
 ## One thing worth saying plainly
 

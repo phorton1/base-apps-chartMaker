@@ -30,8 +30,11 @@ use dm_cache;
 use dm_fetch;
 use dm_region;
 use dm_coverage;
+use cm_config;
 use dm_fill;
 use dm_rct;
+use dm_analysis;
+use dm_build;
 
 
 BEGIN
@@ -123,8 +126,16 @@ sub commandHelp
 		[ 'subregion new <parent> <zmax> <name>',
 										'add an empty detail area - draw it on the map'		],
 		[ 'subregion delete <region> <id>',	'remove a detail area'							],
+		[ 'config',				'the build configuration: what, where, how fast'	],
+		[ 'config regions <id,id|all>',	'which regions get fetched and built'		],
+		[ 'config out <path|default>',	'where the .rct cards go'					],
+		[ 'config rate <src> <ms>',		'go no faster than this (on top of the TSD)'],
+		[ 'config reset',		'back to defaults, removing build.json'				],
+		[ 'analyse [id|set|all]','what a fetch/build would cost - reads nothing else'],
 		[ 'fetch <id|set|all> [zmax]',	'fill the cache with every tile the build will read'],
-		[ 'build rct <id|set> [zmax]',	'export region(s) as .rct card files'				],
+		[ 'build rct <id|set> [zmax]',	'fetch, then export region(s) as .rct card files'	],
+		[ '  --dirty',					'build anyway from unsaved edits'					],
+		[ '  --failed',					'export anyway with tiles that never arrived'		],
 		[ 'check <id>',			'show a region on the map'									],
 		[ 'uncheck <id>',		'hide it from the map (it is still on the card)'			],
 	];
@@ -409,8 +420,11 @@ sub _fetchCommand
 		return;
 	}
 
-	my @ids = ($which eq 'all' || $which eq 'set') ?
-		getRegionIds() : ($which);
+	my $cfg = buildConfig();
+	my @ids =
+		$which eq 'all' ? getRegionIds() :
+		$which eq 'set' ? configSelectedIds($cfg) : ($which);
+
 	if (!@ids)
 	{
 		warning(0,0,"fetch: nothing to fetch");
@@ -435,6 +449,7 @@ sub _fetchCommand
 
 	my $stats = fillCoverage(\@ids,{
 		fallback => $fallback,
+		config   => $cfg,
 		defined $zmax ? ( zmax => $zmax ) : (),
 	});
 
@@ -444,6 +459,186 @@ sub _fetchCommand
 		$stats->{tiles},$stats->{secs},
 		$stats->{tiles} - $stats->{cached},$stats->{cached},
 		$stats->{absent},$stats->{error}));
+}
+
+
+sub _configCommand
+	# config                        show it
+	# config regions <id,id|all>    what gets fetched and built
+	# config out <path|default>     where the cards go
+	# config rate <source> <ms>     go no faster than this, on top of the TSD
+	# config reset                  back to defaults, removing the file
+	#
+	# THE CONSOLE FACE OF THE PREFLIGHT'S FIRST DIALOG.  It exists so that
+	# the configuration is not a thing only a dialog can reach - the whole
+	# vocabulary rule of this application - and so that a test can set one
+	# up without wx.
+{
+	my ($rest) = @_;
+	my ($verb,@args) = split(/\s+/,$rest || '');
+	$verb = '' if !defined $verb;
+
+	if (!getActiveSet())
+	{
+		warning(0,0,"config: there is no active region set");
+		return;
+	}
+
+	my $cfg = buildConfig();
+
+	if ($verb eq '')
+	{
+		my @sel = configSelectedIds($cfg);
+		display(0,0,"build configuration for '".getActiveSet()."'");
+		display(0,1,"regions   : ".(defined $cfg->{regions} ?
+			join(', ',@sel) : 'ALL ('.join(', ',@sel).')'));
+		display(0,1,"out_dir   : ".($cfg->{out_dir} ||
+			defaultOutDir().'   (the default)'));
+		display(0,1,"exists    : ".(-d ($cfg->{out_dir} || defaultOutDir()) ?
+			'yes' : 'NO'));
+		for my $sid (sort keys %{$cfg->{rates}})
+		{
+			display(0,1,"rate      : $sid $cfg->{rates}{$sid} ms");
+		}
+		display(0,1,"(all default - no build.json is written)")
+			if configIsDefault($cfg);
+		return;
+	}
+
+	if ($verb eq 'regions')
+	{
+		my $spec = join(',',@args);
+		if ($spec !~ /\S/)
+		{
+			warning(0,0,"config regions: usage 'config regions <id,id|all>'");
+			return;
+		}
+
+		if (lc($spec) eq 'all')
+		{
+			$cfg->{regions} = undef;
+		}
+		else
+		{
+			my @want = grep { /\S/ } split(/,/,$spec);
+			my %known = map { lc($_) => $_ } getRegionIds();
+			my @bad = grep { !$known{lc($_)} } @want;
+			if (@bad)
+			{
+				warning(0,0,"config regions: no such region(s): ".
+					join(', ',@bad));
+				return;
+			}
+			$cfg->{regions} = [ map { $known{lc($_)} } @want ];
+		}
+	}
+	elsif ($verb eq 'out')
+	{
+		my $path = join(' ',@args);
+		if ($path !~ /\S/)
+		{
+			warning(0,0,"config out: usage 'config out <path|default>'");
+			return;
+		}
+		if (lc($path) eq 'default')
+		{
+			$cfg->{out_dir} = '';
+		}
+		else
+		{
+			$path =~ s{\\}{/}g;
+			$path =~ s{/+$}{};
+
+			# A CHOSEN FOLDER MUST ALREADY EXIST.  The application creates
+			# only the folder it chose the location of - see dm_build.
+
+			if (!-d $path)
+			{
+				warning(0,0,"config out: '$path' does not exist - ".
+					"chartMaker creates only the folder it chose itself");
+				return;
+			}
+			$cfg->{out_dir} = ($path eq defaultOutDir()) ? '' : $path;
+		}
+	}
+	elsif ($verb eq 'rate')
+	{
+		my ($sid,$ms) = @args;
+		if (!defined($sid) || !defined($ms) || $ms !~ /^\d+$/)
+		{
+			warning(0,0,"config rate: usage 'config rate <source> <ms>'");
+			return;
+		}
+		if (!getSource($sid))
+		{
+			warning(0,0,"config rate: no source '$sid'");
+			return;
+		}
+		$ms ? ($cfg->{rates}{$sid} = int($ms)) : delete($cfg->{rates}{$sid});
+	}
+	elsif ($verb eq 'reset')
+	{
+		$cfg = { regions => undef, out_dir => '', rates => {} };
+	}
+	else
+	{
+		warning(0,0,"config: unknown '$verb' - regions, out, rate, reset");
+		return;
+	}
+
+	saveBuildConfig($cfg);
+	_configCommand('');
+}
+
+
+sub _analyseCommand
+	# analyse [id|set|all] [zmax]
+	#
+	# The console face of the preflight's SECOND dialog.  Reads
+	# directories and .rct headers, touches no network, writes nothing.
+{
+	my ($rest) = @_;
+	my ($which,$zmax) = split(/\s+/,$rest || '');
+	$which = 'set' if !defined($which) || $which !~ /\S/;
+
+	if (!getActiveSet())
+	{
+		warning(0,0,"analyse: there is no active region set");
+		return;
+	}
+
+	my $cfg = buildConfig();
+	my @ids =
+		$which eq 'all' ? getRegionIds() :
+		$which eq 'set' ? configSelectedIds($cfg) : ($which);
+	if (!@ids)
+	{
+		warning(0,0,"analyse: nothing to analyse");
+		return;
+	}
+
+	my $out_dir = $cfg->{out_dir} || defaultOutDir();
+	my $an = analyseFetch(\@ids,{
+		fallback => getDefaultSource(),
+		config   => $cfg,
+		out_dir  => $out_dir,
+		defined($zmax) && $zmax =~ /^\d+$/ ? ( zmax => int($zmax) ) : (),
+	});
+
+	display(0,0,$_) for @{analysisLines($an,'build')};
+	display(0,0,sprintf("(analysed in %.3fs)",$an->{elapsed}));
+
+	if ($an->{zagree})
+	{
+		warning(0,0,"the cards on this chartset would NOT agree:");
+		for my $field (qw( zauthor zmin ))
+		{
+			my $h = $an->{zagree}{$field} or next;
+			display(0,1,"$field $_ : ".join(', ',@{$h->{$_}})) for sort keys %$h;
+		}
+	}
+	display(0,1,"will REPLACE : $_->{leaf}") for @{$an->{overwrite}};
+	display(0,1,"NOT in build : $_->{leaf}") for @{$an->{foreign}};
 }
 
 
@@ -459,11 +654,20 @@ sub _buildCommand
 	# thing said twice.
 {
 	my ($rest) = @_;
-	my ($what,$which,$zmax) = split(/\s+/,$rest || '');
+	$rest = '' if !defined($rest);
+
+	# The overrides come out FIRST, or '--dirty' lands in the zmax slot
+	# and is reported as not being a zoom level.
+
+	my $allow_dirty  = $rest =~ s/\s*--dirty\b//  ? 1 : 0;
+	my $allow_failed = $rest =~ s/\s*--failed\b// ? 1 : 0;
+
+	my ($what,$which,$zmax) = split(/\s+/,$rest);
 
 	if (!defined($what) || $what ne 'rct')
 	{
-		warning(0,0,"build: usage is 'build rct <id|set|all> [zmax]'");
+		warning(0,0,"build: usage is 'build rct <id|set|all> [zmax] ".
+			"[--dirty] [--failed]'");
 		return;
 	}
 	$which = 'set' if !defined($which) || $which !~ /\S/;
@@ -475,104 +679,61 @@ sub _buildCommand
 		return;
 	}
 
-	my @ids = ($which eq 'all' || $which eq 'set') ?
-		getRegionIds() : ($which);
+	# 'set' MEANS THE CONFIGURED SELECTION, 'all' MEANS EVERY REGION.  They
+	# used to be the same word twice; now they are the two useful answers.
+	# A configuration that selects nothing in particular makes them
+	# identical again, which is the common case and is why 'set' is the
+	# default.
+
+	my $cfg = buildConfig();
+	my @ids =
+		$which eq 'all' ? getRegionIds() :
+		$which eq 'set' ? configSelectedIds($cfg) : ($which);
+
 	if (!@ids)
 	{
 		warning(0,0,"build rct: nothing to build");
 		return;
 	}
 
-	# The source you are LOOKING at is the one you build from - display
-	# and build share one cache, so previewing a region is what fills the
-	# cache the build reads.  Falling back to the remembered default keeps
-	# a fresh start working before anything has been selected.
-	#
-	# Once a region carries its own source this becomes the fallback
-	# rather than the answer.
+	if (defined($zmax) && ($zmax !~ /^\d+$/ || $zmax > 22))
+	{
+		warning(0,0,"build rct: '$zmax' is not a zoom level");
+		return;
+	}
 
-	my $src_id = getDefaultSource();
-	my $src    = $src_id ? getSource($src_id) : undef;
-	if (!$src)
+	# THE FALLBACK, not the answer.  A region names the source it is built
+	# from and a subregion may name its own; this is only what a node that
+	# inherits resolves to.  It is the source being DISPLAYED for the same
+	# reason the fill uses it - display and build share one cache.
+
+	my $fallback = getDefaultSource();
+	if (!$fallback)
 	{
 		warning(0,0,"build rct: no active source - try 'source use <id>'");
 		return;
 	}
-	display(0,1,"source '$src_id'");
 
-	# ONE OUTPUT FOLDER PER SET, and it is the folder you copy to the card.
-	# \RASTER\ on the CF card is the CONSUMER's contract - a single outer
-	# folder holding exactly one region set - so the producer side needs
-	# one folder per set for the copy to be a copy rather than a decision.
+	# THE CONSOLE DRIVES THE SAME ACT THE MENU DOES, with no dialog and no
+	# thread.  Everything that decides anything is in dm_build, so "run it
+	# from the console to see what really happened" stays true rather than
+	# being a second implementation that can disagree.
+	#
+	# --dirty and --failed are the overrides, spelled out rather than
+	# offered as buttons, because on this surface there is nobody to ask.
 
-	if (!-d rasterDir())
-	{
-		warning(0,0,"build rct: ".rasterDir()." does not exist");
-		return;
-	}
-	my $out_dir = rasterDir()."/$set";
-	if (!-d $out_dir && !mkdir($out_dir))
-	{
-		error("build rct: could not create $out_dir: $!");
-		return;
-	}
+	my $report = buildRct(\@ids,{
+		fallback     => $fallback,
+		config       => $cfg,
+		out_dir      => $cfg->{out_dir},
+		allow_dirty  => $allow_dirty,
+		allow_failed => $allow_failed,
+		defined $zmax ? ( zmax => int($zmax) ) : (),
+	});
 
-	# ALL RCTs ON ONE CARD MUST AGREE on zauthor and zmin - the firmware
-	# holds both on the chartset, not per file.  A disagreement is the one
-	# authoring error the format cannot absorb: whichever file is finer
-	# than the chosen outline level contributes no outline at all and its
-	# imagery is drawn but permanently invisible.
+	display(0,0,$_) for @{buildReportLines($report)};
 
-	my (%zauthor,%zmin);
-	for my $id (@ids)
-	{
-		my $reg = getRegion($id) or next;
-		push @{$zauthor{$reg->{zauthor}}},$id;
-		push @{$zmin{$reg->{zmin}}},$id;
-	}
-	for my $pair ([\%zauthor,'zauthor'],[\%zmin,'zmin'])
-	{
-		my ($h,$name) = @$pair;
-		next if scalar(keys %$h) <= 1;
-		error("build rct: the regions disagree on $name, and every file on ".
-			"one card must carry the same value:");
-		display(0,1,"$name $_ : ".join(', ',@{$h->{$_}})) for sort keys %$h;
-		return;
-	}
-
-	display(0,0,"build rct -> $out_dir".(defined $zmax ? "   cap zmax=$zmax" : ''));
-	my $total = 0;
-	my $short = 0;
-
-	for my $id (@ids)
-	{
-		my $reg = getRegion($id);
-		if (!$reg)
-		{
-			warning(0,0,"build rct: no region with id '$id'");
-			next;
-		}
-		my $name = rctCardName($reg->{id});
-		if (!$name)
-		{
-			error("build rct: '$reg->{id}' is not a usable 8.3 stem");
-			next;
-		}
-
-		my $st = writeRct($reg,$src,"$out_dir/$name",
-			{ defined $zmax ? (zmax => int($zmax)) : () });
-		next if !$st;
-
-		$total += $st->{tiles};
-		$short += $st->{absent};
-		display(0,1,sprintf("%-12s z%d-%-2d %7d tiles %5d absent %2d blk %8.1f MB",
-			$st->{name},$st->{zoom_min},$st->{zoom_max},
-			$st->{tiles},$st->{absent},$st->{blocks},$st->{size}/1048576));
-	}
-
-	display(0,1,sprintf("%-12s %19d tiles %5d absent",'TOTAL',$total,$short));
-	warning(0,1,"$short tile(s) were not in the cache and are ABSENT from the ".
-		"card - the plotter will overzoom a coarser tile there") if $short;
+	$cmd_failed = 1 if !$report->{ok};
 }
 
 
@@ -1320,6 +1481,14 @@ sub dispatchCommand
 	elsif ($lpart eq 'fetch')
 	{
 		_fetchCommand($rpart);
+	}
+	elsif ($lpart eq 'config')
+	{
+		_configCommand($rpart);
+	}
+	elsif ($lpart eq 'analyse' || $lpart eq 'analyze')
+	{
+		_analyseCommand($rpart);
 	}
 	elsif ($lpart eq 'build')
 	{

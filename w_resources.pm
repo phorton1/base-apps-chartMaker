@@ -62,10 +62,26 @@ my @view_menu = (
 	$COMMAND_PREFS );
 
 
+# BUILD IS ITS OWN MENU, with Fetch above it.
+#
+# The two are one act and two acts at once.  Build fetches everything it
+# needs, so Fetch is never REQUIRED -- but it is the half that takes the
+# hour, and being able to run it on its own is what lets an author fill a
+# region overnight and build in a minute the next morning.  Fetch alone
+# also refuses nothing, because it writes no card: a source that cannot
+# carry to an RCT can still legitimately have its tiles fetched.
+
+my @build_menu = (
+	$COMMAND_FETCH,
+	$ID_SEPARATOR,
+	$COMMAND_BUILD_RCT );
+
+
 my @main_menu = (
 	'file_menu,&File',
 	'edit_menu,&Edit',
-	'view_menu,&View' );
+	'view_menu,&View',
+	'build_menu,&Build' );
 
 
 my $command_data = {
@@ -81,6 +97,8 @@ my $command_data = {
 	$COMMAND_SET_CLOSE	=> ['Close',		'Close the open set'],
 	$COMMAND_NEW_REGION	=> ['New Region...','Create a region in the open set'],
 	$COMMAND_PREFS		=> ['Preferences...','Folders, the map, and what a new region starts with'],
+	$COMMAND_FETCH		=> ['Fetch Tiles',	'Fill the cache with every tile the build will read'],
+	$COMMAND_BUILD_RCT	=> ['Build RCT Card','Fetch, then write the set as .rct card files'],
 };
 
 
@@ -91,6 +109,7 @@ $resources = { %$resources,
 	file_menu		=> \@file_menu,
 	edit_menu		=> \@edit_menu,
 	view_menu		=> \@view_menu,
+	build_menu		=> \@build_menu,
 };
 
 

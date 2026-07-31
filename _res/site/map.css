@@ -204,12 +204,44 @@ html, body {
     cursor: move;
 }
 
+/* A MIDPOINT IS A DOT, AND THE DOT IS NOT THE HIT TARGET.
+
+   It was a 7px circle at 35% opacity with a hairline border, and it was
+   genuinely hard to find - a translucent grey ring over aerial imagery
+   disappears into whatever is under it, so the edge had to be hunted for
+   rather than seen.  Solid white reads at a glance against water, land
+   and cloud alike.
+
+   The div is 11px and transparent; the visible dot is 7px and drawn by
+   ::after.  So the grab area is the same size as a vertex while the mark
+   stays clearly smaller than one - which is the distinction being drawn,
+   since a vertex is a thing that exists and a midpoint is only an offer
+   to create one.  Making the div itself bigger would have been the
+   obvious move and is wrong: it would overlap the vertices at each end of
+   a short edge and start stealing presses from them, and dragging a
+   vertex is much the commoner act. */
+
 .cm-mid {
-    background: rgba(255, 255, 255, 0.35);
-    border: 1px solid #1c1c1c;
-    border-radius: 50%;
-    box-sizing: border-box;
+    background: none;
+    border: none;
     cursor: crosshair;
+}
+
+.cm-mid::after {
+    content: '';
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: 7px;
+    height: 7px;
+    margin: -3.5px 0 0 -3.5px;
+    background: #fff;
+    border-radius: 50%;
+
+    /* Not an outline - a soft shadow, which is what keeps a white dot
+       from vanishing over surf, cloud or sand without putting a hard ring
+       back around it. */
+    box-shadow: 0 0 2px rgba(0, 0, 0, 0.85);
 }
 
 /* The bar.  One bar, contents per mode. */

@@ -26,11 +26,20 @@ use Pub::WX::AppConfig;
 use cm_defs;
 use cm_state;
 use cm_utils;
+use cm_config;
 use dm_set;
+use dm_source;
 use dm_region;
+use dm_fill;
+use dm_analysis;
+use dm_build;
 use w_resources;
 use w_ini;
 use w_prefs;
+use w_progress;
+use w_report;
+use w_buildcfg;
+use w_preflight;
 use winRegions;
 use winSources;
 use base qw(Pub::WX::Frame);
@@ -63,6 +72,8 @@ sub new
 	EVT_MENU($this, $COMMAND_SET_CLOSE,   \&onCommand);
 	EVT_MENU($this, $COMMAND_NEW_REGION,  \&onCommand);
 	EVT_MENU($this, $COMMAND_PREFS,       \&onCommand);
+	EVT_MENU($this, $COMMAND_FETCH,       \&onCommand);
+	EVT_MENU($this, $COMMAND_BUILD_RCT,   \&onCommand);
 
 	# A MENU ITEM ANSWERS FOR ITSELF rather than being switched on and off
 	# by whatever last changed the state.  There is no list of places that
@@ -74,6 +85,8 @@ sub new
 	EVT_UPDATE_UI($this, $COMMAND_SET_REVERT, \&onUpdateUI);
 	EVT_UPDATE_UI($this, $COMMAND_SET_CLOSE,  \&onUpdateUI);
 	EVT_UPDATE_UI($this, $COMMAND_NEW_REGION, \&onUpdateUI);
+	EVT_UPDATE_UI($this, $COMMAND_FETCH,      \&onUpdateUI);
+	EVT_UPDATE_UI($this, $COMMAND_BUILD_RCT,  \&onUpdateUI);
 
 	$this->{shown_title} = '';
 	$this->{title_timer} = Wx::Timer->new($this,-1);
@@ -312,6 +325,131 @@ sub _askName
 }
 
 
+#---------------------------------------------
+# the long acts
+#---------------------------------------------
+# FETCH AND BUILD ARE THE SAME MACHINERY, and building it twice is how the
+# two end up behaving differently.  One worker launcher, one dialog, one
+# report; the two entry points differ only in which function the worker
+# calls and what the report says.
+#
+# THE WORKER IS A DETACHED THREAD carrying a shared record, which is the
+# pattern Pub::Ray::NET::f_CFWRITE already uses from navMate's GUI.  It is
+# spawned from the main thread AFTER wx exists, unlike the server and
+# console threads which are spawned before it -- that is the one thing
+# here without a precedent inside this application, and f_CFWRITE is the
+# precedent outside it.
+#
+# NOTHING WX CROSSES INTO THE WORKER.  It is handed a shared hash and the
+# ids to work on, and it touches the model, the cache and the filesystem
+# and nothing else.  Everything it wants to say comes back as text in the
+# record -- see cm_utils::newProgress on why the report is rendered on the
+# worker rather than shipped back as a structure.
+
+sub _buildWorker
+	# Runs on the worker thread.  Everything it can say has to fit in the
+	# shared record, so it says it the same way the console does.
+{
+	my ($prog,$ids,$opts) = @_;
+
+	my $report = buildRct($ids,{ %$opts, progress => $prog });
+
+	$prog->{ok}    = $report->{ok} ? 1 : 0;
+	$prog->{guard} = $report->{guard} // '';
+	push @{$prog->{lines}},@{buildReportLines($report)};
+
+	# LAST, AND ON ITS OWN.  The dialog stops the moment it sees this, so
+	# anything written after it might never be read.
+
+	$prog->{finished} = 1;
+}
+
+
+sub _fetchWorker
+{
+	my ($prog,$ids,$opts) = @_;
+
+	my $stats = fillCoverage($ids,{ %$opts, progress => $prog });
+
+	# FETCH REFUSES NOTHING, because it writes no card.  A tile that never
+	# arrived is worth reporting and is not a failure of this act -- the
+	# whole point of a separate Fetch is to chip away at a big region over
+	# several sessions, and errors are never cached, so running it again
+	# is the retry.
+
+	my @lines;
+	push @lines,$stats->{cancelled} ?
+		"Stopped." : "Finished.";
+	push @lines,'';
+	push @lines,sprintf("  %-22s %d",'tiles walked',$stats->{tiles});
+	push @lines,sprintf("  %-22s %d",'fetched',$stats->{tiles} - $stats->{cached});
+	push @lines,sprintf("  %-22s %d",'already cached',$stats->{cached});
+	push @lines,sprintf("  %-22s %d",'absent at the source',$stats->{absent} || 0);
+	push @lines,sprintf("  %-22s %d",'failed',$stats->{error} || 0);
+	push @lines,sprintf("  %-22s %.0fs",'took',$stats->{secs});
+
+	if ($stats->{aborted})
+	{
+		push @lines,'';
+		push @lines,"GAVE UP - the source stopped answering.";
+		push @lines,"Nothing was cached as missing, so fixing the source";
+		push @lines,"and running this again resumes where it stopped.";
+	}
+	elsif ($stats->{error})
+	{
+		push @lines,'';
+		push @lines,"$stats->{error} tile(s) never arrived.  Errors are never";
+		push @lines,"cached, so running this again retries exactly those.";
+
+		# A COUNT FIRST, NEVER A COMPUTED SLICE.  @list[0..9] on a list of
+		# three yields three values and seven undefs, and the list is
+		# short exactly when something has gone wrong - so the naive
+		# version fails only in the case it exists to serve.
+
+		my @failed = @{$stats->{failed_tiles} || []};
+		my $show = @failed > 10 ? 10 : scalar(@failed);
+		if ($show)
+		{
+			push @lines,'';
+			push @lines,@failed[0..$show-1];
+			push @lines,"... and ".($stats->{error} - $show)." more"
+				if $stats->{error} > $show;
+		}
+	}
+
+	$prog->{ok} = ($stats->{aborted} || $stats->{error}) ? 0 : 1;
+	push @{$prog->{lines}},@lines;
+	$prog->{finished} = 1;
+}
+
+
+sub runLongAct
+	# Launch one, watch it, and show what it did.  Returns nothing; the
+	# report is the outcome.
+{
+	my ($this,$what,$fn,$ids,$opts) = @_;
+
+	my $prog = newProgress(scalar(@$ids),'');
+	$prog->{active} = 1;
+	$prog->{phase}  = 'Starting';
+
+	threads->create($fn,$prog,$ids,$opts)->detach();
+
+	my $dlg = w_progress->new($this,$what,$prog);
+	$dlg->run();
+
+	# THE WORKER MAY STILL BE FINISHING.  run() returns when {finished} is
+	# set, so by here it is done -- but a cancel returns as soon as the
+	# worker acknowledges, and it sets {finished} last, so this is not a
+	# race: there is nothing to wait for that has not already happened.
+
+	my $outcome = $prog->{cancelled} && !$prog->{ok} ? 'cancelled' :
+				  $prog->{ok} ? 'built' : 'refused';
+
+	w_report->show($this,$outcome,[ @{$prog->{lines}} ]);
+}
+
+
 sub onCommand
 {
 	my ($this,$event) = @_;
@@ -404,6 +542,138 @@ sub onCommand
 		my $pane = $this->findPane($WIN_REGIONS);
 		$pane->newRegionDialog() if $pane;
 	}
+	elsif ($id == $COMMAND_FETCH || $id == $COMMAND_BUILD_RCT)
+	{
+		$this->onLongAct($id);
+	}
+}
+
+
+sub onLongAct
+	# THE TWO-DIALOG PREFLIGHT.
+	#
+	#	1  what and where   - w_buildcfg, persisted on OK
+	#	2  what it costs    - w_preflight, and the only place anything is
+	#	                      confirmed
+	#	   the work
+	#
+	# NOTHING IS ASKED AFTER THE WORK STARTS.  Every question a user could
+	# be asked - unsaved edits, overwriting cards, a chartset that would
+	# disagree with itself - is answered before the first request goes out,
+	# because a confirmation dialog at the end of a three hour fetch is one
+	# nobody is sitting there to answer.
+	#
+	# Back returns to dialog one with the selection already persisted, so
+	# the loop costs nothing and loses nothing.
+{
+	my ($this,$id) = @_;
+	my $is_build = ($id == $COMMAND_BUILD_RCT);
+	my $what = $is_build ? 'build' : 'fetch';
+
+	if (!getRegionIds())
+	{
+		Wx::MessageBox("There is nothing in '".openSetName()."' to $what.",
+			$$resources{app_title},wxOK | wxICON_INFORMATION,$this);
+		return;
+	}
+
+	my $fallback = getDefaultSource();
+	if (!$fallback)
+	{
+		Wx::MessageBox("No source is selected.\n\n".
+			"Choose one in the Sources window first - it is what a region ".
+			"that inherits its source resolves to.",
+			$$resources{app_title},wxOK | wxICON_EXCLAMATION,$this);
+		return;
+	}
+
+	# THE DIRTY QUESTION COMES FIRST, before anything is configured or
+	# analysed: saving changes the model, and an analysis of the old one
+	# would be stale before it was read.  On this surface there IS somebody
+	# to ask, so it asks - dm_build still enforces it either way.
+
+	my $allow_dirty = 0;
+	if ($is_build && isSetDirty())
+	{
+		my $dlg = Wx::MessageDialog->new($this,
+			"'".openSetName()."' has unsaved changes.\n\n".
+			"A card built from edits that are not on disk cannot be rebuilt ".
+			"from the set that is supposed to define it.\n\n".
+			"Save it first?",
+			$$resources{app_title},wxYES_NO | wxCANCEL | wxICON_EXCLAMATION);
+		my $answer = $dlg->ShowModal();
+		$dlg->Destroy();
+
+		return if $answer == wxID_CANCEL;
+		if ($answer == wxID_YES)
+		{
+			return if !$this->saveDocument();
+		}
+		else
+		{
+			$allow_dirty = 1;
+		}
+	}
+
+	while (1)
+	{
+		my $cfg_dlg = w_buildcfg->new($this,$what);
+		my $rslt = $cfg_dlg->ShowModal();
+		my $chosen = $cfg_dlg->result();
+		$cfg_dlg->Destroy();
+		return if $rslt != wxID_OK || !$chosen;
+
+		my $cfg = $chosen->{cfg};
+		my $ids = $chosen->{ids};
+
+		# TWO DIFFERENT THINGS, and conflating them was a real bug.
+		#
+		#   $out_dir  the RESOLVED path - for showing, and for surveying
+		#             what is already in it
+		#   $cfg->{out_dir}  the CHOICE - empty means "the default"
+		#
+		# Only the choice may go to dm_build.  It distinguishes a default
+		# folder, which it creates as needed, from a nominated one, which
+		# must already exist - so handing it the resolved default made
+		# every default-folder build refuse the first time, on the one
+		# path a user is most likely to take.
+
+		my $out_dir = $is_build ?
+			($cfg->{out_dir} || defaultOutDir()) : '';
+
+		# THE ANALYSIS IS A PURE READ and takes about a tenth of a second,
+		# so it happens between the two dialogs with nothing to look at in
+		# between.  A busy cursor rather than a progress bar: anything that
+		# needs a progress bar to report its own progress does not belong
+		# in front of a dialog.
+
+		my $busy = Wx::BusyCursor->new();
+		my $an = analyseFetch($ids,{
+			fallback => $fallback,
+			config   => $cfg,
+			$is_build ? ( out_dir => $out_dir ) : (),
+		});
+		undef $busy;
+
+		my $pre = w_preflight->new($this,$what,$an,$out_dir);
+		my $go = $pre->ShowModal();
+		$pre->Destroy();
+
+		next   if $go == wxID_BACKWARD;
+		return if $go != wxID_OK;
+
+		my $opts = {
+			fallback => $fallback,
+			config   => $cfg,
+			allow_dirty => $allow_dirty,
+			$is_build ? ( out_dir => $cfg->{out_dir} ) : (),
+		};
+
+		return $this->runLongAct(
+			$is_build ? 'Building RCT Card' : 'Fetching Tiles',
+			$is_build ? \&_buildWorker : \&_fetchWorker,
+			$ids,$opts);
+	}
 }
 
 
@@ -428,6 +698,16 @@ sub onUpdateUI
 		# either of them to do.
 
 		$event->Enable(setIsOpen() && isSetDirty() ? 1 : 0);
+		return;
+	}
+	if ($id == $COMMAND_FETCH || $id == $COMMAND_BUILD_RCT)
+	{
+		# A set with regions in it, and a source for the ones that inherit.
+		# Both acts read the cache through a source, so neither has
+		# anything to do without one.
+
+		$event->Enable(setIsOpen() && getRegionIds() && getDefaultSource()
+			? 1 : 0);
 		return;
 	}
 	$event->Enable(setIsOpen() ? 1 : 0);

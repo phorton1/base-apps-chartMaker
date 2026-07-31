@@ -37,6 +37,8 @@ BEGIN
 		$COMMAND_SET_NEW
 		$COMMAND_NEW_REGION
 		$COMMAND_PREFS
+		$COMMAND_BUILD_RCT
+		$COMMAND_FETCH
 	);
 }
 
@@ -121,6 +123,15 @@ our $COMMAND_NEW_REGION	= 10031;
 # it changes is part of the document.
 
 our $COMMAND_PREFS		= 10032;
+
+# BUILD IS ITS OWN MENU.  It is not a View (it changes nothing on screen)
+# and not a File operation on the document (it reads the document and
+# writes something else entirely) -- it is the thing the application
+# exists to do, and burying it under one of the others would say
+# otherwise.
+
+our $COMMAND_BUILD_RCT	= 10041;
+our $COMMAND_FETCH		= 10042;
 
 
 1;

@@ -30,7 +30,12 @@ let workLayer  = L.layerGroup();
 let drawLine   = null;
 
 const VTX_ICON = L.divIcon({ className: 'cm-vtx', iconSize: [11,11], iconAnchor: [5,5] });
-const MID_ICON = L.divIcon({ className: 'cm-mid', iconSize: [7,7],   iconAnchor: [3,3] });
+
+// THE MIDPOINT'S BOX IS THE GRAB AREA, NOT THE MARK.  The div is vertex
+// sized and transparent; map.css draws a 7px dot in the middle of it.  So
+// it is easier to hit than it looks and still reads as smaller than a
+// vertex, which is the point - a vertex exists, a midpoint is an offer.
+const MID_ICON = L.divIcon({ className: 'cm-mid', iconSize: [11,11], iconAnchor: [5,5] });
 
 const WORK_STYLE = { color: '#ffffff', weight: 2, dashArray: '4,3', fill: false };
 const BAD_STYLE  = { color: '#ff3b30', weight: 2, fill: false };
@@ -978,8 +983,13 @@ function redrawWork() {
     });
 
     const ring = working[target.poly] || [];
+    // VERTICES SIT ABOVE MIDPOINTS.  On a short edge the two are close
+    // enough that their boxes touch, and a press in the overlap has to go
+    // to the vertex: moving one is far commoner than inserting one, and
+    // an insert that should have been a move is a nuisance to undo.
     ring.forEach((p, i) => {
-        const m = L.marker([p[1], p[0]], { icon: VTX_ICON, draggable: true });
+        const m = L.marker([p[1], p[0]],
+            { icon: VTX_ICON, draggable: true, zIndexOffset: 1000 });
         m.on('drag',    e => moveVertex(i, e.target.getLatLng(), false));
         m.on('dragend', e => moveVertex(i, e.target.getLatLng(), true));
         m.on('contextmenu', e => { L.DomEvent.stop(e); deleteVertex(i); });

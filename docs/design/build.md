@@ -15,9 +15,124 @@ folders: **[Home](../readme.md)** --
 **Design** --
 **[Implementation](../implementation.md)**
 
-*This document is partially written. The tile proxy, the cache and the preview modes are
-settled and described below. The queue, resume and the exporter seam are not yet
-specified.*
+*The build act, its guards, the proxy, the cache and the preview modes are settled and
+described below. The fetch engine and the exporter seam are not yet specified.*
+
+## Nothing starts without a preflight
+
+A menu item that silently begins a multi-hour process is the wrong shape, and so is a
+confirmation dialog at the *end* of one - by then nobody is sitting there to answer it. So
+both Fetch and Build go through two dialogs, and **every question a user could be asked is
+asked before the first request goes out.**
+
+**One - what, and where.** A checkbox list of the set's regions, and for a build, the output
+folder. It is the *build configuration*, and it persists: `region_sets/<set>/build.json`.
+
+**Two - what it will cost.** Tiles to fetch, already cached, and recorded absences, grouped
+by source; the estimated time; the size of the card; which cards will be replaced; which
+cards are in that folder and are *not* part of this build; and whether the chartset would
+disagree with itself. Then Build, Back, or Cancel.
+
+**The configuration is not hidden state, and that is the point of it.** Before it, "what am I
+working on" lived only in the user's head and was re-decided at every invocation. Single
+region work - which is the typical case, not the exception - becomes "the configuration
+selects Bocas", and Build just runs.
+
+**It is written on OK from the first dialog**, not on Start from the second. The analysis is
+a read *of* the configuration, so persisting later would mean analysing something that
+exists nowhere and shuttling unsaved state between two windows. The consequence is
+deliberate: backing out of the analysis keeps the selection. You still meant to select those
+regions; you just did not like what it was going to cost.
+
+**There is no file until somebody configures something.** Absence means defaults, the same
+rule the preferences file follows - a statement of what was *changed* rather than a snapshot
+of everything. A set handed to somebody else carries no configuration unless its author made
+choices, and if it does, they can accept it or clear it with one button.
+
+It lives in the set folder, which is safe because the loader scans for `.region` and derives
+dirtiness from the `.region` leaves present. The configuration is invisible to both -
+**editing it cannot mark the set dirty**, which it must not, or changing the output folder
+would demand a save before a build could run, and the build refuses to run dirty.
+
+**What is deliberately not in it:** `zmax`, and anything else that changes what a build puts
+on a card beyond *which regions*. Two people with the same region set must be able to get
+the same card.
+
+## The output folder is a suggestion
+
+`<RASTER_DIR>/<set>` is where a build goes unless told otherwise, and it can be told
+otherwise. That is what makes a trial build possible - somewhere other than the folder you
+copy to the card - and it softens rebuilding, because the thing you are overwriting is a
+choice rather than a fixed destination.
+
+**The default is created as needed; a chosen one must already exist.** That asymmetry is the
+application's standing rule - it creates only the folders it chose the location of - and it
+is not pedantry: a nominated path that is not there is far more likely to be a typo, an
+unmounted drive, or a configuration copied from another machine than an instruction to build
+a tree somewhere unexpected, and building it would look like success while hiding the real
+problem. The folder browser's own *Make New Folder* is what creates one, as a user action.
+
+## The build is one act in three phases
+
+```
+    VALIDATE   fast, before anything expensive       ->  may refuse
+    FILL       ask for every tile in coverage        ->  builds the LEDGER
+    ---------  the refusal point  --------------------
+    EXPORT     one .rct per region, temp + rename    ->  short
+```
+
+**The order is the point.** Everything that can refuse a build refuses before the long
+phase, except the one thing that cannot be known until the long phase has run - whether any
+tile failed. A build that dies four regions in on something knowable at the start has
+already spent the expensive part.
+
+**Fetching is part of building, and that is what makes the refusal honest.** The fill walks
+the same enumerator the exporter walks and asks for every tile in it, cache first. So a tile
+still missing at export time was never merely un-asked-for: it was asked for and the request
+failed. Tiles left by browsing make a build *faster* and are never what makes it *correct* -
+a build does not depend on anybody having looked at the region first.
+
+Filling the cache remains available on its own, because it is the half that takes the hour:
+an author can fill a region overnight and build in a minute the next morning. Running it
+alone refuses nothing, since it writes no card.
+
+## Present, absent, and failed
+
+The cache answers three ways, and the difference exists only for as long as the build holds
+it:
+
+| cache says             | means                                | on the card        | the build |
+| ---------------------- | ------------------------------------ | ------------------ | --------- |
+| bytes                  | the tile                             | written            | fine      |
+| a recorded absence     | the source **asserted** it has none  | miss bit, overzoom | reports   |
+| nothing at all         | the fetch never succeeded            | miss bit, overzoom | refuses   |
+
+**On the card the last two are indistinguishable.** Both set the miss bit, both make the
+plotter magnify an ancestor, both look soft rather than broken. One of them is the truth
+about the ground and is correct to ship; the other is a hole that should not be there. The
+card can never tell them apart - the build can, and only at the moment the tile passes
+through it.
+
+So an asserted absence is **information, not a warning**. It is the normal edge of a
+source's coverage, retrying will never change it, and calling it a warning teaches the user
+to ignore warnings.
+
+**The exporter does not decide any of this.** It still copies cached bytes without
+inspecting them and still fetches nothing; it only counts the two kinds of missing
+separately. The refusal lives in the build, which holds the ledger, because the format
+tolerates a hole *because it must* and that tolerance is not a quality standard.
+
+## What a refusal costs
+
+Nothing, and that is deliberate. A build that refuses has written no card at all - not a
+partial one, not an earlier region's. Every `.rct` is written to a temporary name and
+renamed only on success, so a cancel, a crash or a full disk cannot leave a file that looks
+like a card and is a fragment. A cancelled or refused build leaves the folder exactly as it
+found it.
+
+Both refusals that a user might legitimately disagree with - unsaved edits, and tiles that
+never arrived - have an explicit override. They are the same act with a flag, not a second
+code path, so what the override ships is exactly what was refused.
 
 ## Everything goes through the proxy
 
@@ -173,10 +288,21 @@ coverage; it fetches what is on the screen at the zoom being viewed.
 
 ## What the build validates before it runs
 
-Two checks belong to the build rather than to a region, because neither is a property any
-single region can hold.
+Six checks, all at the start, all named - because a build that fails hours in has already
+wasted the expensive part. They belong to the build rather than to a region because none of
+them is a property any single region can hold.
 
-**Every region in one output folder must agree on `zauthor` and `zmin`.** This is
+**The source checks apply per resolved source across the whole region tree**, not once per
+region. A subregion may legitimately name a different source than its parent - that is the
+whole point of the field being on both - so a check that ran per region would happily pass a
+region whose detail box is built from something the card cannot carry.
+
+**The model must be on disk.** A card built from unsaved edits cannot be rebuilt from the
+set that is supposed to define it, and the entire claim of a region set is that it *is* the
+recipe. On a surface with somebody to ask, this is a question with an obvious answer and is
+asked rather than refused; on the console it refuses and names the flag.
+
+**Every region in one output folder should agree on `zauthor` and `zmin`.** This is
 structural, not stylistic: the E-Series firmware holds those two on the chartset - it fuses
 every `.RCT` on a card into one pyramid and indexes it as `zdir[z - zmin]` - so they are
 properties of the *set*. Each file carries the set's values redundantly, which is exactly
@@ -186,9 +312,20 @@ the consumer check agreement instead of trusting a declaration.
 The failure it prevents is the one the format cannot absorb. The reveal aperture is cut at
 the coarsest `zauthor` on the card; if that level is finer than some file's `zmin`, that
 file has no tiles at the outline level, contributes no outline, and its imagery sits on the
-card fully built and permanently invisible. So the build reports which region disagrees and
-with what, rather than producing a card that is silently wrong. Given the convention it will
-almost never fire.
+card fully built and permanently invisible.
+
+**It warns, and does not refuse.** Trying a new `zauthor` on one region before converting a
+whole chartset is a legitimate thing to want, and a hard refusal makes it impossible. So the
+preflight says so prominently and the author decides - which is the position this
+application already takes about imagery depth, for the same reason.
+
+**And it asks the folder, not only the build.** "Every file on one card" is a statement about
+a *folder*, and a folder can hold cards built at other times, from other sets, or from a
+region since renamed. So the check reads the `zauthor` and `zmin` out of the `.rct` headers
+already there - 24 bytes each - as well as from the regions about to be written. That is the
+case a check across the build alone cannot see: building one region at a new `zauthor` into a
+folder of older cards, where the regions being built agree perfectly because there is only
+one of them.
 
 `zmax` is genuinely per-region and must not be forced to match.
 
@@ -210,6 +347,17 @@ So the build refuses, naming the source and its format, rather than writing that
 The check survives format conversion arriving later - it becomes the place a format that
 still cannot be carried is refused, instead of the place every non-JPEG is refused.
 
+**And the declaration is checked against the evidence.** A source may declare JPEG and serve
+PNG, which the first check cannot catch. The cache already records the format *detected from
+the bytes* when a tile was fetched, so the exporter compares that per tile for the price of a
+string comparison. This is not the image inspection this application refuses: it reads a
+fact the cache established, decodes nothing, and no image ever enters the process.
+
+**A source that may not build at all.** `uses` is the author's statement of what a source is
+for, and it was consulted where a source is *chosen* and never where one is *used*. A set
+carried from another machine can therefore name a display-only basemap, which would fail at
+the only moment it mattered.
+
 ## Block decomposition is a budget, not an optimisation
 
 The [RCT](rct.md) exporter groups each zoom's tiles into rectangular coverage blocks, and
@@ -228,18 +376,110 @@ So the rule is **few, large blocks**, and a deep-detail area is one block rather
 several. The disk cost of an empty cell is eight bytes; the cost of an exhausted rectangle
 budget is the aperture ceasing to mean anything.
 
+## Progress, and where the build runs
+
+The build runs on a **worker thread**, watched by a dialog on the main one, and the only
+thing that crosses between them is a shared record. The worker writes the counters and reads
+a cancel flag; the dialog reads the counters and writes the cancel flag. Nothing else, in
+either direction - no wx call is ever made from the worker and no model call from the
+dialog. It is the same rule that made an observer unnecessary elsewhere: a callback firing
+on another thread must not touch a widget, so nothing calls back and the dialog asks.
+
+**Two bars, because the wait has two shapes.** The outer is regions - a number the user chose
+and can predict. The inner is tiles within one region, which is thousands and is where the
+hour actually goes. One bar for the whole build would sit at twenty percent for a quarter of
+an hour and tell nobody whether anything was still happening.
+
+**A cancel sets a flag and waits.** The worker notices within one request, finishes the tile
+in hand and unwinds; killing it outright would leave a half-written card and a cache
+mid-write. Nothing is poisoned by stopping, because an error is never cached - so running it
+again resumes.
+
+**The result comes back as text.** A report is a nest of hashes that cannot cross a thread
+boundary as a reference, and shipping a copy back would be a second representation free to
+drift from the first. So the worker renders it with the same function the console prints,
+and both surfaces read the one rendering. A build ends in one of three ways - built, refused,
+cancelled - and the report says which before it says anything else, because the detail of a
+refusal and the detail of a success look alike at a glance and only one of them means there
+is a card.
+
+## What a run will cost, before committing to it
+
+The preflight has to answer "how many tiles, and how long" fast enough to simply appear. The
+obvious implementation asks the cache about each tile the way a fetch would - up to three
+`stat` calls each. The one that works reads each `(source, zoom)` cache **directory** once
+and intersects in memory. Measured against the real five-region Panama set, 25,500 tiles
+over a 36,000 file cache:
+
+```
+    probing each tile        2.213s cold    2.185s warm
+    reading each directory   0.127s cold    0.126s warm
+```
+
+Seventeen times, and the naive version is no faster warm because it is syscall bound rather
+than disk bound - it would not improve on a faster drive either. A single region indexes in
+about 0.12s. **The cost scales with the cache, not with the region**: it is proportional to
+how many files sit in the directories touched.
+
+**Everything is grouped by source**, and that is structural rather than presentational. A set
+may use several - a subregion may name its own - and each has its own cache directory, its
+own declared rate and its own achieved speed. A blended number could not be computed
+correctly, and would not say which source is the long pole even if it could.
+
+**The size estimate samples rather than weighs.** Totalling the bytes in a source's cache
+costs 36,000 more syscalls - measured at 3.5s, thirty times the analysis it was decorating.
+Twenty tiles per zoom is ample for a figure quoted to one decimal place in megabytes, and
+per *zoom* because an ocean tile at z10 and a detail tile at z18 differ by an order of
+magnitude.
+
+**Time is the honest problem.** A source that declares an interval needs no measurement - its
+floor is arithmetic, exact whether or not this machine has ever spoken to it. A source that
+declares none is round-trip time and nothing else, unknowable until observed. So the fill
+records what each source actually managed, in milliseconds per tile that really went out,
+smoothed across runs and kept per machine in `$temp_dir`. Until there is such a record,
+**the preflight shows the count and offers no time at all**, because an estimate wrong by a
+factor of three is worse than none: it gets planned around.
+
+## Rate limiting the user can raise
+
+A TSD states facts about somebody else's server, and sources are read-only in the
+application. How fast you personally want to go tonight is a fact about you - you may have
+all night, and prefer slow and sure to fast and likely to fail. So the build configuration
+carries an advisory interval, and the effective floor is:
+
+```
+    max(the source's declared min_interval_ms, the user's advisory)
+```
+
+**`max()`, never a replacement.** That one operator is the whole of what keeps a
+user-settable rate from becoming a way to violate a source's declared policy: an advisory can
+only ever make you slower.
+
+The table is **derived, not authored**. It holds one row per source the set actually uses -
+a list the build already computes for its guards - and the user types only the number beside
+each row. Change a region's source and a row appears at the default; there is nothing to keep
+in sync, and no way to configure a source the set does not use. For a set built entirely
+from one source, it is one row.
+
 ## Still to specify
 
 - **The queue** - concurrency, interval limiting, retry policy, and the failure
   classification that distinguishes a rate limit from a missing tile from a dead source.
+  The fill is serial: it honours the interval a source declares and ignores the concurrency
+  it declares, which is most of an order of magnitude of wall clock on new ground. What
+  makes this a design conversation rather than a change to a loop is that concurrency turns
+  pacing into a scheduler, and telling a rate limit from a dead source stops being optional
+  the moment several requests are in flight at once. **Backing off on failure belongs here
+  too, and composes in one direction only**: it may move below the user's advisory baseline,
+  never above it, or a fast advisory would let the system accelerate back into the wall it
+  just hit.
 - **Resume** - a run of thousands of tiles that is interrupted must continue rather than
   restart. The cache makes this nearly free; what is missing is the specification of what a
   run records about itself.
 - **The exporter seam** - what an output format has to implement. The boundary is settled
   (the coverage enumerator plus the cache, with [mbtiles](mbtiles.md) and
-  [RCT](rct.md) as peers over it); what an exporter has to provide is not.
-- **Progress reporting** - the build is long-running and reports into the application
-  without blocking it.
+  [RCT](rct.md) as peers over it); what an exporter has to provide is not. RCT is still the
+  only exporter, so there is nothing yet for the seam to be abstract against.
 - **Format conversion at the exporter seam** - decoding and re-encoding one tile, which is
   an encoder and not the image-processing stack this application refuses: no resampling, no
   reprojection, no compositing. It carries a quality preference, and that preference is a

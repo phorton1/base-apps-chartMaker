@@ -41,9 +41,31 @@ openSet(getActiveSet());
 my $src = getSource('esri_world_imagery') or die "no esri source\n";
 my $reg = getRegion('Bocas') or die "no Bocas\n";
 
+# The exporter takes the tree's RESOLVED source map, not a source -- one
+# block is one node, so a subregion may be built from its own source.  The
+# build does the resolving and validating; here esri is simply the answer
+# for every node, which is what Bocas actually says.
+
+my $ids  = regionSourceMap($reg,'esri_world_imagery');
+my $srcs = { map { $_ => getSource($ids->{$_}) } keys %$ids };
+
+# WHAT THE MODEL SAYS THIS CARD SHOULD BE.  Derived, never hardcoded:
+# Bocas is Patrick's own region and he authors it - subregions appear, zmax
+# moves, and a test asserting "9931 tiles, z10-18" then fails on a change
+# that is not a defect.  What must hold is that the CARD MATCHES THE
+# MODEL, at whatever the model currently says.
+
+my ($want_cov) = regionCoverageNodes($reg,{});
+my $want_tiles = coverageTotal($want_cov);
+my @want_zooms = sort { $a <=> $b } keys %$want_cov;
+my ($want_zmin,$want_zmax) = ($want_zooms[0],$want_zooms[-1]);
+
+printf("model: %s  z%d-%d  %d tiles  zauthor %d\n",
+	$reg->{id},$want_zmin,$want_zmax,$want_tiles,$reg->{zauthor});
+
 print "=== build ===\n";
 my $path = "$OUT/".rctCardName($reg->{id});
-my $st = writeRct($reg,$src,$path);
+my $st = writeRct($reg,$srcs,$path);
 ok(defined($st),"writeRct returned stats");
 exit(1) if !$st;
 
@@ -52,7 +74,14 @@ printf("  %s  z%d-%d  %d tiles  %d absent  %d blocks  %.1f MB\n",
 	$st->{tiles},$st->{absent},$st->{blocks},$st->{size}/1048576);
 
 ok($st->{absent} == 0,"nothing was absent - the cache had every tile ($st->{absent})");
-ok($st->{tiles} == 9931,"9931 tiles, matching the coverage count (got $st->{tiles})");
+ok($st->{failed} == 0,"nothing FAILED - no tile was merely not on disk ($st->{failed})");
+ok($st->{tiles} == $want_tiles,
+	"the card carries every tile the model covers ($st->{tiles} of $want_tiles)");
+
+# The card is written through a temp file and renamed, so no .tmp may
+# survive a build that succeeded.
+
+ok(!-e "$path.tmp","the temp file was renamed away, not left behind");
 
 # ---- read it back as bytes, knowing nothing about how it was made
 
@@ -69,15 +98,39 @@ ok($magic eq 'RCT1',"magic 'RCT1'");
 ok($ver == 1,"format_version 1");
 ok($hbytes == 128,"header_bytes 128");
 ok($tsize == 256,"tile_size_px 256");
-ok($zauthor == 15,"zoom_author 15 - the region's zauthor (got $zauthor)");
-ok($zmin == 10 && $zmax == 18,"zoom_min 10, zoom_max 18 (got $zmin,$zmax)");
+ok($zauthor == $reg->{zauthor},
+	"zoom_author is the region's zauthor ($zauthor)");
+ok($zmin == $want_zmin && $zmax == $want_zmax,
+	"the zoom range matches the model (z$zmin-$zmax)");
 ok($proj == 3857,"projection 3857");
 ok($r1 == 0 && $r2 == 0 && $flags == 0,"reserved and flags are zero");
 
-my $code = substr($raw,0x38,8);
-ok($code eq "\0" x 8,"0x38 is 8 reserved zero bytes - no coded region field");
+my ($aoff,$alen) = unpack('V V',substr($raw,0x38,8));
 my $rname = unpack('Z48',substr($raw,0x40,48));
 ok($rname eq 'Bocas del Toro',"region_name is '$rname'");
+
+print "\n=== attribution blob ===\n";
+
+# 0x38/0x3C USED TO BE RESERVED-ZERO and now locate the credit text.  That
+# is deliberately not a version bump: a card written before the field
+# existed reads as 0/0, which is exactly "no attribution".
+
+ok($aoff > 0 && $alen > 0,"attrib_offset/length are set ($aoff, $alen)");
+ok($aoff + $alen == length($raw),
+	"the blob is LAST in the file - offset+length is exactly the file size");
+
+my $attrib = substr($raw,$aoff,$alen);
+ok($attrib !~ /[^\x20-\x7E\n]/,
+	"every byte is 7-bit ASCII 0x20-0x7E or LF");
+ok($attrib !~ /\r/ && $attrib !~ /\0/ && $attrib !~ /\t/,
+	"no CR, no NUL, no tabs");
+ok(substr($attrib,-1) ne "\0","it is not NUL terminated");
+ok($attrib =~ /Esri/,"and it credits the source it was built from");
+print "  [$attrib]\n";
+
+# The blob must not have disturbed anything that points into the file.
+
+ok($aoff > 128,"it starts past the header, after the tile data");
 
 print "\n=== zoom directory ===\n";
 my $nz = $zmax - $zmin + 1;
@@ -87,11 +140,23 @@ for my $i (0..$nz-1)
 	my ($z,undef,$cnt,$boff) = unpack('C a3 V V',substr($raw,128 + $i*32,12));
 	push @zdir,{ z => $z, count => $cnt, off => $boff };
 }
-ok(scalar(@zdir) == 9,"9 entries for z10-18");
-ok((join(',',map { $_->{z} } @zdir) eq join(',',10..18)),
+ok(scalar(@zdir) == $want_zmax - $want_zmin + 1,
+	"one zoom directory entry per level (".scalar(@zdir).")");
+ok((join(',',map { $_->{z} } @zdir) eq join(',',$want_zmin..$want_zmax)),
 	"contiguous and ascending: ".join(',',map { $_->{z} } @zdir));
-ok((join(',',map { $_->{count} } @zdir) eq '1,1,1,1,1,1,1,1,1'),
-	"one block per zoom: ".join(',',map { $_->{count} } @zdir));
+
+# NOT "one block per zoom" any more, and that was never the invariant.  A
+# zoom carries one block PER NODE that reaches it, so a region with detail
+# areas has several at the deep levels - which is the format working as
+# designed.  What must hold is that every level has at least one and that
+# they add up to what the exporter reported.
+
+my $blk_total = 0;
+$blk_total += $_->{count} for @zdir;
+ok(!scalar(grep { !$_->{count} } @zdir),
+	"every level has at least one block: ".join(',',map { $_->{count} } @zdir));
+ok($blk_total == $st->{blocks},
+	"the zoom directory accounts for every block the exporter wrote ($blk_total)");
 
 print "\n=== blocks, index and bitmap ===\n";
 my $present = 0;
@@ -142,7 +207,8 @@ ok($mismatch == 0,"the presence bitmap agrees with the dense index everywhere ".
 	"($mismatch disagreement(s)) - bit 1 = ABSENT");
 ok($bad_off == 0,"every present tile's offset+length lands inside the file");
 ok($bad_jpg == 0,"every present tile starts with the JPEG SOI marker");
-ok($present == 9931,"9931 present cells (got $present)");
+ok($present == $want_tiles,
+	"every covered tile is present in the file ($present of $want_tiles)");
 printf("  present %d   absent-in-rectangle %d   fill %.1f%%\n",
 	$present,$absent,100*$present/($present+$absent));
 
