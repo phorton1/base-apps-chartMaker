@@ -3,8 +3,8 @@
 **[Design](readme.md)** --
 **[Regions](regions.md)** --
 **[Editing](editing.md)** --
-**[Map Editing](editing_leaflet.md)** --
-**[Tree Editing](editing_wx.md)** --
+**[Map Editing](editing_map.md)** --
+**[Tree Editing](editing_tree.md)** --
 **[TSD](tsd.md)** --
 **Build** --
 **[MBTiles](mbtiles.md)** --
@@ -13,10 +13,12 @@
 folders: **[Home](../readme.md)** --
 **[Architecture](../architecture.md)** --
 **Design** --
-**[Implementation](../implementation.md)**
+**[Implementation](../implementation.md)** --
+**[Deployment](../deployment.md)**
 
-*The build act, its guards, the proxy, the cache and the preview modes are settled and
-described below. The fetch engine and the exporter seam are not yet specified.*
+A build turns a coverage model into files. This document is the act itself - what is asked
+before it starts, what it refuses, the proxy and cache every tile passes through, and how
+preview answers the same question the build will.
 
 ## Nothing starts without a preflight
 
@@ -196,7 +198,7 @@ nothing is ever fetched which was not displayed; the cache simply remembers what
 ## The cache
 
 The layout, its keying by source, and why the source dimension is not optional are
-specified in [Implementation](../implementation.md#temp_dir---everything-regenerable).
+specified in [Deployment](../deployment.md#the-tile-cache-is-not-temporary).
 
 Two rules belong here rather than there:
 
@@ -256,8 +258,9 @@ from its parent's and not from whatever the map happens to be displaying. Fillin
 displayed source would fill entries the build will never read, which is the same invisible
 hole by a different route.
 
-This is not the queue. It is serial, it has no concurrency and no retry policy, and it
-honours only the interval a source declares. The engine specified below replaces it.
+**The fill is serial.** It asks for one tile at a time and honours the interval a source
+declares. A source's declared concurrency is not consulted, so filling new ground is bounded
+by round-trip time rather than by anybody's rate limit.
 
 ## Editor and preview are one component in two modes
 
@@ -491,56 +494,6 @@ a list the build already computes for its guards - and the user types only the n
 each row. Change a region's source and a row appears at the default; there is nothing to keep
 in sync, and no way to configure a source the set does not use. For a set built entirely
 from one source, it is one row.
-
-## Still to specify
-
-- **The queue** - concurrency, interval limiting, retry policy, and the failure
-  classification that distinguishes a rate limit from a missing tile from a dead source.
-  The fill is serial: it honours the interval a source declares and ignores the concurrency
-  it declares, which is most of an order of magnitude of wall clock on new ground. What
-  makes this a design conversation rather than a change to a loop is that concurrency turns
-  pacing into a scheduler, and telling a rate limit from a dead source stops being optional
-  the moment several requests are in flight at once. **Backing off on failure belongs here
-  too, and composes in one direction only**: it may move below the user's advisory baseline,
-  never above it, or a fast advisory would let the system accelerate back into the wall it
-  just hit.
-- **Resume** - a run of thousands of tiles that is interrupted must continue rather than
-  restart. The cache makes this nearly free; what is missing is the specification of what a
-  run records about itself.
-- **Format conversion at the exporter seam** - decoding and re-encoding one tile, which is
-  an encoder and not the image-processing stack this application refuses: no resampling, no
-  reprojection, no compositing. It carries a quality preference, and that preference is a
-  legitimate user-level setting precisely because it changes the bytes without changing what
-  the card asserts - the same ground, the same zooms, the same source. Anything that changed
-  *those* would belong to the region, not to a preference.
-- **Build analysis, and the dry run that produces it.** A build already reads every tile it
-  will write, so the facts worth knowing are free at the moment they pass through. Three of
-  them are known to be worth collecting: repeated byte-identical tiles, which is how a
-  server that serves a "no data here" placeholder instead of a 404 confesses (Esri does this;
-  its grey tile is one fixed image); the depth at which a level stops carrying information
-  its parent did not already have; and the resulting deepest genuinely-resolved zoom, per
-  region rather than per source, because it is a fact about ground and not about a server.
-
-  The output is feedback rather than a decision: it tells the author which zooms are worth
-  building, and the author sets `zmax`. What it must also be able to do is act on its own
-  findings against the cache - pruning levels that carry nothing, so that disk is not held
-  by tiles that will never be written to a card.
-
-  Overzoom is worth stating plainly, because it is easy to read as a defect and is also a
-  choice: magnified imagery is not *wrong*, it is the provider's resampling instead of the
-  plotter's, and one may legitimately prefer it. What must not happen is shipping it
-  unknowingly, at four times the tiles per level, on a card whose space is the binding
-  constraint.
-- **Source probing** - what a TSD can be *measured* for rather than asserted to be:
-  reachability, the format actually served, real depth as against declared `zoom.max`, the
-  fingerprints of any placeholder tile, and whether the addressing order is right. The last
-  is testable rather than eyeballed - correlating one low-zoom tile against a source already
-  trusted collapses if rows and columns are transposed. Deliberately excluded: probing for
-  where a server begins refusing, which is the behaviour that earns a permanent refusal.
-- **Build notes in the card.** The RCT format can carry a record of how a card was made -
-  source, zoom range, encoding, date. chartMaker is upstream of both the specification and
-  the renderer, so this is a decision available to be taken rather than a constraint to work
-  within.
 
 ---
 

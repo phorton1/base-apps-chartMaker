@@ -3,8 +3,8 @@
 **[Design](readme.md)** --
 **Regions** --
 **[Editing](editing.md)** --
-**[Map Editing](editing_leaflet.md)** --
-**[Tree Editing](editing_wx.md)** --
+**[Map Editing](editing_map.md)** --
+**[Tree Editing](editing_tree.md)** --
 **[TSD](tsd.md)** --
 **[Build](build.md)** --
 **[MBTiles](mbtiles.md)** --
@@ -13,7 +13,8 @@
 folders: **[Home](../readme.md)** --
 **[Architecture](../architecture.md)** --
 **Design** --
-**[Implementation](../implementation.md)**
+**[Implementation](../implementation.md)** --
+**[Deployment](../deployment.md)**
 
 The coverage model is the product, and this is the coverage model on disk. It is a small
 format on purpose: it has to survive being refined for years, handed to a stranger, and
@@ -42,8 +43,8 @@ author's document rather than a set of exchangeable pieces.
     zauthor:          15
     zmin:             10
     zmax:             16
-    source:           esri_world_imagery
-    source_name:      Esri - ArcGIS World Imagery
+    source:           gibs_weld_annual
+    source_name:      NASA GIBS - Landsat WELD True Colour (global annual)
     geometry:         [ <polygon>, <polygon>, ... ]
     subregions:
       - id:           Popa00
@@ -104,7 +105,7 @@ special is needed to say it.
 ### The id is structural
 
 **The id carries load and the name does not.** The id is the file name, the key every
-[set](#sets) references, and the stem of the exported [card file](rct.md). It is therefore
+[set](#sets-are-folders) references, and the stem of the exported [card file](rct.md). It is therefore
 restricted to `[A-Za-z0-9]` - no spaces, nothing that would have to be escaped somewhere,
 and the somewhere is never all the places.
 
@@ -185,11 +186,11 @@ the chartset rather than per file; only `zmax` varies freely. That does *not* ma
 belong somewhere else - it makes them a **check at build time**, which given the convention
 will almost never fire. See [Build](build.md).
 
-**There is no target.** The region definition *is* the specification of what to build. An
-earlier design put `zmax` and the output settings on a separate named target object; that
-was one more persistent thing to manage, in exchange for nothing. A build cap prunes
-arithmetically instead - a detail area whose band is entirely above the cap contributes
-nothing, with no special case anywhere:
+**There is no target object.** The region definition *is* the specification of what to build.
+Holding `zmax` and the output settings on a separate named thing would be one more persistent
+object to manage, in exchange for nothing a cap cannot do: a build cap prunes arithmetically,
+so a detail area whose band is entirely above the cap contributes nothing, with no special
+case anywhere:
 
 ```
     build Bocas            z10-16, plus Popa00's z17-18
@@ -283,7 +284,7 @@ It also produces a property worth stating out loud: **build deep once, export sh
 often as you like.** The tiles are already in the cache, so the small card costs no
 additional fetching at all.
 
-Targets themselves are specified in [Build](build.md).
+Where the cap is set, and what else a build is configured with, is in [Build](build.md).
 
 ## Containment, overlap and the invariant they buy
 
@@ -494,7 +495,7 @@ the map, and then to a world view. No location is hardcoded anywhere in the appl
 Exactly one region or subregion is selected at a time, or none, and the selection is shared
 by both authoring surfaces rather than owned by either. What a click selects where polygons
 nest, and how a parent covered by its child is reached, belong to the editing interfaces -
-see [Editing](editing.md) and [Map Editing](editing_leaflet.md).
+see [Editing](editing.md) and [Map Editing](editing_map.md).
 
 Set management starts and ends with **File Explorer**: a set is a folder, so renaming,
 deleting and copying one are things the operating system already does well. The application
@@ -503,4 +504,4 @@ only if using Explorer for it turns out to hurt.
 
 ---
 
-**Next:** [TSD](tsd.md)
+**Next:** [Editing](editing.md)

@@ -4,7 +4,7 @@
 **[Regions](regions.md)** --
 **[Editing](editing.md)** --
 **Map Editing** --
-**[Tree Editing](editing_wx.md)** --
+**[Tree Editing](editing_tree.md)** --
 **[TSD](tsd.md)** --
 **[Build](build.md)** --
 **[MBTiles](mbtiles.md)** --
@@ -13,7 +13,8 @@
 folders: **[Home](../readme.md)** --
 **[Architecture](../architecture.md)** --
 **Design** --
-**[Implementation](../implementation.md)**
+**[Implementation](../implementation.md)** --
+**[Deployment](../deployment.md)**
 
 [Editing](editing.md) states the rules both authoring surfaces obey. This document is one
 of those surfaces: the Leaflet applet, where geometry is drawn and where anything with a
@@ -22,35 +23,22 @@ position is reached by pointing at it.
 ## The screen
 
 Nothing below is modal until you ask for it. With nothing being edited the map is a chart
-you can pan, with three pieces of furniture:
-
-```
-+--------------------------------------------------------------------+
-|  [+]                                     set        Scratch        |
-|  [-]                                        size    215 MB         |
-|  [x] grid       z15                      region     Bocas          |
-|  [x] autozoom                               z15     1,800   15 MB  |
-|  [ ] footprint  [16]                        z16     7,200   62 MB  |
-|                                             total   9,967   84 MB  |
-|          ~~~ imagery ~~~                 subregion  Popa00         |
-|              Bocas          (yellow)        z17        49  400 KB  |
-|                 Popa00      (cyan, inside it, WHITE when selected) |
-|              . . . . . .    (grid dots, when snap is on)           |
-|                                                                    |
-|  zoom 12  9.3312N 82.2411W                                         |
-+--------------------------------------------------------------------+
-```
+you can pan, with three pieces of furniture.
 
 **EVERYTHING YOU SET IS ON THE LEFT; EVERYTHING THE MAP REPORTS IS ON THE RIGHT.** A
 control that also answers a question has to be read in one place and operated in another,
 and the two get in each other's way - the grid's checkbox was wanted mid-edit while its
 level was wanted at a glance, and one badge could not be both.
 
-- **left, under Leaflet's own zoom buttons** - the palette: a checkbox, a label, and a
-  value that is text on one row and a control on another. The whole row is the switch.
-- **top right** - the info panel: the set, what is selected, its zooms, and what it would
-  cost by level. Nothing there is operable.
-- **bottom left** - `#cm-coords`, the zoom and cursor position.
+- **left, under Leaflet's own zoom buttons** - the palette, one row each for the grid,
+  autozoom and the footprint: a checkbox, a label, and a value that is text on one row and a
+  control on another. The whole row is the switch.
+- **top right** - the info panel: the set and its total, then the selected region and the
+  selected subregion, each naming its levels with a tile count and a size against every one.
+  Nothing there is operable.
+- **bottom left** - the map zoom and the cursor position.
+
+Regions draw yellow and subregions cyan, and whichever is selected draws white over both.
 
 The palette is a Leaflet control at `topleft` rather than a box positioned by hand, so it
 stacks under the zoom buttons by itself at any window size.
@@ -70,39 +58,23 @@ covered by its child is still reachable.
 The menu titles itself with what it is about to act on, because being one polygon off is
 otherwise silent and destructive:
 
-```
-  open water              on Bocas                  on Popa00
-  ------------------      ---------------------     ---------------------------
-  Create Region...        Bocas                     Popa00  (sub of Bocas)
-                          ---------------------     ---------------------------
-                          Edit Polygon              Edit Polygon
-                          Add Polygon               Add Polygon
-                          Add Subregion...          Add Subregion...
-                          Properties...             Properties...
-                          ---------------------     ---------------------------
-                          Delete Polygon            Delete Polygon
-                          Delete Region...          Delete Subregion...
-```
+Over open water it offers **Create Region** and nothing else. Over an object it names that
+object at the top - a subregion also naming the parent it belongs to - and then offers two
+groups: **Edit Polygon**, **Add Polygon**, **Add Subregion** and **Properties**, then
+**Delete Polygon** and **Delete** for the object itself.
 
-The two menus on the right are **identical in structure**, because a region and a subregion
-are the same object at different depths. A subregion can hold a subregion; the model nests
-without limit and so does this menu.
+The menu over a region and the menu over a subregion are **identical in structure**, because
+a region and a subregion are the same object at different depths. A subregion can hold a
+subregion; the model nests without limit and so does this menu.
 
 ## Dialogs
 
 **Create Region...** and **Add Subregion...** open a small panel over the map, near where
 the click landed. They are the only dialogs in the applet.
 
-```
-    +-----------------------------------------------+     +---------------------------+
-    |  New region                                   |     |  New subregion of Bocas   |
-    |  name    [ Bocas East           ]             |     |  name  [ Popa anchorage ] |
-    |  id      [ BocasEast  ]  ok                   |     |  id    [ Popa00    ]  ok  |
-    |  zauthor [ 15 ] zmin [ 10 ] zmax [ 16 ]       |     |  zmax  [ 18 ]  band z17-18|
-    |          agrees with this set                 |     |                           |
-    |                          [ Cancel ] [ Draw ]  |     |    [ Cancel ] [ Draw ]    |
-    +-----------------------------------------------+     +---------------------------+
-```
+A new region asks for a name, an id, and all three of `zauthor`, `zmin` and `zmax`. A new
+subregion asks for a name, an id and `zmax` alone, because those are the fields it has - see
+[Regions](regions.md). Each ends in Cancel and **Draw**.
 
 Both say something as you type that the model would otherwise only tell you later:
 
@@ -121,12 +93,8 @@ where the object goes, which is why creating from the map never needs a second g
 
 ## Drawing
 
-```
-+--------------------------------------------------------------------+
-|  drawing BocasEast - 3 vertices placed                             |
-|                            [ Undo vertex ]  [ Close ]  [ Cancel ]  |
-+--------------------------------------------------------------------+
-```
+A bar across the top of the map names the object being drawn and counts the vertices placed
+so far, and carries **Undo vertex**, **Close** and **Cancel**.
 
 Each click places a vertex. **Close** finishes the ring and is dead below three vertices,
 because fewer is not a polygon; double-click and Enter do the same thing and are dead under
@@ -144,14 +112,8 @@ before drawing is worth the two seconds it costs.
 The parent's outline is emphasised for the duration, and it is a **wall**: a click outside it
 places nothing. The vertex is refused rather than moved to the boundary - relocating it would
 silently override where the pointer was, which is the one thing this applet is careful never
-to do - and the banner says why:
-
-```
-+--------------------------------------------------------------------+
-|  drawing Popa00 - outside Bocas, not placed                        |
-|                            [ Undo vertex ]  [ Close ]  [ Cancel ]  |
-+--------------------------------------------------------------------+
-```
+to do. The drawing bar says so as it happens, naming the parent the click fell outside of, so
+a refused vertex is never a click that simply did nothing.
 
 Ground outside the parent is not a subregion; it is another polygon on the parent, or another
 region. Both are a right-click away. See [Editing](editing.md).
@@ -160,13 +122,9 @@ The same wall applies to dragging a vertex of an existing subregion in the editi
 
 ## Editing a polygon
 
-```
-+--------------------------------------------------------------------+
-|  Bocas - drag a vertex, drag a midpoint to insert,                 |
-|  right-click a vertex to delete                                    |
-|                        [ Delete Polygon ]  [ Confirm ]  [ Cancel ] |
-+--------------------------------------------------------------------+
-```
+The same bar names the object under the hand and states the three gestures - drag a vertex,
+drag a midpoint to insert one, right-click a vertex to delete one - and carries **Delete
+Polygon**, **Confirm** and **Cancel**.
 
 Handles follow the navMate idiom: a solid square on every vertex, a smaller hollow one at
 every segment midpoint. Dragging a midpoint inserts a vertex there. **Nothing moves the
@@ -374,4 +332,4 @@ made to accommodate them.
 
 ---
 
-**Next:** [TSD](tsd.md)
+**Next:** [Tree Editing](editing_tree.md)

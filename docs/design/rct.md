@@ -3,8 +3,8 @@
 **[Design](readme.md)** --
 **[Regions](regions.md)** --
 **[Editing](editing.md)** --
-**[Map Editing](editing_leaflet.md)** --
-**[Tree Editing](editing_wx.md)** --
+**[Map Editing](editing_map.md)** --
+**[Tree Editing](editing_tree.md)** --
 **[TSD](tsd.md)** --
 **[Build](build.md)** --
 **[MBTiles](mbtiles.md)** --
@@ -13,7 +13,8 @@
 folders: **[Home](../readme.md)** --
 **[Architecture](../architecture.md)** --
 **Design** --
-**[Implementation](../implementation.md)**
+**[Implementation](../implementation.md)** --
+**[Deployment](../deployment.md)**
 
 **`.RCT` is exporter number one.** The aerial photo overlay in the custom E-Series firmware
 built by [navMate](https://github.com/phorton1/base-apps-navMate/blob/master/docs/readme.md)
@@ -160,15 +161,21 @@ the symbols are spelled out (`(c)`, `(r)`, `(tm)`) and accented letters fall bac
 base forms. A credit line is the one piece of text on a card somebody may have a legal
 interest in being legible.
 
-## Still to specify
+## JPEG only
 
-- **JPEG only** - and therefore what happens when a source returns a PNG. Today the build
-  refuses rather than transcoding, naming the source and its format, because a card full of
-  bytes the plotter cannot decode reports success and is blank on the water. The transcode,
-  when it arrives, is the exporter's and not the cache's: the cache stores what the source
-  sent.
-- **Why the card is smaller than the model** - depth caps are applied at export, so one
-  deeply built region produces cards of several sizes with no additional fetching.
+An `.RCT` carries JPEG, so a source that returns PNG is refused at the start of a build,
+naming the source and its format. A card full of bytes the plotter cannot decode would
+report success and be blank on the water, which is the worst failure this application can
+produce. See [Build](build.md#what-the-build-validates-before-it-runs).
+
+Converting a tile rather than refusing it would belong to **the exporter and not the
+cache** - the cache stores what the source sent, and the format a card needs is a property
+of the card.
+
+## The card is smaller than the model, and costs nothing extra
+
+Depth caps are applied at export, so one deeply built region produces cards of several sizes
+from one set of tiles. Building shallow after building deep fetches nothing at all.
 
 ---
 

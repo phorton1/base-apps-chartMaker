@@ -3,7 +3,8 @@
 **[Home](readme.md)** --
 **Architecture** --
 **[Design](design/readme.md)** --
-**[Implementation](implementation.md)**
+**[Implementation](implementation.md)** --
+**[Deployment](deployment.md)**
 
 ## Primary Statement
 
@@ -174,7 +175,7 @@ One validation rule, and every package chartMaker emits can carry its provenance
 
 **Credentials are slots, never values.** A TSD names the credential a source needs and
 where to obtain one; the actual secret lives in a per-user store outside the file, whose
-location is described in [Implementation](implementation.md). The consequence is that no
+location is described in [Deployment](deployment.md#the-credential-store). The consequence is that no
 key can leak through a shared definition, and no secret ever lands in a file that could be
 committed to a repository or served to a browser.
 
@@ -358,6 +359,9 @@ chartMaker is shipped, documented and tested on **Windows only**. That is a dist
 choice rather than a code limitation: the source is portable Perl and wxPerl. Ports and
 forks are welcome; the shipped surface stays deliberately narrow.
 
+What an installation places, what it leaves behind, and what a release is made of are in
+[Deployment](deployment.md).
+
 ## Code Organization
 
 The repository follows the same layout as the other applications in this family:
@@ -375,36 +379,15 @@ Underscore-prefixed folders at the top level hold **separate executables** and b
 material rather than application modules, keeping them visually and functionally distinct
 from the source itself.
 
-Within the source itself, modules carry a **lexical prefix marking their layer**. The
-prefixes sort in layer order in a file browser or a tab bar, so the listing is the
-architecture:
+Within the source itself, modules carry a **lexical prefix marking their layer** - `cm_`,
+`dm_`, `em_`, `w_` - so the prefixes sort in layer order in a file browser or a tab bar and
+the listing is the architecture. A module may use anything above it and nothing below, and
+everything above the wx layer must load and run with no wx at all. The layers and what that
+rule buys are specified in [Implementation](implementation.md#the-modules-are-layered-and-the-layering-is-a-rule).
 
-| Prefix       | Layer               | Modules (all `.pm`)                                                                     |
-| ------------ | ------------------- | --------------------------------------------------------------------------------------- |
-| `chartMaker` | entry point         | application object, startup, wiring                                                     |
-| `cm_`        | foundational        | `cm_defs`, `cm_utils`, `cm_prefs`, `cm_state`                                           |
-| `dm_`        | data subsystems     | `dm_region`, `dm_source`, `dm_cache`, `dm_coverage`, `dm_fetch`, `dm_mbtiles`, `dm_rct` |
-| `em_`        | active subsystems   | `em_command`, `em_console`, `em_server`                                                 |
-| `w_`         | wx-aware, not panes | `w_resources`, `w_frame`                                                                |
-| `win`        | panes and subpanes  | `winRegions`, `winSources`                                                              |
-
-`chartMaker.pm` breaks the ordering deliberately, as the entry point that sits above every
-layer. Three rules govern the rest:
-
-**No module imports from a layer above it.** The usual rule, and the one that keeps the
-listing honest.
-
-**`cm_` and `dm_` must load without wx.** This is checkable in a single line from a console
-script, and it is what makes the build engine's eventual home a decision rather than a
-fork: a separate executable in an underscore-prefixed folder can use `dm_fetch`, `dm_cache`,
-`dm_region` and `dm_mbtiles` directly, sharing exactly the code the GUI uses - no second
-implementation, no IPC contract to maintain.
-
-**`dm_` holds no control flow of its own.** `dm_fetch` retrieves *one* tile from one source
-and reports bytes or a definite absence; the queue, the rate limiting, the retries and the
-resume all live at `em_` or in that separate executable. The same split puts region
-geometry, source definitions and the output writers below anything that decides *when* to
-act.
+That rule is what makes the build engine's home a decision rather than a fork: a separate
+executable can use the model, the cache and the exporters directly, sharing exactly the code
+the GUI uses - no second implementation, and no IPC contract to maintain.
 
 The `em_` layer has one more property worth stating: **`em_command` sits beneath every
 front door.** The console reads a line, an HTTP client calls the command endpoint, and the

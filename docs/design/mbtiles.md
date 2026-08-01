@@ -3,8 +3,8 @@
 **[Design](readme.md)** --
 **[Regions](regions.md)** --
 **[Editing](editing.md)** --
-**[Map Editing](editing_leaflet.md)** --
-**[Tree Editing](editing_wx.md)** --
+**[Map Editing](editing_map.md)** --
+**[Tree Editing](editing_tree.md)** --
 **[TSD](tsd.md)** --
 **[Build](build.md)** --
 **MBTiles** --
@@ -13,7 +13,8 @@
 folders: **[Home](../readme.md)** --
 **[Architecture](../architecture.md)** --
 **Design** --
-**[Implementation](../implementation.md)**
+**[Implementation](../implementation.md)** --
+**[Deployment](../deployment.md)**
 
 **`.mbtiles` is an output, not a hub.** It is one of the formats chartMaker writes: read
 directly by OpenCPN, well specified, with a large ecosystem behind it. It is not an
@@ -52,8 +53,8 @@ An MBTiles file carries **one `minzoom` and one `maxzoom` for the whole file**, 
 derives the chart's scale from the maximum. There is nowhere in the format to say *this
 depth, over here*.
 
-That is fatal to a per-region file. Bocas covers z10-16 across the whole archipelago and
-reaches z20 inside two boxes of a few hundred metres each. As one file it would announce
+That is what rules out a per-region file. Bocas covers z10-16 across the whole archipelago
+and reaches z20 inside two boxes of a few hundred metres each. As one file it would announce
 itself as a z20 chart over its entire extent, and chart selection would prefer it at scales
 where it holds nothing but magnified z16.
 

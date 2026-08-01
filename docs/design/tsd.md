@@ -3,8 +3,8 @@
 **[Design](readme.md)** --
 **[Regions](regions.md)** --
 **[Editing](editing.md)** --
-**[Map Editing](editing_leaflet.md)** --
-**[Tree Editing](editing_wx.md)** --
+**[Map Editing](editing_map.md)** --
+**[Tree Editing](editing_tree.md)** --
 **TSD** --
 **[Build](build.md)** --
 **[MBTiles](mbtiles.md)** --
@@ -13,7 +13,8 @@
 folders: **[Home](../readme.md)** --
 **[Architecture](../architecture.md)** --
 **Design** --
-**[Implementation](../implementation.md)**
+**[Implementation](../implementation.md)** --
+**[Deployment](../deployment.md)**
 
 A **TSD** (*Tile Source Definition*, extension `.tsd`) describes exactly one imagery
 source. [Architecture](../architecture.md#tile-source-definition-tsd) says why the format
@@ -26,7 +27,7 @@ sent you is a matter of putting the file in the folder.
 
 ```
     tsd_version:      1
-    id:               a stable identifier, referenced by targets
+    id:               a stable identifier, referenced by regions
     name:             what a person calls it
     notes:            free text
     kind:             remote_xyz | local_mbtiles | local_dir | wms
@@ -50,7 +51,7 @@ sent you is a matter of putting the file in the folder.
 | Field             | Notes                                                                      |
 | ----------------- | -------------------------------------------------------------------------- |
 | `tsd_version`     | Format version.                                                            |
-| `id`              | Stable. Targets reference it; renaming the file does not change it.        |
+| `id`              | Stable. Regions reference it; renaming the file does not change it.        |
 | `kind`            | Determines which of the remaining fields apply.                            |
 | `url`             | Template. Substitutes only from the closed placeholder set below.          |
 | `tile_format`     | What the source is expected to return. The actual format is detected.      |
@@ -206,13 +207,10 @@ secret a source needs and where to obtain one:
 ```
 
 The value lives in the credential store, whose location is specified in
-[Implementation](../implementation.md#the-credential-store). Two consequences follow, and
+[Deployment](../deployment.md#the-credential-store). Two consequences follow, and
 both are structural rather than procedural: a TSD is safe to share by construction, and no
 secret can reach the browser, because the browser never contacts a tile server directly.
 See [Build](build.md#everything-goes-through-the-proxy).
-
-**Open: the binding mechanism.** How a declared slot resolves to a stored value - the
-store's format, and what a slot is keyed by - is not yet specified.
 
 ## Authoring and testing a source
 
@@ -244,25 +242,30 @@ layer palette.
 
 A tile coordinate means something different in every source, so the cache carries a source
 dimension and the layout is specified in
-[Implementation](../implementation.md#temp_dir---everything-regenerable). It is keyed by
+[Deployment](../deployment.md#the-tile-cache-is-not-temporary). It is keyed by
 the **leaf name of the `.tsd` file** rather than the `id` inside it, so that a user looking
 at the cache in a file browser sees one folder per source they have used and can delete
 exactly one of them.
 
-## Deferred and settled
+## The schema is the code
 
-**The credential store's format and slot binding are deferred to [Build](build.md).** A
-credential matters when tiles are being fetched systematically; nothing in authoring needs
-one, so specifying it now would be guessing ahead of the code that has to use it.
+**There is no published JSON Schema artefact.** The validation rules in this document are
+the schema, enforced by `dm_source`, and nothing is maintained alongside them that could
+disagree with them.
 
-**There is no published JSON Schema.** The validation rules in this document are the schema,
-enforced in code by `dm_source`, and no external artefact is maintained alongside them.
+## What chartMaker ships
 
-**The shipped sources are settled**: the two NASA GIBS files, with
-`gibs_weld_annual` as the official default - see [`cm_defs`](../implementation.md) for why
-that one and not Blue Marble. The rule they satisfy is that chartMaker ships no source it is
-not entitled to ship; both are US Government works, and their URL templates are verified by
-`test_fetch.pl` rather than assumed.
+Two NASA GIBS sources, with **`gibs_weld_annual` as the official default** - it is the
+imagery a new region is born naming, and the source the tutorial and the demonstrations are
+built on. Both satisfy the rule that chartMaker ships no source it is not entitled to ship:
+both are US Government works, and their URL templates are verified by a test rather than
+assumed.
+
+`gibs_weld_annual` is the default rather than Blue Marble because it reaches **z12** against
+Blue Marble's **z8**, and depth is the whole point of a chartset. Both are far shallower than
+a commercial mosaic, which is the honest shape of the boundary: what ships is a starting
+point that works, not a recommendation and not a limit. It also means a tutorial set has to
+be authored well below the zooms the region editor offers by default.
 
 ---
 

@@ -3,7 +3,7 @@
 **[Design](readme.md)** --
 **[Regions](regions.md)** --
 **[Editing](editing.md)** --
-**[Map Editing](editing_leaflet.md)** --
+**[Map Editing](editing_map.md)** --
 **Tree Editing** --
 **[TSD](tsd.md)** --
 **[Build](build.md)** --
@@ -13,7 +13,8 @@
 folders: **[Home](../readme.md)** --
 **[Architecture](../architecture.md)** --
 **Design** --
-**[Implementation](../implementation.md)**
+**[Implementation](../implementation.md)** --
+**[Deployment](../deployment.md)**
 
 [Editing](editing.md) states the rules both authoring surfaces obey. This document is the
 other surface: the region tree in the wx application, where the whole set is visible at once
@@ -35,23 +36,8 @@ other way round.
 
 ## The pane
 
-```
-+---------------------------------+------------------------------------+
-| Scratch *   5 regions  z10 @15  |  [Save]    Id:   [ Bocas      ]    |
-|                                 |  [Revert]  Name  [ Bocas del Toro ]|
-| [x] Bocas       10-16 @15       |  Zoom      Author:[15] Min:[10]    |
-|     . Popa00        to z18      |                        Max:[16]    |
-| [x] PanCanal    10-16 @15       |  ----------------------------------|
-| [x] PortBelo    10-16 @15       |  name            Bocas del Toro    |
-|     . chichime      to z18      |  id              Bocas             |
-| [x] SanBlas     10-16 @15       |  kind            region            |
-| [ ] SanBlasE    10-16 @15       |  file            Bocas.region      |
-|                                 |  zauthor         15  (the level    |
-|                                 |                  the polygon is    |
-|                                 |                  drawn at)         |
-|                                 |  ...                               |
-+---------------------------------+------------------------------------+
-```
+The pane is a tree on the left and the properties of whatever is selected on the right: the
+editable fields at the top, Save and Revert beside them, and a read-only dump below.
 
 **THE SET IS THE DOCUMENT, NAMED ABOVE THE TREE RATHER THAN INSIDE IT.** A document is not
 one of its own contents, and making it a node made it look like something you could have
@@ -69,45 +55,31 @@ longer exists. Two levels, each naming something on disk:
 
 ## Zooms are columns, not a field you click to see
 
-The numbers are in the row - `10-16 @15` is `zmin`-`zmax` at `zauthor` - in a monospaced
-font so they line up down the column. That is the entire point: a set whose regions disagree
-about `zauthor` cannot be built onto one card, and a disagreement has to be **visible**
-rather than discovered by clicking five regions and remembering what each said.
+Every region's row carries its own `zmin`-`zmax` at `zauthor`, in a monospaced font so the
+numbers line up down the column, and a subregion's row carries the band it adds. That is the
+entire point: a set whose regions disagree about `zauthor` cannot be built onto one card, and
+a disagreement has to be **visible** rather than discovered by clicking five regions and
+remembering what each said.
 
-The title states the answer outright, so nobody has to diff the column by eye:
-
-```
-    Scratch      5 regions   z10 @15
-    Scratch *    5 regions   MIXED zauthor - 4 at z15, 1 at z14
-```
+The title above the tree states the answer outright, so nobody has to diff the column by eye.
+It names the set, the number of regions in it, and either the one `zmin` and `zauthor` they
+all share or that they are **mixed**, with the count at each value.
 
 A mixed set is not an error - it is a perfectly good folder of regions that cannot be built
-as one card yet. The build refuses it and says which region is the odd one out; the tree says
-so earlier.
+as one card yet. The build says which region is the odd one out; the tree says so earlier.
 
 ## An object with no geometry says so
 
-```
-    [x] BocasEast    10-16 @15   (no geometry)
-```
-
-The properties panel says the same thing and points at the map, which is the only place the
-outline can come from. This is a normal state - creating an object and drawing it are two
-steps by design - and it is exactly what the tree is for, because an empty region is
-invisible on the other surface.
+The row says so beside the zooms, and the properties panel says it again and points at the
+map, which is the only place an outline can come from. This is a normal state - creating an
+object and drawing it are two steps by design - and it is exactly what the tree is for,
+because an empty region is invisible on the other surface.
 
 ## Right-click
 
-```
-  on the background          on a region / subregion
-  ------------------------   ---------------------------
-  New region...              New subregion...
-  Open folder in Explorer    ---------------------------
-  Revert all...              Commit 'Bocas'
-                             Revert 'Bocas'...
-                             ---------------------------
-                             Delete region...
-```
+On the background: **New region**, **Open folder in Explorer**, and **Revert all**. On a
+region or a subregion: **New subregion**, then **Commit** and **Revert** naming the region
+they act on, then **Delete**.
 
 **Commit and Revert act on the REGION, whichever node was clicked.** A subregion has no file
 of its own - it is part of the region that holds it - and a menu implying otherwise would be
@@ -204,12 +176,16 @@ a map that has stopped polling is holding nothing, so the edit state it left beh
 cleared rather than left refusing deletes on account of a window that was closed an hour
 ago.
 
-## Deliberately not built
+## One selection, one order
 
-- **Multiple selection.** One object at a time, to begin with. A mixed set is repaired by
-  editing each region's zooms in turn, which is a handful of edits on a fault that should be
-  rare - and the tree now makes it visible rather than letting the build discover it.
-- **Sorting and grouping.** Alphabetical by id, which is what the model already gives.
+**One object is selected at a time**, here as everywhere - the selection is shared with the
+map and neither surface owns it, so a tree that could select several would be making an
+assertion the other surface has no way to render. Repairing a mixed set means editing each
+region's zooms in turn, which is a handful of edits on a fault the tree now makes visible
+before a build ever runs.
+
+**The order is alphabetical by id**, which is what the model already gives and what the
+folder underneath shows.
 
 ---
 

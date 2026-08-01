@@ -3,7 +3,8 @@
 **Home** --
 **[Architecture](architecture.md)** --
 **[Design](design/readme.md)** --
-**[Implementation](implementation.md)**
+**[Implementation](implementation.md)** --
+**[Deployment](deployment.md)**
 
 **chartMaker** is a desktop application for building **offline satellite chartsets** for
 use aboard a boat. You draw the regions you care about on a map, say how much detail each
@@ -51,11 +52,13 @@ bring a source and make a decision or two - but everything after that is meant t
   specifications.
 
 - **[Implementation](implementation.md)** -
-  Where the application keeps its files, the HTTP surface between the browser and the
-  program, and the two executables the installer ships.
+  How the modules are layered and what that layering buys, the HTTP surface between the
+  browser and the program, and the threads it runs.
 
-*The design documents are written to the depth the decisions have been made. Build, mbtiles
-and RCT are outlines at this stage and say so.*
+- **[Deployment](deployment.md)** -
+  The program as an installed artifact: where it keeps the user's material and its own, the
+  two executables, what an uninstall leaves behind, and what a release is made of. The
+  packaging procedure itself is in [Installer](installer.md).
 
 ## Credits
 

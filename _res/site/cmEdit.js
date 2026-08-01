@@ -1,6 +1,6 @@
 // cmEdit.js -- chartMaker region and subregion editing.
 //
-// See docs/design/editing_leaflet.md for the interface this implements and
+// See docs/design/editing_map.md for the interface this implements and
 // docs/design/editing.md for the rules it obeys.
 //
 // Depends on globals from map.js: map, fetchJson, tileLat, and the two

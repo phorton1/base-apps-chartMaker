@@ -3,8 +3,8 @@
 **Design** --
 **[Regions](regions.md)** --
 **[Editing](editing.md)** --
-**[Map Editing](editing_leaflet.md)** --
-**[Tree Editing](editing_wx.md)** --
+**[Map Editing](editing_map.md)** --
+**[Tree Editing](editing_tree.md)** --
 **[TSD](tsd.md)** --
 **[Build](build.md)** --
 **[MBTiles](mbtiles.md)** --
@@ -13,7 +13,8 @@
 folders: **[Home](../readme.md)** --
 **[Architecture](../architecture.md)** --
 **Design** --
-**[Implementation](../implementation.md)**
+**[Implementation](../implementation.md)** --
+**[Deployment](../deployment.md)**
 
 Where [Architecture](../architecture.md) says what chartMaker is and why it is shaped the
 way it is, these documents say how it is actually built - the level at which decisions stop
@@ -21,8 +22,9 @@ being philosophy and start being data structures, file formats and rules a progr
 check.
 
 Two of them describe things a user can hold in their hand and hand to somebody else - a
-**region** and a **source**. Two describe things chartMaker writes - an **mbtiles** file
-and an **RCT card**. The fifth describes what happens in between.
+**region** and a **source**. Two describe things chartMaker writes - an **mbtiles** file and
+an **RCT card**. One describes what happens in between. The remaining three are about
+changing the model: the rules both authoring surfaces obey, and then each surface.
 
 ## The documents
 
@@ -36,28 +38,28 @@ and an **RCT card**. The fifth describes what happens in between.
   what dirty means, when an action is refused, and what the two authoring surfaces must
   agree about.
 
-- **[Map Editing](editing_leaflet.md)** -
+- **[Map Editing](editing_map.md)** -
   The Leaflet applet: right-click menus, drawing and editing bars, the create dialogs, and
   the snap-to-grid that makes a shared boundary exact without anything having to track it.
 
-- **[Tree Editing](editing_wx.md)** -
-  The wx region tree: the three levels that each name something on disk, the zoom columns
+- **[Tree Editing](editing_tree.md)** -
+  The wx region tree: the two levels that each name something on disk, the zoom columns
   that make a set's inconsistency visible, staged properties with Save and Revert, and what
   it does while the map holds an edit.
 
 - **[TSD](tsd.md)** -
   The Tile Source Definition in full: every field, the closed placeholder set, the
-  validation rules, how a credential slot resolves to a stored secret, and how a source is
-  authored, tested and evaluated.
+  validation rules, what credential slots are and are not, and how a source is authored,
+  tested and evaluated.
 
 - **[Build](build.md)** -
-  The tile proxy that every request passes through, the cache and its keying, negative
-  caching, the queue and its rate limiting, how a run resumes rather than restarts, and the
-  seam an exporter has to implement.
+  The build as one act: the two preflight dialogs, what it refuses before it starts, the
+  tile proxy every request passes through, the cache and its keying, and the preview that
+  answers what a card will actually contain.
 
 - **[MBTiles](mbtiles.md)** -
-  The hub format: what chartMaker writes into a standard MBTiles container, and the
-  metadata that carries provenance into everything downstream.
+  An output and not a hub: what chartMaker writes into a standard MBTiles container, why
+  the file is one per node, and the metadata that carries provenance downstream.
 
 - **[RCT](rct.md)** -
   The E-Series card format: what chartMaker guarantees a card, the nested coverage the

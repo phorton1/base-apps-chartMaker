@@ -677,7 +677,7 @@ sub onTreeRightDown
 	# object and leaves the map to offer its Draw banner, because a mode
 	# must never be armed in a window the user is not looking at.
 	#
-	# See docs/design/editing_wx.md.
+	# See docs/design/editing_tree.md.
 {
 	my ($this,$event) = @_;
 	my ($item) = $this->{tree}->HitTest($event->GetPosition());
@@ -1078,7 +1078,7 @@ sub _nodeLabel
 	# disagree about zauthor cannot be built onto one card - and a
 	# disagreement has to be visible at a glance rather than found by
 	# clicking five regions and remembering what each one said.  The tree
-	# is the only surface that can show it; see docs/design/editing_wx.md.
+	# is the only surface that can show it; see docs/design/editing_tree.md.
 {
 	my ($reg,$is_root) = @_;
 

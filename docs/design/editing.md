@@ -3,8 +3,8 @@
 **[Design](readme.md)** --
 **[Regions](regions.md)** --
 **Editing** --
-**[Map Editing](editing_leaflet.md)** --
-**[Tree Editing](editing_wx.md)** --
+**[Map Editing](editing_map.md)** --
+**[Tree Editing](editing_tree.md)** --
 **[TSD](tsd.md)** --
 **[Build](build.md)** --
 **[MBTiles](mbtiles.md)** --
@@ -13,7 +13,8 @@
 folders: **[Home](../readme.md)** --
 **[Architecture](../architecture.md)** --
 **Design** --
-**[Implementation](../implementation.md)**
+**[Implementation](../implementation.md)** --
+**[Deployment](../deployment.md)**
 
 Where [Regions](regions.md) describes what a region **is**, this document describes the
 rules for **changing one** - and it describes them for no particular user interface.
@@ -26,8 +27,8 @@ rather than a matter of taste.
 
 The interfaces themselves are described separately:
 
-- **[Map Editing](editing_leaflet.md)** - the Leaflet applet, where geometry is drawn
-- **[Tree Editing](editing_wx.md)** - the wx region tree, where the whole set is visible
+- **[Map Editing](editing_map.md)** - the Leaflet applet, where geometry is drawn
+- **[Tree Editing](editing_tree.md)** - the wx region tree, where the whole set is visible
 
 ## The one invariant
 
@@ -65,7 +66,7 @@ A mode answers exactly one question: **what does a click on the map do?** There 
 and each carries a **target** - the object it is acting on.
 
 Only the map has modes, because only the map has a pointer over geography. They are here
-rather than in [Map Editing](editing_leaflet.md) because the *tree* has to obey them, and a
+rather than in [Map Editing](editing_map.md) because the *tree* has to obey them, and a
 rule one surface enforces on behalf of another belongs above both.
 
 ```
@@ -170,17 +171,19 @@ that could never be edited as a line again.
 What replaces both is arithmetic: **two vertices snapped to the same grid intersection are
 computed from the same integers, so they are identical to the last bit.** Coincidence is
 exact rather than approximate, which is why nothing needs to detect, record or maintain it.
-See [Map Editing](editing_leaflet.md) for the snapping itself.
+See [Map Editing](editing_map.md) for the snapping itself.
 
-## Gaps are fatal, overlaps are not
+## Gaps and overlaps are not symmetrical
 
-Coverage is a union and never subtracts, so the two failures are not symmetrical:
+Both are the author's to be aware of and to control, and neither breaks anything downstream.
+But coverage is a union and never subtracts, so they are not the same kind of untidiness:
 
-- **A gap** - a strip of tiles that no region claims - is a hole in the chart. On the plotter
-  it is revealed water with nothing painted under it.
+- **A gap** - a strip of tiles that no region claims - is ground the chartset does not carry.
+  On the plotter it shows as revealed water with nothing painted under it, and no amount of
+  care further down can recover imagery that was never built.
 - **An overlap** - a tile claimed by two regions - costs duplicated tiles on the card and
-  means the two regions disagree about how deep that water goes. Wasteful and untidy, never
-  a hole.
+  means the two regions disagree about how deep that water goes. Wasteful and untidy, and
+  every tile is still there.
 
 Because the coverage predicate asks whether a polygon **intersects** a tile, an exactly
 shared boundary can never produce a gap: every tile along it is claimed by both sides. Which
@@ -296,29 +299,38 @@ like - or **a separate region**. Both are one menu item away.
 Refusing the placement rather than moving it matters: relocating a vertex silently overrides
 where the author pointed, which is the one thing snapping is careful never to do.
 
-# Undo is Revert, and nothing more for now
+# Undo is Revert
 
 **Revert** restores the selected object to what is on disk, and that is the whole of undo.
 
-Per-vertex undo *within* a drawing already exists - the drawing bar can drop the last vertex
-placed, because an unfinished ring is the applet's own to unwind. Per-vertex undo within
-SHAPE, stepping backwards through individual drags, is a later feature and needs a history
-that nothing currently keeps. Undo of a *committed* edit is a different feature again and is
-not planned.
+Per-vertex undo *within* a drawing is the one exception, and it is the applet's own: the
+drawing bar drops the last vertex placed, because an unfinished ring belongs to the surface
+holding it and nothing has to be remembered to unwind one.
+
+Stepping backwards through individual drags in SHAPE would need a history that nothing
+keeps, and undoing a *committed* edit is a different thing again - it would mean journalling
+what passes through the command dispatcher, which is the one place every mutation from every
+surface already goes.
 
 # Contested tiles are a build-time analysis
 
 The contested-tile count is **not** a live readout and not a per-seam report. It is computed
 where the other whole-set checks are computed: at build time, beside the check that every
-region on one card agrees on `zauthor` and `zmin`. See [Build](build.md).
+region on one card agrees on `zauthor` and `zmin`.
 
-The two differ in severity, and the difference is worth keeping straight:
+Both are reported and neither stops a build, but they are worth keeping straight:
 
-- **disagreeing `zauthor` or `zmin` is fatal.** The format cannot express it - the firmware
-  holds both on the chartset rather than per file - so the build stops.
-- **contested tiles are wasteful.** Duplicated imagery and two regions disagreeing about
-  depth in the same water, but a perfectly readable card. The build reports the count and
-  continues.
+- **Disagreeing `zauthor` or `zmin` matters only where files fuse.** On an E-Series card
+  every `.RCT` is merged into one pyramid, so those two are properties of the chartset and
+  the odd file out can be built and then never drawn - its imagery present on the card and
+  permanently invisible. Where an output's files are independent charts there is nothing to
+  agree about, and nothing is said.
+- **Contested tiles are wasteful.** Duplicated imagery and two regions disagreeing about
+  depth in the same water, on a perfectly readable card.
+
+Neither is refused, and the reason is the same in both cases: trying a new `zauthor` on one
+region before converting a whole chartset is a legitimate thing to want, and the author is
+the one who can tell an experiment from a mistake. See [Build](build.md).
 
 That placement also means the answer costs nothing until it is worth knowing. Coverage is
 already being enumerated for the whole set at that moment, which is the only time the
@@ -326,4 +338,4 @@ question is cheap to ask.
 
 ---
 
-**Next:** [Map Editing](editing_leaflet.md)
+**Next:** [Map Editing](editing_map.md)
