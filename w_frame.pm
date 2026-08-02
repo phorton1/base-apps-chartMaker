@@ -24,9 +24,11 @@ use Pub::Utils;
 use Pub::WX::Frame;
 use Pub::WX::AppConfig;
 use cm_defs;
+use cm_prefs;
 use cm_state;
 use cm_utils;
 use cm_config;
+use em_server;
 use dm_set;
 use dm_source;
 use dm_region;
@@ -461,6 +463,26 @@ sub onCommand
 
 	if ($id == $COMMAND_OPEN_MAP)
 	{
+		# THE MAP CANNOT OPEN WITHOUT THE SERVER, and saying so here is
+		# what stops a dismissed startup warning from turning into a menu
+		# item that silently does nothing.  A warning nobody can act on is
+		# how a real warning gets trained out of being read.
+
+		if (!em_server::serverOk())
+		{
+			my $port = getPref($PREF_HTTP_PORT);
+			my $dlg = Wx::MessageDialog->new($this,
+				"The map is served by $appName itself, and the http ".
+				"server is not running - port $port could not be opened ".
+				"at startup.\n\n".
+				"The port can be changed in Preferences, and takes effect ".
+				"on the next start.",
+				"No map",
+				wxOK | wxICON_EXCLAMATION);
+			$dlg->ShowModal();
+			$dlg->Destroy();
+			return;
+		}
 		openMapBrowser();
 	}
 	elsif ($id == $COMMAND_PREFS)

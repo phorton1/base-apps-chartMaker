@@ -1,0 +1,5 @@
+# Local material that is deliberately not published.  Survey notes, private
+# TSDs, probe output and anything else kept next to the repo rather than in
+# it.  See private/readme.md.
+
+private/

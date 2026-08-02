@@ -60,7 +60,10 @@ read that**, rather than streaming it into a terminal that will be confused by i
 | `test_source.pl` | TSD loading, validation, rejections, addressing, quadkey, row flip |
 | `test_set.pl` | region sets as folders, per-set ids, the ini selections and how they degrade, checked-is-a-view |
 | `test_edit.pl` | containment, the dispatcher's refusals, the edit state and what it locks |
-| `test_fetch.pl` | a live fetch, the cache, and negative caching |
+| `test_fetch.pl` | a live fetch, the cache, and negative caching. Then `absent_headers` against the stub, with three controls fetching the SAME bytes from the SAME url and differing only in what their TSD declares |
+| `test_observe.pl` | the observation record: the smoothed rate, one file per source, surviving a restart, what a fetch teaches it, that it stays bounded under twenty errors, and that a corrupt record is skipped rather than fatal. Entirely offline |
+| `test_engine.pl` | the fetch engine, with the pacing **timed by the stub server** rather than by the engine's own counters. Composition both ways, a gate that holds across four workers, an unpaced source that still overlaps, each failure class and its one consequence, a 429 that backs off the SOURCE, interactive queueing ahead of a backlog, and every permit and ticket returning to zero |
+| `test_probe.pl` | the metadata probe against the **live** ArcGIS and GIBS endpoints - a fixture would keep passing after the service changed, which is the failure the feature exists to catch - plus the two branches no real service will produce, against the stub |
 | `test_fill.pl` | the cache filler: which source each node resolves to, the zmax cap, an uninstalled source, and the abort. Nearly offline - it plants the cache itself and asserts a 100% hit rate, which is what proves source resolution |
 | `test_preview.pl` | the preview classification: carried at this zoom, the deepest carried ancestor past the built depth, innermost-wins on source, and outside coverage. Entirely offline - it tests the decision, never the drawing |
 | `test_build.pl` | the build act: every guard, that each one refuses **and writes nothing**, that they run before the fetch, the ledger refusal that no abort catches, the two overrides, and per-node sources reaching the exporter. Offline on every path that should succeed |
@@ -72,9 +75,16 @@ read that**, rather than streaming it into a terminal that will be confused by i
 | `tool_app_command.pl` | send one console command to the **running** application and print only that command's output |
 | `tool_rct_inspect.pl` | run the firmware's own arithmetic over a card - the zero-step blocks it would silently skip, and the reveal-mask rectangle count against its budget |
 | `tool_coverage_time.pl` | what coverage costs cold, warm, and after one region is edited |
-| `tool_shot.ps1` | a screenshot of the running window, found by owning process |
+| `tool_shot.ps1` | a screenshot of the running window, found by owning process - and **refusing** rather than guessing when more than one instance is up, since picking wrong means measuring somebody else's process. `-procId` says which |
 | `tool_progress_demo.pl` | the build's progress dialog and report dialog driven by a **fake** worker that just counts - no model, no cache, no network. What can go wrong in that half is wx and threads, and none of it is about tiles |
 | `tool_prune_absent.pl` | convert a source's cached "no data here" tiles into recorded absences |
+| `tool_stub_source.pl` | **a tile server that misbehaves on purpose**, and the only way to reach the failure half of the fetch path - nobody can ask Esri for a 429, a 403, or a body that recovers on the third try. The path IS the instruction, so a fixture is a url template and nothing else, and `/stats` reports arrival times because the engine's own counters cannot testify about the engine |
+| `tool_engine_soak.pl` | thousands of jobs across several sources at once, checking the things that should be INVARIANT rather than true once: every job collected exactly once, every permit returned, no duplicate tickets, nothing in flight at the end. These fail silently in production and never once in a short test |
+| `tool_thread_spike.pl` | what this Perl's threads actually cost and can carry, measured **before** the engine was written because its shape depended on the answers. Spawn cost against a small and a loaded interpreter, whether a binary blob survives a queue, and whether a shared gate really paces |
+| `tool_thread_cost.pl` | **the measurement behind the ceiling of 12** - address space per ithread with the application loaded, in a 32-bit process with 2 GB to spend. The number is a hard constant in `dm_engine` and in `Pub::HTTP::ServerBase`, so it should be reproducible rather than quoted |
+| `tool_fetch_bench.pl` | does concurrency actually buy wall clock against a **real** tile server - the one claim in the engine that was asserted rather than measured, because a stub answers in 2 ms and at 2 ms there is no latency to cover. Its own cache under `C:/_temp`, so the real one is never touched |
+| `tool_hold_port.pl` | occupy the HTTP port and sit on it, to see what a chartMaker started afterwards does. Binds the **wildcard**, because binding `127.0.0.1` does NOT collide with a wildcard bind - both succeed and the only symptom is a browser silently talking to the wrong listener |
+| `tool_backoff_starve.pl` | reproduces a **known unfixed fault**: a worker backing off holds its slot, so a source being rate limited can occupy the whole pool and an interactive tile from a healthy source waits behind it. A tool and not a test precisely because it fails |
 | `_tool_esri_probe.pl` | what resolution Esri actually holds over an area, by `MaxMapLevel` |
 | `_old_test_rct_merc.pl` | the E80 semicircle projection, against the pre-rewrite card |
 | `_old_tool_rct_compare.pl` | old card versus new, by byte region |

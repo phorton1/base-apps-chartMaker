@@ -28,6 +28,20 @@ sub ok
 	$fails++ if !$cond;
 }
 
+sub freshDir
+	# EVERY FIXTURE DIR IS EMPTIED BEFORE IT IS FILLED.  putFile only ever
+	# added, so a fixture that was renamed left the old file behind and
+	# the two then raced on id: the loser is whichever sorts later, which
+	# made a rename look like the new file simply not taking effect.  That
+	# is a test lying about the code, which is worse than no test.
+{
+	my ($dir) = @_;
+	mkdir $dir if !-d $dir;
+	mkdir "$dir/sources" if !-d "$dir/sources";
+	unlink glob("$dir/sources/*.tsd");
+}
+
+
 sub putFile
 {
 	my ($dir,$leaf,$text) = @_;
@@ -97,6 +111,10 @@ my $QUAD = <<'EOJ';
   "absent_fingerprints": [
     { "bytes": 2521, "md5": "F27D9DE7F80C13501F470595E327AA6D" }
   ],
+  "absent_headers": [
+    { "name": "X-VE-Tile-Info", "value": "  no-tile  " }
+  ],
+  "registration": "GCJ-02",
   "uses": ["display","overlay"]
 }
 EOJ
@@ -142,6 +160,22 @@ my %BAD = (
 		"url":"https://e.com/{z}/{x}/{y}.png", "zoom":{"max":10},
 		"uses":["display"], "attribution":"t",
 		"absent_fingerprints":[{"md5":"f27d9de7f80c13501f470595e327aa6d"}] }',
+	'hdr_not_array.tsd' => '{ "tsd_version":1, "id":"n", "name":"N", "kind":"remote_xyz",
+		"url":"https://e.com/{z}/{x}/{y}.png", "zoom":{"max":10},
+		"uses":["display"], "attribution":"t",
+		"absent_headers":{"name":"X-A","value":"b"} }',
+	'hdr_no_value.tsd' => '{ "tsd_version":1, "id":"o", "name":"O", "kind":"remote_xyz",
+		"url":"https://e.com/{z}/{x}/{y}.png", "zoom":{"max":10},
+		"uses":["display"], "attribution":"t",
+		"absent_headers":[{"name":"X-VE-Tile-Info"}] }',
+	'hdr_bad_name.tsd' => '{ "tsd_version":1, "id":"p", "name":"P", "kind":"remote_xyz",
+		"url":"https://e.com/{z}/{x}/{y}.png", "zoom":{"max":10},
+		"uses":["display"], "attribution":"t",
+		"absent_headers":[{"name":"X: Tile Info","value":"no-tile"}] }',
+	'reg_not_a_name.tsd' => '{ "tsd_version":1, "id":"q", "name":"Q", "kind":"remote_xyz",
+		"url":"https://e.com/{z}/{x}/{y}.png", "zoom":{"max":10},
+		"uses":["display"], "attribution":"t",
+		"registration":"shifted by about 500m, mostly north, see the notes" }',
 	'broken.tsd' => '{ this is not json',
 );
 
@@ -152,7 +186,8 @@ my %BAD = (
 
 print "=== valid sources ===\n";
 my $good = "$TMP/tsd_good";
-putFile($good,'gibs.tsd',$GIBS);
+freshDir($good);
+putFile($good,'weld_annual.tsd',$GIBS);
 putFile($good,'tms.tsd',$TMS);
 putFile($good,'quad.tsd',$QUAD);
 
@@ -171,7 +206,13 @@ ok(join(',',getBuildSourceIds()) eq 'gibs_weld_annual',
 
 my $gibs = getSource('gibs_weld_annual');
 ok($gibs,"gibs source found");
-ok($gibs && $gibs->{cache_key} eq 'gibs',"cache_key is the leaf name minus .tsd");
+# The leaf name, NOT the id -- the fixture is written as weld_annual.tsd
+# and its id is gibs_weld_annual, so this only passes if the cache key
+# comes from the file.  test_fetch.pl consumes this same fixture dir and
+# asserts the cache PATH, so the two must agree about the leaf.
+
+ok($gibs && $gibs->{cache_key} eq 'weld_annual',
+	"cache_key is the leaf name minus .tsd");
 ok($gibs && $gibs->{tile_size} == 256,"tile_size defaulted/kept at 256");
 ok($gibs && $gibs->{crs} eq 'EPSG:3857',"crs defaulted to EPSG:3857");
 ok($gibs && $gibs->{redistributable} eq 'yes',"redistributable read");
@@ -189,6 +230,21 @@ ok($q && $q->{absent_fingerprints}[0]{bytes} == 2521,
 	"fingerprint byte length read");
 ok($q && $q->{absent_fingerprints}[0]{md5} eq 'f27d9de7f80c13501f470595e327aa6d',
 	"fingerprint md5 folded to lower case");
+# The same absence said in a header.  Lower cased on the way in so that
+# two files declaring the same header in different cases produce the same
+# structure, and trimmed so a value that was padded in the file still
+# compares equal to what a server actually sends.
+
+ok($q && ref($q->{absent_headers}) eq 'ARRAY' &&
+	scalar(@{$q->{absent_headers}}) == 1,
+	"absent_headers read");
+ok($q && $q->{absent_headers}[0]{name} eq 'x-ve-tile-info',
+	"absent_header name folded to lower case");
+ok($q && $q->{absent_headers}[0]{value} eq 'no-tile',
+	"absent_header value trimmed");
+
+ok($q && $q->{registration} eq 'GCJ-02',"registration read");
+
 ok($q && grep({ $_ eq 'overlay' } @{$q->{uses}}),
 	"'overlay' is a legal use");
 ok(!grep({ $_ eq 'quad_test' } getBuildSourceIds()),
@@ -244,6 +300,7 @@ ok(defined($qurl) && $qurl =~ m{/tile/213\.jpeg$},
 
 print "\n=== rejections (each should report one specific reason) ===\n";
 my $bad = "$TMP/tsd_bad";
+freshDir($bad);
 putFile($bad,$_,$BAD{$_}) for keys %BAD;
 my $b = useDir($bad);
 ok($b == 0,"no invalid source loaded (got $b)");
@@ -255,6 +312,7 @@ ok($b == 0,"no invalid source loaded (got $b)");
 
 print "\n=== duplicate id ===\n";
 my $dup = "$TMP/tsd_dup";
+freshDir($dup);
 putFile($dup,'aaa.tsd',$QUAD);
 putFile($dup,'zzz.tsd',$QUAD);
 my $d = useDir($dup);

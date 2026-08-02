@@ -60,6 +60,9 @@ BEGIN
 		$PREF_MAP_BROWSER
 		$PREF_MAP_MAX_ZOOM
 
+		$PREF_MAX_CONCURRENT
+		$PREF_MIN_INTERVAL
+
 		$PREF_SOURCES_DIR
 		$PREF_REGION_SETS_DIR
 		$PREF_MBTILES_DIR
@@ -79,6 +82,9 @@ BEGIN
 our $PREF_HTTP_PORT			= 'HTTP_PORT';
 our $PREF_MAP_BROWSER		= 'MAP_BROWSER';
 our $PREF_MAP_MAX_ZOOM		= 'MAP_MAX_ZOOM';
+
+our $PREF_MAX_CONCURRENT	= 'MAX_CONCURRENT';
+our $PREF_MIN_INTERVAL		= 'MIN_INTERVAL';
 
 our $PREF_SOURCES_DIR		= 'SOURCES_DIR';
 our $PREF_REGION_SETS_DIR	= 'REGION_SETS_DIR';
@@ -106,6 +112,32 @@ our @PREF_DIRS = (
 my %defaults = (
 	$PREF_MAP_BROWSER		=> '',
 	$PREF_MAP_MAX_ZOOM		=> 22,
+
+	# THE TWO RATE KNOBS, AND WHY THESE ARE PREFERENCES WHERE THE FLUSH
+	# INTERVAL IS NOT.  A user's connection, conscience and patience really
+	# do differ: somebody on a metered link over a satellite phone and
+	# somebody on fibre want different numbers, and somebody who has been
+	# asked politely by a provider wants a different number again.  That is
+	# what makes these worth asking about.
+	#
+	# BOTH COMPOSE ONE WAY ONLY.  MIN_INTERVAL is a floor UNDER every
+	# source and MAX_CONCURRENT a ceiling OVER the pool, so neither can
+	# ever be a way to go faster than a TSD declared - which is what makes
+	# them safe to expose at all.
+	#
+	# MAX_CONCURRENT REQUIRES A RESTART and the dialog says so.  The pool
+	# is spawned once while the interpreter is still small, because a
+	# thread costs 5 ms to spawn then and 44 ms once the application is
+	# loaded - measured on this machine, and the reason the pool is not
+	# resized on the fly.
+	#
+	# FOUR, because it is the useful worker count at a typical 200 ms round
+	# trip and 50 ms interval, and because a client-wide cap is the only
+	# limiter measured in the right unit: a ban is per client rather than
+	# per source, and several services share infrastructure.
+
+	$PREF_MAX_CONCURRENT	=> 4,
+	$PREF_MIN_INTERVAL		=> 0,
 
 	# THE LEVELS A NEW REGION STARTS WITH, and nothing else.  Changing
 	# them never touches a region that exists: they are seeds, so they are

@@ -38,7 +38,9 @@ use cm_config;
 use dm_source;
 use dm_region;
 use dm_coverage;
+use dm_cache;
 use dm_fetch;
+use dm_engine;
 
 
 BEGIN
@@ -56,14 +58,29 @@ our $dbg_fill:shared = 0;
 	# -2 = one line per tile
 
 
-# HOW MANY FAILURES IN A ROW BEFORE GIVING UP.  Not a retry policy -- it
-# never tries anything twice.  It is the difference between a source that
-# is missing a tile and a source that is not there at all: the first is a
-# result and the walk should continue, the second is nine thousand pointless
-# requests aimed at somebody else's server.  An error is not cached, so
-# nothing is poisoned by stopping, and running it again resumes.
+# WHEN TO GIVE UP ON A SOURCE THAT IS NOT THERE.  Not a retry policy - the
+# engine below owns retries.  It is the difference between a source that is
+# missing a tile and a source that is not there at all: the first is a
+# result and the walk should continue, the second is nine thousand
+# pointless requests aimed at somebody else's server.  An error is not
+# cached, so nothing is poisoned by stopping, and running it again resumes.
+#
+# 'CONSECUTIVE' DOES NOT SURVIVE CONCURRENCY, which is why it is gone.  It
+# counted across classes, so a flaky server that fails one request in three
+# aborted a run identically to a dead host; and with four requests in
+# flight, "in a row" is not a property the results even have - they finish
+# in whatever order the network returns them.
+#
+# THE PARALLEL-SAFE PREDICATE IS ZERO SUCCESSES IN THE LAST K COMPLETIONS.
+# It says the same thing about a dead host, says nothing about a server
+# that is merely unreliable, and is well defined no matter how many
+# requests are outstanding.
 
-my $MAX_CONSECUTIVE_ERRORS = 10;
+my $LOOKBACK        = 20;
+my $LOOKBACK_MIN    = 20;
+	# How many completions to judge on, and how many must have happened
+	# before the judgement is made at all.  A run that fails its first
+	# three requests has not yet said anything.
 
 # How often to say something during a long walk.
 
@@ -112,126 +129,224 @@ sub _fillNode
 
 		display($dbg_fill+1,1,sprintf("z%-2d %d tiles",$z,scalar(@tiles)));
 
+		# THE FILL IS A CLIENT THAT SUBMITS MANY, and this is the whole of
+		# the change.  It used to block on one tile at a time and sleep the
+		# interval itself; now it keeps up to `concurrency` requests
+		# outstanding and lets the engine pace them, which is the only way
+		# a rate limit can be applied across the map proxy and the fill at
+		# once rather than by each of them separately.
+		#
+		# THE CACHE STILL SHORT CIRCUITS EVERYTHING.  getTile answers a hit
+		# without touching the engine, so a mostly-cached walk runs at
+		# local disk speed exactly as it did before, and only the tiles
+		# that must really be fetched enter the queue.
+
+		my $depth = engineConcurrency($src,$interval);
+		$depth = 1 if $depth < 1;
+
+		my @window;		# tiles submitted and not yet collected
+
+		my $collect = sub
+			# Take the oldest outstanding result and account for it.
+		{
+			my $w = shift @window or return 1;
+			my $result = $w->{job} ?
+				engineCollect($w->{job}) : $w->{result};
+			$result->{cached} = $w->{cached};
+			return _account($src,$w->{x},$w->{y},$z,$result,$stats,$opts);
+		};
+
+		my $abandon = sub
+			# EVERY SUBMITTED JOB MUST BE COLLECTED, even when the walk has
+			# already decided to stop.
+			#
+			# A ticket is a claim on a slot in the engine's shared result
+			# store, and the store is emptied by the COLLECT rather than by
+			# the publish - a worker has no idea whether anybody still wants
+			# what it fetched.  So walking away from an outstanding job
+			# leaves its fields there permanently, and since a cancel is an
+			# ordinary thing for a user to do, an application left running
+			# for a week would accumulate them.  That would make this the one
+			# unbounded structure in a design whose whole claim is that
+			# nothing grows without bound.
+			#
+			# THE REQUESTS ARE ALREADY IN FLIGHT, so this costs a cancel up
+			# to one window's worth of waiting rather than returning
+			# instantly.  That is the honest price: the tiles are being
+			# fetched whether or not anybody is still listening, and the
+			# alternative is to lie about having stopped.
+		{
+			while (my $w = shift @window)
+			{
+				engineCollect($w->{job}) if $w->{job};
+			}
+		};
+
 		for my $t (@tiles)
 		{
 			my ($x,$y) = @$t;
-			my $result = getTile($src,$z,$x,$y);
-			my $status = $result->{status};
 
-			$stats->{tiles}++;
-			$stats->{$status}++;
-			$stats->{cached}++ if $result->{cached};
+			# CACHE FIRST, ON THIS THREAD.  Asking the engine for a tile
+			# already on disk would put a thread handoff in front of a file
+			# read, and a resumed run is mostly this path.
 
-			# PER SOURCE, AND ONLY WHAT ACTUALLY WENT OUT.  This is what
-			# lets the next preflight estimate a time instead of admitting
-			# it cannot.  Cache hits are excluded deliberately: they say
-			# nothing about the server, and averaging them in would make a
-			# mostly-cached run look infinitely fast - which is precisely
-			# the estimate that would then mislead somebody into starting
-			# an overnight job before dinner.
-
-			if (!$result->{cached})
+			my $hit = cacheGet($src,$z,$x,$y);
+			if ($hit)
 			{
-				my $by = $stats->{by_source}{$src->{id}} ||= { fetched => 0, ms => 0 };
-				$by->{fetched}++;
-				$by->{ms} += $result->{ms} || 0;
-			}
-
-			display($dbg_fill+2,2,"$z/$x/$y $status".
-				($result->{cached} ? ' (cached)' : ''));
-
-			if ($status eq 'error')
-			{
-				$stats->{consecutive}++;
-				warning(0,1,"$src->{id} $z/$x/$y - $result->{reason}")
-					if $stats->{consecutive} <= 3;
-
-				# NAMED, not just counted.  An error is never cached, so
-				# this is the only record that this tile was ever asked
-				# for -- after the walk there is nothing on disk to find
-				# it by, and the build has to be able to say WHICH tiles
-				# it is refusing over.
-
-				push @{$stats->{failed_tiles}},
-					"$src->{id} $z/$x/$y - $result->{reason}"
-					if @{$stats->{failed_tiles}} < $MAX_FAILED_LISTED;
-
-				if ($stats->{consecutive} >= $MAX_CONSECUTIVE_ERRORS)
-				{
-					error("giving up after $MAX_CONSECUTIVE_ERRORS ".
-						"consecutive failures from '$src->{id}' - ".
-						"nothing has been cached as missing, so fixing ".
-						"the source and running this again resumes");
-					$stats->{aborted} = 1;
-					return 0;
-				}
+				$hit->{cached} = 1;
+				push @window,{ x => $x, y => $y, cached => 1, result => $hit };
 			}
 			else
 			{
-				$stats->{consecutive} = 0;
+				push @window,{ x => $x, y => $y, cached => 0,
+					job => engineSubmit($src,$z,$x,$y,
+						$PRIORITY_BULK,$interval) };
 			}
 
-			# POLITENESS IS NOT OPTIONAL, and it is owed only for a request
-			# that actually went out -- a cache hit costs the provider
-			# nothing and must not be slowed down.  The request's own
-			# duration counts toward the interval, because what a provider
-			# cares about is the rate of arrivals, not the gaps.
-
-			if (!$result->{cached} && $interval)
+			next if @window <= $depth;
+			if (!$collect->())
 			{
-				my $wait = $interval - ($result->{ms} || 0);
-				sleep($wait / 1000) if $wait > 0;
+				$abandon->();
+				return 0;
 			}
+		}
 
-			# THE INNER BAR MOVES EVERY TILE, the text every $PROGRESS_EVERY.
-			# A number into a shared scalar is cheap next to the request
-			# that just happened; rebuilding a status string in shared
-			# memory nine thousand times is not, and nobody can read it
-			# changing that fast anyway.
-
-			my $prog = $opts->{progress};
-			$prog->{sub_done} = $stats->{sub_done}++ if $prog;
-
-			# THE CONSOLE COUNTS TILES; THE DIALOG COUNTS SECONDS.
-			#
-			# Both used to fire every $PROGRESS_EVERY tiles, which is fine
-			# for a log and was badly wrong on screen.  A cached walk
-			# crosses 250 tiles in an instant, but a FETCHING one takes 250
-			# round trips - minutes - and the dialog's text sat unchanged
-			# for all of it while the bar crept a fraction of a percent.
-			# It read as hung, and then as jumping, because the only thing
-			# that ever moved was the number and it moved in one leap.
-			#
-			# So the readout is on a clock: what the user is watching for
-			# is evidence that something is still happening, and that is a
-			# question about elapsed time, not about tile count.
-
-			my $now = time();
-			if ($prog && $now - $stats->{last_ui} >= $UI_EVERY_SECS)
+		while (@window)
+		{
+			if (!$collect->())
 			{
-				$stats->{last_ui} = $now;
-				$prog->{sub_label} = sprintf(
-					"%d of %d - %d fetched, %d cached, %d absent, %d failed",
-					$stats->{sub_done},$prog->{sub_total} || 0,
-					$stats->{tiles} - $stats->{cached},$stats->{cached},
-					$stats->{absent} || 0,$stats->{error} || 0);
+				$abandon->();
+				return 0;
 			}
-
-			if ($stats->{tiles} % $PROGRESS_EVERY == 0)
-			{
-				my $secs = $now - $stats->{started};
-				display(0,1,sprintf(
-					"%d tiles - %d fetched, %d cached, %d absent, %d errors (%.0fs)",
-					$stats->{tiles},$stats->{tiles} - $stats->{cached},
-					$stats->{cached},$stats->{absent} || 0,
-					$stats->{error} || 0,$secs));
-			}
-
-			return 0 if progressCancelled($prog);
-			return 0 if $opts->{stop} && ${$opts->{stop}};
 		}
 	}
 
+	return 1;
+}
+
+
+sub _account
+	# ONE COMPLETED TILE, whatever produced it.  Split out of the walk
+	# because the walk now has two places a result arrives - a cache hit
+	# taken immediately and a fetch collected later - and duplicating the
+	# accounting across them is how the two quietly stop agreeing.
+{
+	my ($src,$x,$y,$z,$result,$stats,$opts) = @_;
+	my $status = $result->{status};
+
+	$stats->{tiles}++;
+	$stats->{$status}++;
+	$stats->{cached}++ if $result->{cached};
+
+	# PER SOURCE, AND ONLY WHAT ACTUALLY WENT OUT.  This is what lets the
+	# next preflight estimate a time instead of admitting it cannot.  Cache
+	# hits are excluded deliberately: they say nothing about the server, and
+	# averaging them in would make a mostly-cached run look infinitely fast
+	# - which is precisely the estimate that would then mislead somebody
+	# into starting an overnight job before dinner.
+
+	if (!$result->{cached})
+	{
+		my $by = $stats->{by_source}{$src->{id}} ||= { fetched => 0, ms => 0 };
+		$by->{fetched}++;
+		$by->{ms} += $result->{ms} || 0;
+	}
+
+	display($dbg_fill+2,2,"$z/$x/$y $status".
+		($result->{cached} ? ' (cached)' : ''));
+
+	# ZERO SUCCESSES IN THE LAST K COMPLETIONS.  A ring of outcomes rather
+	# than a counter of consecutive failures - see the note at the top for
+	# why the counter could not survive having four requests in flight.
+	# Cache hits do not enter it: a resumed run over cached ground would
+	# otherwise fill the window with successes that never touched the
+	# network and mask a source that had died.
+
+	if (!$result->{cached})
+	{
+		push @{$stats->{recent}},($status eq 'error' ? 0 : 1);
+		shift @{$stats->{recent}} while @{$stats->{recent}} > $LOOKBACK;
+	}
+
+	if ($status eq 'error')
+	{
+		$stats->{errors_seen}++;
+		warning(0,1,"$src->{id} $z/$x/$y - $result->{reason}")
+			if $stats->{errors_seen} <= 3;
+
+		# NAMED, not just counted.  An error is never cached, so this is
+		# the only record that this tile was ever asked for -- after the
+		# walk there is nothing on disk to find it by, and the build has to
+		# be able to say WHICH tiles it is refusing over.
+
+		push @{$stats->{failed_tiles}},
+			"$src->{id} $z/$x/$y - $result->{reason}"
+			if @{$stats->{failed_tiles}} < $MAX_FAILED_LISTED;
+
+		my $window = scalar(@{$stats->{recent}});
+		my $wins   = 0;
+		$wins += $_ for @{$stats->{recent}};
+
+		if ($window >= $LOOKBACK_MIN && !$wins)
+		{
+			error("giving up: the last $window requests to '$src->{id}' ".
+				"all failed - nothing has been cached as missing, so ".
+				"fixing the source and running this again resumes");
+			$stats->{aborted} = 1;
+			return 0;
+		}
+	}
+
+	# NOTHING SLEEPS HERE ANY MORE.  Politeness used to be this loop's job
+	# and is now the engine's, which is the point of the engine: one gate
+	# per source that the map proxy, the preview and this walk all pass
+	# through, instead of three unrelated pieces of code each being polite
+	# on their own account and none of them knowing about the others.
+
+	# THE INNER BAR MOVES EVERY TILE, the text every $PROGRESS_EVERY.  A
+	# number into a shared scalar is cheap next to the request that just
+	# happened; rebuilding a status string in shared memory nine thousand
+	# times is not, and nobody can read it changing that fast anyway.
+
+	my $prog = $opts->{progress};
+	$prog->{sub_done} = $stats->{sub_done}++ if $prog;
+
+	# THE CONSOLE COUNTS TILES; THE DIALOG COUNTS SECONDS.
+	#
+	# Both used to fire every $PROGRESS_EVERY tiles, which is fine for a log
+	# and was badly wrong on screen.  A cached walk crosses 250 tiles in an
+	# instant, but a FETCHING one takes 250 round trips - minutes - and the
+	# dialog's text sat unchanged for all of it while the bar crept a
+	# fraction of a percent.  It read as hung, and then as jumping, because
+	# the only thing that ever moved was the number and it moved in one leap.
+	#
+	# So the readout is on a clock: what the user is watching for is
+	# evidence that something is still happening, and that is a question
+	# about elapsed time, not about tile count.
+
+	my $now = time();
+	if ($prog && $now - $stats->{last_ui} >= $UI_EVERY_SECS)
+	{
+		$stats->{last_ui} = $now;
+		$prog->{sub_label} = sprintf(
+			"%d of %d - %d fetched, %d cached, %d absent, %d failed",
+			$stats->{sub_done},$prog->{sub_total} || 0,
+			$stats->{tiles} - $stats->{cached},$stats->{cached},
+			$stats->{absent} || 0,$stats->{error} || 0);
+	}
+
+	if ($stats->{tiles} % $PROGRESS_EVERY == 0)
+	{
+		my $secs = $now - $stats->{started};
+		display(0,1,sprintf(
+			"%d tiles - %d fetched, %d cached, %d absent, %d errors (%.0fs)",
+			$stats->{tiles},$stats->{tiles} - $stats->{cached},
+			$stats->{cached},$stats->{absent} || 0,
+			$stats->{error} || 0,$secs));
+	}
+
+	return 0 if progressCancelled($prog);
+	return 0 if $opts->{stop} && ${$opts->{stop}};
 	return 1;
 }
 
@@ -256,8 +371,9 @@ sub fillCoverage
 
 	my $stats = {
 		tiles => 0, cached => 0, ok => 0, absent => 0, error => 0,
-		consecutive => 0, aborted => 0, cancelled => 0, started => time(),
-		failed_tiles => [], sub_done => 0, by_source => {}, last_ui => 0,
+		errors_seen => 0, recent => [], aborted => 0, cancelled => 0,
+		started => time(), failed_tiles => [], sub_done => 0,
+		by_source => {}, last_ui => 0,
 	};
 
 	my $fallback = $opts->{fallback} || getDefaultSource();

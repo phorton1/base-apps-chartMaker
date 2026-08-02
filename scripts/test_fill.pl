@@ -38,6 +38,7 @@ use dm_source;
 use dm_region;
 use dm_coverage;
 use dm_cache;
+use dm_engine;
 use dm_fill;
 
 my $TMP  = 'C:/_temp/base-apps-chartMaker';
@@ -301,6 +302,37 @@ ok($st_d->{tiles} < coverageTotal((nodesOf('Dead'))[0]),
 
 my $again = fillCoverage(['Dead'],{ fallback => 'fill_a' });
 ok($again->{cached} == 0,"and cached no absences, so a retry really retries");
+
+
+#---------------------------------------------
+# a stopped run leaves nothing behind
+#---------------------------------------------
+# THE FILL KEEPS SEVERAL REQUESTS OUTSTANDING NOW, so stopping is no
+# longer just "return early".  Every job it submitted holds a slot in the
+# engine's shared result store until somebody collects it, and only the
+# collect releases one - a worker has no idea whether anybody still wants
+# what it fetched.  Walking away from the outstanding window therefore
+# leaked a row per abandoned job, permanently, in the one structure whose
+# whole claim is that nothing grows without bound.
+#
+# A cancel is an ordinary thing for a user to do, so this is not exotic:
+# it is every cancelled fill, for as long as the application runs.
+
+print "\n=== a stopped run collects what it already asked for ===\n";
+
+# THE DEAD SOURCE ABOVE IS THE REAL CASE and needs no contrivance.  It
+# aborts mid-walk with a full window of jobs already submitted, which is
+# exactly the shape of a user cancelling: the decision to stop is taken
+# while several requests are outstanding.  A stop flag set from this
+# thread could not reproduce it, because with no pool the walk is
+# synchronous and there is no moment at which to flip it.
+
+my $stats = engineStats();
+ok(($stats->{uncollected} // -1) == 0,
+	"the aborted run left nothing uncollected (".
+	($stats->{uncollected} // '?').")");
+ok(!$stats->{inflight},
+	"and holds no permits (in flight: ".($stats->{inflight} || 'none').")");
 
 
 #---------------------------------------------

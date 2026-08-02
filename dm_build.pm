@@ -62,6 +62,7 @@ use dm_coverage;
 use dm_fill;
 use dm_rct;
 use dm_mbtiles;
+use dm_observe;
 use dm_analysis;
 
 
@@ -594,8 +595,16 @@ sub buildOutput
 	{
 		my $by = $fill->{by_source}{$sid};
 		next if !$by->{fetched};
-		recordRate($sid,$by->{ms} / $by->{fetched});
+		my $src = getSource($sid) or next;
+		obsRecordRate($src,$by->{ms} / $by->{fetched});
 	}
+
+	# A BUILD IS A BOUNDED ACT, so the record is checkpointed here rather
+	# than left to the clock.  Everything a fill learned - rates, round
+	# trips, error classes, any 429 - reaches disk at the moment the run
+	# that learned it ends.
+
+	obsFlushAll();
 
 	if ($fill->{cancelled})
 	{

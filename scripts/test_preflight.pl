@@ -31,6 +31,7 @@ use dm_region;
 use dm_coverage;
 use dm_cache;
 use dm_rct;
+use dm_observe;
 use dm_analysis;
 
 my $TMP  = 'C:/_temp/base-apps-chartMaker';
@@ -351,8 +352,9 @@ ok($an2->{est_known},"a paced source CAN estimate with no measurement");
 ok($an2->{secs_est} > 0,"and the estimate is its declared interval x the count ".
 	sprintf("(%.0fs for %d tiles)",$an2->{secs_est},$an2->{totals}{need}));
 
-recordRate('pre_a',300);
-ok(measuredRate('pre_a') == 300,"a measured rate round-trips through \$temp_dir");
+obsRecordRate(getSource('pre_a'),300);
+ok(obsMsPerTile(getSource('pre_a')) == 300,
+	"a measured rate round-trips through the observation record");
 
 # ONE MEASURED SOURCE IS NOT ENOUGH when the region uses two.  Alpha's
 # subregion is built from pre_b and still has a tile to fetch, so the
@@ -365,7 +367,7 @@ ok(!$an3->{est_known},
 ok($an3->{sources}{pre_a}{est_known} && !$an3->{sources}{pre_b}{est_known},
 	"and it is per source - pre_a knows, pre_b does not");
 
-recordRate('pre_b',300);
+obsRecordRate(getSource('pre_b'),300);
 my $an3b = analyseFetch(['Alpha'],{ fallback => 'pre_a' });
 ok($an3b->{est_known},"with both measured, the estimate is offered");
 

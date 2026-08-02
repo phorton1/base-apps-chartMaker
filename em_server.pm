@@ -33,6 +33,7 @@ use cm_state;
 use dm_set;
 use dm_source;
 use dm_fetch;
+use dm_engine;
 use dm_cache;
 use dm_region;
 use dm_coverage;
@@ -54,6 +55,30 @@ sub startServer
 	display(0,0,"starting em_server on port ".getPref($PREF_HTTP_PORT));
 	$cm_server->start();
 	display(0,0,"em_server started");
+}
+
+
+sub serverState
+	# 'ok', or 'failed: <reason>'.
+	#
+	# THE BIND HAPPENS ON THE SERVER THREAD, AFTER start() RETURNS, so
+	# there is nothing for startServer to hand back and nothing the thread
+	# can do about it either - it may run before any frame exists, and a
+	# worker thread must not touch wx in any case.  ServerBase records the
+	# outcome against the port and this waits for it to resolve.
+	#
+	# Wrapped here so that nothing in the application reaches into
+	# Pub::HTTP::ServerBase's internals to ask a question about OUR server.
+{
+	return 'failed: the server was never started' if !$cm_server;
+	return Pub::HTTP::ServerBase::waitServerState(
+		getPref($PREF_HTTP_PORT),5);
+}
+
+
+sub serverOk
+{
+	return serverState() eq 'ok' ? 1 : 0;
 }
 
 
@@ -706,7 +731,16 @@ sub applet_tile
 	return Pub::HTTP::Response->new($request,"no such source '$id'",404,'text/plain')
 		if !$source;
 
-	my $result = getTile($source,$z,$x,$y);
+	# INTERACTIVE, WHICH IS THE ONE PLACE IN THE APPLICATION THAT IS.  There
+	# is a person waiting on this request and the tile is about to be drawn
+	# on a map they are looking at, so it goes to the HEAD of the engine's
+	# queue rather than behind however many thousand tiles a fill has in
+	# flight.  It does not preempt: the wait is bounded by the shortest
+	# request already out, not by the backlog, which is the property that
+	# actually matters and is much cheaper to provide.
+
+	my $result = getTile($source,$z,$x,$y,
+		{ priority => $PRIORITY_INTERACTIVE });
 
 	return Pub::HTTP::Response->new($request,
 			${$result->{bytes}},200,"image/$result->{format}")

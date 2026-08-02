@@ -84,7 +84,7 @@ my @FORMATS			= qw( jpeg png );
 my @FIELDS = qw(
 	tsd_version id name notes kind url subdomains tile_format tile_size
 	crs zoom attribution terms_url license redistributable uses
-	credentials policy absent_fingerprints );
+	credentials policy absent_fingerprints absent_headers registration );
 
 # The closed placeholder set.  A url may contain these and the credential
 # slots the file itself declares, and nothing else.  {-y} covers the TMS
@@ -298,6 +298,74 @@ sub _validate
 				if !defined($fp->{md5}) || $fp->{md5} !~ /^[0-9a-fA-F]{32}$/;
 			$fp->{md5} = lc($fp->{md5});
 		}
+	}
+
+	# ABSENT HEADERS -- the same absence, said in a header rather than in
+	# the bytes.  Virtual Earth's 'X-VE-Tile-Info: no-tile' is the known
+	# case: a 200 carrying a real image that the server is simultaneously
+	# telling you is not imagery.
+	#
+	# CHEAPER AND STRICTER THAN A FINGERPRINT, and it has to be, because
+	# it is checked on every 200.  A header lookup on a name that is not
+	# present is a hash miss, where a fingerprint at least has to measure
+	# the body.  So the match is EXACT after trimming: a substring rule
+	# would make 'no-tile' match a header that said 'no-tile-here', and a
+	# false absence is the one error in this direction that is expensive --
+	# it caches a miss for a tile that exists.
+	#
+	# IT CANNOT REACH THE CACHE, which is the asymmetry with fingerprints.
+	# Headers are not stored beside the bytes, so getTile's on-the-way-out
+	# recheck has nothing to test and declaring a header here reclassifies
+	# nothing already on disk.  That is why the check lives in fetchTile
+	# rather than beside _isDeclaredAbsent.
+
+	if (defined $tsd->{absent_headers})
+	{
+		return _err($file,"absent_headers must be an array")
+			if ref($tsd->{absent_headers}) ne 'ARRAY';
+		for my $hdr (@{$tsd->{absent_headers}})
+		{
+			return _err($file,"each absent_header must be an object")
+				if ref($hdr) ne 'HASH';
+
+			# RFC 7230 token, which is what a header name may contain.
+			# Lowercased on the way in: lookup is case insensitive, so
+			# storing one case means two files declaring the same header
+			# differently produce the same structure.
+
+			return _err($file,"absent_header name is required and must be a header token")
+				if !defined($hdr->{name}) || ref($hdr->{name}) ||
+				   $hdr->{name} !~ /^[A-Za-z0-9!#\$%&'*+.^_`|~-]+$/;
+			return _err($file,"absent_header value is required and may not be empty")
+				if !defined($hdr->{value}) || ref($hdr->{value}) ||
+				   $hdr->{value} !~ /\S/;
+
+			$hdr->{name}  = lc($hdr->{name});
+			$hdr->{value} =~ s/^\s+|\s+$//g;
+		}
+	}
+
+	# REGISTRATION -- a known displacement of the imagery, recorded and
+	# shown, NEVER acted on.
+	#
+	# China's GCJ-02 is the case that names the field: imagery published
+	# on a deliberately offset datum, off by a few hundred metres in a way
+	# that varies with position.  A user aiming a region at a harbour is
+	# entitled to know before they build, and the honest thing to tell
+	# them is that the source says so, not a correction this application
+	# invented.
+	#
+	# NO VOCABULARY, deliberately.  Advisory means the value is for a
+	# human to read, and an enum would reject a true statement about a
+	# datum nobody had thought of -- which for a field that changes no
+	# behaviour is a pure loss.  The pattern only keeps it a short printable
+	# name, so that showing it cannot wreck a layout.
+
+	if (defined $tsd->{registration})
+	{
+		return _err($file,"registration must be a short name like 'GCJ-02'")
+			if ref($tsd->{registration}) ||
+			   $tsd->{registration} !~ /^[A-Za-z0-9][A-Za-z0-9 ._-]{0,31}$/;
 	}
 
 	# the url and its closed placeholder set

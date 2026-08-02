@@ -9,6 +9,7 @@
   "crs": "EPSG:3857",
   "zoom": { "min": 0, "max": 12 },
   "attribution": "Imagery courtesy of NASA/GSFC Earth Science Data and Information System (GIBS)",
+  "terms_url": "https://www.earthdata.nasa.gov/engage/open-data-services-software/data-information-policy",
   "license": "US Government work - not subject to copyright (17 USC 105)",
   "redistributable": "yes",
   "uses": ["display","build"],

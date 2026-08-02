@@ -195,6 +195,90 @@ otherwise unrelated properties true at once:
 later read, and that is deliberate. The distinction the application maintains is that
 nothing is ever fetched which was not displayed; the cache simply remembers what was.
 
+## The fetch engine
+
+The one home rate limiting has. It sits **below the callers of the tile path, not above the
+fill**: browsing, filling and sampling are three clients of one engine with different
+priorities, rather than three pieces of code each being polite on their own account and none
+of them knowing about the others.
+
+The position is the whole design. Putting the engine at or above the fill would leave the map
+proxy unpaced - panning is unbounded traffic aimed at somebody else's server - and would let
+anything added later bypass the limiter by not going through the fill.
+
+```
+    proxy (interactive)   fill (bulk)   sampler (bulk)
+              \               |              /
+               +--------------+-------------+
+                              |
+                         THE ENGINE
+             queue, two priorities, per-source gate,
+             concurrency, classification, backoff
+                              |
+                      the tile path (cache first)
+```
+
+**Composition, one operator per axis:**
+
+```
+    interval    = max( the source's min_interval_ms, the installation floor,
+                       the set's advisory, any live backoff )
+    concurrency = min( the source's max_concurrency, the pool size,
+                       ceil(round-trip / interval) )
+```
+
+Slowest wins, fewest wins. Every knob at every tier can only make the client **gentler**, and
+no combination of settings anywhere goes faster than the TSD declared. Backoff is in the same
+`max()` for exactly that reason: it is one more voice that can only slow things down, and a
+fifth contributor later costs nothing.
+
+**Concurrency is latency cover, and that bounds it.** At interval `I` and round trip `R`,
+serial gets one tile per `max(I,R)`, so the useful worker count is `ceil(R/I)` and beyond that
+they idle. The engine computes that from the **measured** round trip in the observation record
+rather than believing `max_concurrency`. The gate is **per source** - one shared
+next-allowed-time - not per worker, which is the only arrangement that yields one request per
+interval however many workers are pushing.
+
+**The pool is the global ceiling and lives for the program's lifetime.** Perl's threads clone
+the interpreter at spawn: measured, a thread costs 5 ms against a small interpreter and 44 ms
+once about 20 MB is loaded. So it is spawned at startup before the frame exists, a source's
+declared concurrency is a permit count within it rather than a way to enlarge it, and changing
+the pool size requires a restart.
+
+**Interactive queues ahead of bulk; it does not preempt.** A tile the map is waiting for goes
+to the head of the queue rather than behind a fill's backlog. The wait is therefore bounded by
+the shortest request already in flight rather than by the backlog, which is the property that
+matters and is far cheaper to provide.
+
+**Failure has five classes because each one has exactly one consequence:**
+
+| class | example | consequence |
+| --- | --- | --- |
+| `rate_limited` | 429, or 503 with `Retry-After` | back off this source; obey `Retry-After` |
+| `auth` | 401, 403 | stop; retrying cannot supply a credential |
+| `transport` | timeout, refused, TLS failure | retry a few times |
+| `server` | 5xx without `Retry-After` | retry a few times |
+| `garbage` | 200 that is not an image | do not retry; it will not become one |
+
+A 503 carrying `Retry-After` is rate limiting wearing a different number: a service under load
+and a service telling you to slow down are indistinguishable from the client, and the header is
+the tell.
+
+**Backoff applies to the source, not to the tile.** A 429 slows everything aimed at that
+source; it does not mean retry this coordinate sooner. It doubles on repetition, decays by
+halving on success rather than clearing outright - clearing sends the next burst straight back
+into the limit - and never makes the client faster than the settings already allow.
+
+**The engine governs when a request goes out, never when a result is stored.** Tiles still
+commit one at a time, on arrival, in every mode. Resume being nearly free and the coverage
+picture accumulating from ordinary use both depend on that, and neither is the engine's to
+spend.
+
+**It is optional, and the application works without it.** With no pool started, a fetch happens
+on the calling thread through the same gate. That is not a safety fallback: the console fills a
+cache with no frame anywhere and every headless test runs this way, so a path that only worked
+with a pool running would be a path that could not be tested.
+
 ## The cache
 
 The layout, its keying by source, and why the source dimension is not optional are
@@ -248,9 +332,16 @@ record where it got to.
 **Errors are never cached, so a failure is not permanent.** An absence the source asserted is
 recorded and never asked for again; a timeout or a refused connection is not, because it says
 nothing about whether the tile exists. What that costs is the possibility of a dead source
-producing thousands of identical failures, so a run stops after a small number of consecutive
-errors rather than working through the whole region. Stopping poisons nothing - running it
-again after fixing the source resumes.
+producing thousands of identical failures, so a run gives up when **the last twenty requests
+that actually went out all failed**. Stopping poisons nothing - running it again after fixing
+the source resumes.
+
+That predicate replaced a count of consecutive failures, which could not survive requests
+being in flight at once. "Consecutive" is not a property results have when four of them are
+outstanding and they finish in whatever order the network returns them; and counting across
+classes meant a flaky server that failed one request in three aborted a run identically to a
+dead host. Cache hits do not enter the window, or a resumed run over cached ground would fill
+it with successes that never touched the network.
 
 **Each node is filled from the source it will be built from**, with `inherited` already
 followed: a subregion that names its own source has its tiles fetched from that source, not
@@ -258,9 +349,10 @@ from its parent's and not from whatever the map happens to be displaying. Fillin
 displayed source would fill entries the build will never read, which is the same invisible
 hole by a different route.
 
-**The fill is serial.** It asks for one tile at a time and honours the interval a source
-declares. A source's declared concurrency is not consulted, so filling new ground is bounded
-by round-trip time rather than by anybody's rate limit.
+**The fill is a client of the fetch engine, not a fetcher.** It keeps several requests
+outstanding and lets the engine decide when each one leaves; it does no pacing of its own and
+sleeps nowhere. A cache hit still short-circuits everything and never reaches the engine, so a
+resumed run over cached ground goes at local disk speed.
 
 ## Editor and preview are one component in two modes
 
@@ -479,15 +571,26 @@ factor of three is worse than none: it gets planned around.
 A TSD states facts about somebody else's server, and sources are read-only in the
 application. How fast you personally want to go tonight is a fact about you - you may have
 all night, and prefer slow and sure to fast and likely to fail. So the build configuration
-carries an advisory interval, and the effective floor is:
+carries an advisory interval, and it composes into the engine's `max()` above alongside two
+installation-wide preferences:
 
-```
-    max(the source's declared min_interval_ms, the user's advisory)
-```
+| knob | tier | note |
+| --- | --- | --- |
+| requests at once | installation | the pool size; **requires a restart** |
+| slowest interval | installation | a floor under every source |
+| advisory interval | per set | in the build configuration, per source the set uses |
 
 **`max()`, never a replacement.** That one operator is the whole of what keeps a
-user-settable rate from becoming a way to violate a source's declared policy: an advisory can
-only ever make you slower.
+user-settable rate from becoming a way to violate a source's declared policy: every one of
+these can only ever make you slower. The pool size is the mirror image - a `min()`, so it can
+only ever make you narrower - and a client-wide cap is the only limiter measured in the right
+unit anyway, because a ban is per client rather than per source and several services share
+infrastructure.
+
+The two installation knobs are preferences because a user's connection, conscience and patience
+genuinely differ. That is the test: the observation record's flush interval is a constant
+rather than a preference precisely because no user has a basis on which to choose it and no
+outcome differs if they choose badly.
 
 The table is **derived, not authored**. It holds one row per source the set actually uses -
 a list the build already computes for its guards - and the user types only the number beside

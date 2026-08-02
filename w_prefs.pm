@@ -175,6 +175,38 @@ sub _generalPage
 
 	$sizer->AddSpacer(14);
 	$sizer->Add($bs,0,wxEXPAND|wxLEFT|wxRIGHT,10);
+
+	# HOW HARD THIS MACHINE PUSHES ANYBODY'S SERVER, in its own box because
+	# it is the only thing in this dialog that affects somebody else.
+	#
+	# BOTH COMPOSE ONE WAY ONLY and the text says so, because a knob that
+	# looked like it could go faster than a source declared would be a knob
+	# people reached for when a fill was slow.  The interval is a FLOOR
+	# under every source and the pool is a CEILING over all of them: a
+	# source that asks for more cannot get it, and a source that asks for
+	# less is never overridden.
+
+	my $rbox = Wx::StaticBox->new($p,-1,'How hard to push a tile server');
+	my $rs   = Wx::StaticBoxSizer->new($rbox,wxVERTICAL);
+	$rs->AddSpacer(4);
+	$rs->Add(_row($p,'Requests at once:',
+		$this->_spin($p,$PREF_MAX_CONCURRENT,1,12),
+		Wx::StaticText->new($p,-1,'restart to take effect')),0,wxLEFT,6);
+	$rs->AddSpacer(4);
+	$rs->Add(_row($p,'Slowest interval:',
+		$this->_spin($p,$PREF_MIN_INTERVAL,0,10000),
+		Wx::StaticText->new($p,-1,'ms between requests to one source')),
+		0,wxLEFT,6);
+	$rs->AddSpacer(4);
+	$rs->Add(Wx::StaticText->new($p,-1,
+		'These can only make chartMaker GENTLER. A source that declares a '.
+		'slower rate'."\n".'or fewer connections keeps them; neither setting '.
+		'can go faster than declared.'),
+		0,wxLEFT|wxTOP,6);
+	$rs->AddSpacer(4);
+
+	$sizer->AddSpacer(14);
+	$sizer->Add($rs,0,wxEXPAND|wxLEFT|wxRIGHT,10);
 	$sizer->AddSpacer(10);
 
 	$p->SetSizer($sizer);

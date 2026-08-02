@@ -43,6 +43,7 @@ use dm_source;
 use dm_region;
 use dm_coverage;
 use dm_cache;
+use dm_observe;
 use dm_rct;
 
 
@@ -51,8 +52,6 @@ BEGIN
 	use Exporter qw( import );
 	our @EXPORT = qw(
 		analyseFetch
-		measuredRate
-		recordRate
 		analysisLines
 	);
 }
@@ -62,82 +61,6 @@ our $dbg_analysis:shared = 1;
 	# 1 = quiet
 	# 0 = one line per region
 	# -1 = one line per (source,zoom) directory read
-
-
-#---------------------------------------------
-# the measured rate
-#---------------------------------------------
-# PER MACHINE AND REGENERABLE, so it lives in $temp_dir and never in the
-# set folder.  It is a fact about this computer's connection to that
-# server at this time of day, not about the user's material - carried to
-# another machine it would be wrong, and losing it costs one run's
-# observation.
-
-my $RATE_LEAF = 'fetch_rates.json';
-
-sub _ratePath { return "$temp_dir/$RATE_LEAF" }
-
-
-sub measuredRate
-	# Milliseconds per FETCHED tile last observed for a source, or 0.
-{
-	my ($src_id) = @_;
-	my $path = _ratePath();
-	return 0 if !-f $path;
-
-	my $fh;
-	return 0 if !open($fh,'<',$path);
-	binmode $fh;
-	local $/;
-	my $text = <$fh>;
-	close $fh;
-
-	my $got = eval { decode_json($text) };
-	return 0 if !$got || ref($got) ne 'HASH';
-	return 0 if !$got->{$src_id} || ref($got->{$src_id});
-	return $got->{$src_id} + 0;
-}
-
-
-sub recordRate
-	# After a run: what that source actually managed, in ms per tile that
-	# was really fetched.  Cache hits are excluded because they say nothing
-	# about the server and would make a mostly-cached run look infinitely
-	# fast, which is exactly the estimate that would then mislead.
-{
-	my ($src_id,$ms_per_tile) = @_;
-	return if !$src_id || !$ms_per_tile || $ms_per_tile <= 0;
-
-	my $path = _ratePath();
-	my $all = {};
-	if (-f $path && open(my $fh,'<',$path))
-	{
-		binmode $fh;
-		local $/;
-		my $text = <$fh>;
-		close $fh;
-		my $got = eval { decode_json($text) };
-		$all = $got if $got && ref($got) eq 'HASH';
-	}
-
-	# A SMOOTHED AVERAGE RATHER THAN THE LAST RUN.  One run over a bad
-	# minute of wifi should not become the number every future estimate is
-	# built on, and one run over a good one should not either.
-
-	my $was = $all->{$src_id} && !ref($all->{$src_id}) ? $all->{$src_id} : 0;
-	$all->{$src_id} = $was ?
-		int($was * 0.7 + $ms_per_tile * 0.3) : int($ms_per_tile);
-
-	my $fh;
-	if (!open($fh,'>',$path))
-	{
-		error("recordRate could not write $path: $!");
-		return;
-	}
-	binmode $fh;
-	print $fh JSON->new->canonical->encode($all);
-	close $fh;
-}
 
 
 #---------------------------------------------
@@ -240,7 +163,14 @@ sub analyseFetch
 					id => $sid, name => $src->{name},
 					total => 0, cached => 0, absent => 0, need => 0,
 					interval => effectiveInterval($src,$cfg),
-					measured => measuredRate($sid),
+
+					# BY cache_key, NOT BY SOURCE ID.  The observation
+					# record shares the cache's leaf name so that a user
+					# has one name per source rather than two, which means
+					# the source hash rather than the id is what identifies
+					# it here.
+
+					measured => obsMsPerTile($src),
 					zooms => {},
 				};
 			}

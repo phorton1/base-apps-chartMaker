@@ -46,6 +46,8 @@ sent you is a matter of putting the file in the folder.
     policy:           { max_concurrency, min_interval_ms }
     absent_fingerprints:
                       [ { bytes, md5 } ]   a 200 that means 404
+    absent_headers:   [ { name, value } ]  the same absence, said in a header
+    registration:     a named coordinate transform - ADVISORY, never acted on
 ```
 
 | Field             | Notes                                                                      |
@@ -62,6 +64,8 @@ sent you is a matter of putting the file in the folder.
 | `redistributable` | The author's assertion. Propagates into built output as metadata.          |
 | `uses`            | What the source is FOR. Not "what it uses" - see below.                    |
 | `absent_fingerprints` | The bytes a server sends INSTEAD of saying no. Read as absences.       |
+| `absent_headers`  | The same statement made in a header rather than in the bytes.              |
+| `registration`    | A known displacement of the imagery. Recorded and shown, never acted on.   |
 | `credentials`     | Names of secrets the source needs. Never the secrets themselves.           |
 | `policy`          | Requested limits. The application clamps regardless of what is asked for.  |
 
@@ -197,6 +201,61 @@ Note what this is **not**: it does not detect a source that magnifies its own im
 where real detail ends. That produces genuinely different bytes every time and is a fact
 about ground rather than about a server. See [Build](build.md) on where that is measured.
 
+### The same statement, made in a header
+
+Some services do not vary the bytes at all and mark the absence in a response header
+instead:
+
+```
+    "absent_headers": [ { "name": "X-VE-Tile-Info", "value": "no-tile" } ]
+```
+
+A match on any listed header, compared case-insensitively on the name and exactly on the
+value, is read as an absence exactly as a fingerprint match is. It is a separate field
+rather than a variant of `absent_fingerprints` because the two are checked at different
+points - a header is known before the body is read, so it costs nothing and can skip the
+body entirely, while a fingerprint needs the bytes in hand.
+
+**The value must match exactly, and that direction is deliberate.** A substring rule would
+let `no-tile` match a header saying `no-tile-here`, and a false absence is the expensive
+error here: it caches a miss for a tile that exists, and nothing will ever ask again.
+Failing to recognise an absence only costs a tile that looks wrong, which a person can see.
+
+**Unlike a fingerprint, this cannot reach the cache.** Headers are not stored beside the
+bytes, so there is nothing for an on-the-way-out check to test, and declaring one here
+reclassifies nothing already on disk. A source taught to say no in a header only says it on
+tiles fetched afterwards; tiles already cached keep whatever they were called. Clearing that
+source's cache is the only way to revisit them, which is the one place these two fields
+genuinely differ in what declaring them achieves.
+
+Both are declared and neither is detected, for the same reason: they are facts about a
+server, and this file is where facts about servers live.
+
+## Registration is recorded, never corrected
+
+Some services publish imagery that is deliberately displaced from WGS 84. The best known
+case is the transform Chinese regulation requires, which moves the pixels several hundred
+metres and varies the offset with position. The tile grid is correct, the tiles align with
+each other, and every structural check this format performs passes.
+
+```
+    "registration": "GCJ-02"
+```
+
+**The field is advisory and the application never acts on it.** It is not consulted when
+fetching, not consulted when building, and no tile is ever moved. Absent, or `wgs84`, means
+the imagery is where it says it is; any other value names a known transform.
+
+Two reasons it is recorded rather than enforced. Correcting it would be a reprojection, and
+this application does not resample or reproject anything. And the judgement is not the
+application's to make: a consumer may apply its own offset, and a purpose may not be
+navigation. So the value is shown where a source is chosen and where one is imported, and
+the decision belongs to whoever is looking at it.
+
+What it buys is that the one failure nothing else can catch stops being invisible. A user
+who would have discovered the displacement on the water can instead read it in the source
+list.
+
 ## Credentials
 
 **A TSD declares credential slots and never contains a credential value.** A slot names the
@@ -211,6 +270,42 @@ The value lives in the credential store, whose location is specified in
 both are structural rather than procedural: a TSD is safe to share by construction, and no
 secret can reach the browser, because the browser never contacts a tile server directly.
 See [Build](build.md#everything-goes-through-the-proxy).
+
+## Asking the service what it is
+
+Most of what makes a hand-written TSD wrong is published by the service itself, and reading it
+costs one request and no imagery. An ArcGIS MapServer answers `?f=json` with its levels of
+detail, its scale limits, its tile format and its spatial reference; a WMTS answers
+GetCapabilities with the layer, the tile matrix set that names its ceiling, its formats and its
+access constraints. Between them that covers most services worth probing.
+
+The probe settles, without fetching a tile: **is the url template right, is the row order
+flipped, is a credential needed, what format is really served, and how deep does the service
+admit to going.**
+
+**The findings are shown beside what the file says, and disagreements are listed as
+disagreements.** Nothing is applied. Several of them have a legitimate answer of "the file is
+right and the service is being modest" - a `zoom.max` *below* the ceiling is a deliberate
+choice, not an error - so the list is for a person to read. A probe that quietly rewrote the
+file would make every TSD a cache of a server's current mood.
+
+The one rule that makes an ArcGIS answer usable rather than merely present: **a `maxScale` of
+zero, or one that resolves to the deepest level the cache holds, declares nothing.** Zero is
+the unset sentinel and the other says only "as deep as I go". Any other value is a genuine
+statement and is the answer.
+
+**Row order is the failure that looks like success.** Every tile arrives, every tile is real
+imagery, and the map is scrambled. Esri's REST convention is row before column; a WMTS
+publishes its own template and the order can be read straight out of it.
+
+**What no metadata document answers is whether there is imagery *here*.** Sparse coverage means
+an honest ceiling of z12 does not imply a tile at every z12 square. That is a placed question
+and a different act - see [Build](build.md). Where the ArcGIS family offers `/tilemap/`, it is
+the cheapest form of that answer anywhere in the application: the presence of a whole block of
+tiles in one request and no imagery, where asking tile by tile would be hundreds. A fully
+covered block is answered by omitting the array and saying only `valid`, a compression that
+reads as an *empty* block to anyone who did not know - which is the worst possible way to be
+wrong about coverage.
 
 ## Authoring and testing a source
 
@@ -255,17 +350,42 @@ disagree with them.
 
 ## What chartMaker ships
 
-Two NASA GIBS sources, with **`gibs_weld_annual` as the official default** - it is the
-imagery a new region is born naming, and the source the tutorial and the demonstrations are
-built on. Both satisfy the rule that chartMaker ships no source it is not entitled to ship:
-both are US Government works, and their URL templates are verified by a test rather than
-assumed.
+Three sources, with **`gibs_weld_annual` as the official default** - it is the imagery a new
+region is born naming, and the source the tutorial and the demonstrations are built on.
 
-`gibs_weld_annual` is the default rather than Blue Marble because it reaches **z12** against
-Blue Marble's **z8**, and depth is the whole point of a chartset. Both are far shallower than
-a commercial mosaic, which is the honest shape of the boundary: what ships is a starting
-point that works, not a recommendation and not a limit. It also means a tutorial set has to
-be authored well below the zooms the region editor offers by default.
+| id | reaches | `uses` |
+| ------------------- | ------------------------------------- | ---------------- |
+| `gibs_bluemarble`   | z8                                    | display, build   |
+| `gibs_weld_annual`  | z12                                   | display, build   |
+| `esri_world_imagery`| answers to z23, real detail varies    | display          |
+
+The two GIBS sources satisfy the rule that chartMaker ships no source it is not entitled to
+ship: both are US Government works, and their URL templates are verified by a test rather
+than assumed. `gibs_weld_annual` is the default rather than Blue Marble because it reaches
+z12 against z8, and depth is the whole point of a chartset.
+
+**The third ships for display only, and the split is the whole reason it can ship at all.**
+Esri's terms grant anyone the right to view, download and copy their published services for
+internal or noncommercial purposes, and separately govern bulk export into a product through
+a different, authenticated service. Those are two distinct permissions and a source file can
+sit squarely inside the first.
+
+**Shipping a TSD is not shipping imagery.** It is a URL and a set of field values describing
+a public endpoint, and it conveys no right to anything to anybody. The terms bind whoever
+operates the client, which is exactly what `uses` records - the shipped value states what a
+file is shipped *for*, and a user who reads the terms differently changes one field and owns
+that reading. The application does not hold a legal opinion on the user's behalf.
+
+**So what ships now separates the two questions that used to be one.** Deep imagery is
+visible out of the box; the sources that may be *built* from out of the box remain shallow.
+That is the honest shape of the boundary rather than a limitation to apologise for: what
+ships is a starting point that works, not a recommendation and not a ceiling. A tutorial set
+still has to be authored well below the zooms the region editor offers by default.
+
+`esri_world_imagery` is also the first shipped source to carry an
+[`absent_fingerprints`](#a-200-that-means-404) entry. Past the depth it actually holds, the
+service stops upsampling and returns a fixed grey "no data" image rather than a 404, so
+without the fingerprint that picture would be cached as imagery and baked onto a card.
 
 ---
 

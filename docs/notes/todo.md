@@ -106,6 +106,13 @@ Windows EXE installation program.  There will be a defined release mechanism and
 scheme ala the way that navMate is currently released.
 
 
+## Overlay TSD's
+
+Other kinds of things can be served that are of interest including, but not limited to
+- vector or rasterized region or political/administrative boundaries
+- placenames, bathyrimic data, points of interest, etc
+
+
 
 ## OTHER
 

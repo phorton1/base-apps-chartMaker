@@ -126,6 +126,54 @@ Two properties of `$temp_dir` are worth stating because they are inherited rathe
 chosen: it is **never cleaned up automatically**, and it is **not process-specific**.
 Anything that must be per-instance has to carry the process id in its own name.
 
+## The observation record
+
+The tier between a TSD and the cache. A TSD is **declared**, shareable and protocol-level: it
+says what is true wherever the source is reachable, and a person wrote it. The cache is
+**discovered** and per tile: it says what is at one coordinate. Neither has a home for a
+discovered fact about the **server** - how fast it answers this connection, whether it has ever
+rate limited us, whether its declared ceiling is honest - which is what both the fetch engine
+and the probe need.
+
+```
+    $temp_dir/observations/<tsd_leaf_name>.json
+```
+
+**Keyed by the same leaf name the cache uses**, so a user has one name per source rather than
+two and can prune both together. Renaming a `.tsd` orphans its observations exactly as it
+orphans its cache, which is at least coherent and costs one run's measurements.
+
+**In `$temp_dir` because losing it is cheap.** It is a fact about this computer's connection to
+that server at this time of day, not about the user's material; carried to another machine it
+would be wrong, and every value in it re-converges within a run or two.
+
+**Bounded by construction, and that is a commitment.** Everything continuous is a smoothed
+average, which deliberately forgets; everything event-shaped is a ring of the last few. A
+record is a dozen scalars and two short lists, permanently, however long the program runs.
+What grows without bound is the cache, and it always did - that is the user's real survey, and
+this is the small bounded thing beside it. Nothing **placed** ever belongs here: a per-location
+finding would need a spatial index, would go stale, and would recreate the declared coverage
+the TSD format refuses.
+
+**One file per source, and a dirty bit per source.** That gives no read-modify-write contention
+between threads touching different sources, a truncated write that loses one source's
+observations rather than all of them, and room for one source's content to grow without any of
+the others caring. A flush writes nothing at all in the common case.
+
+**The in-memory copy is the live one and the file is a checkpoint of it** - the opposite
+arrangement from the cache, and right here for the same reason it is wrong there: losing the
+last few seconds of timing observations costs nothing, and losing a tile costs a fetch. Every
+in-process reader uses the live structure and never the file, so nothing is ever waiting on a
+flush. It flushes on a clock, at the end of any bounded act, and at exit; browsing has no end,
+so without the clock a session that only panned the map would never record what it measured.
+
+**Nothing here ever edits a TSD.** A person promotes a finding into a file, deliberately. That
+keeps "declared, not detected" intact while still making detection worth doing - and it is
+load-bearing for the one finding that could otherwise cause real damage: a source that answers
+with the same bytes over and over is *probably* saying "no tile", but a source that legitimately
+serves identical tiles - solid ocean, a uniform icecap - would have real imagery declared
+missing, and nothing downstream could tell.
+
 ## Running both at once
 
 Because both environments resolve to different roots, a development chartMaker and an
@@ -136,6 +184,46 @@ The same has to hold for anything else the two would otherwise contend for, and 
 without an environment-keyed default the second application to start simply fails. The
 defaults are **9884 in development** and **9874 when installed**, and like the credential
 store location, the port is a preference and can be overridden.
+
+## Two of the same kind are refused
+
+Development beside installed is supported. **Two copies of the same one are not**, and the
+second is stopped before it has done anything rather than left to discover the problem in
+pieces. They would otherwise share one HTTP port, one ini holding the selections, and one
+tile cache written by two processes each believing it was alone.
+
+The guard is an exclusive `flock` on a file in `$temp_dir`, taken before the worker pool is
+spawned or the port is bound, and reported in a dialog because at that moment there is no
+window and no log anyone is watching. Two properties fall out of the mechanism:
+
+- **The lock is released by the operating system when the process ends**, however it ends, so
+  a crash leaves nothing stale behind. A recorded process id could not promise that - after a
+  crash there is no way to tell a live instance from a dead one whose id has been reused.
+- **`$temp_dir` is already environment-keyed**, so development and installed take different
+  locks and coexist without a rule of their own.
+
+The check lives in `Pub::SingleInstance` rather than in the HTTP server, because being the
+only copy is a property of an application and not of a port - and because it has to happen
+before the server starts, which is the wrong side of the server to live on.
+
+## When the port is not available
+
+A taken port is **not fatal**. Without the server there is no map, no tile proxy and no web
+API, but the region tree, editing, preferences and a build from what is already cached all
+work, so the application starts and says what is missing rather than refusing to run.
+
+Saying so at all takes some care, because the bind does not happen where anyone can see it.
+The server binds on its own thread, after `start()` has returned, so there is nothing for
+`start()` to hand back; and a worker thread must not raise a dialog even if a window existed
+by then, which it does not. So the thread **records** the outcome against the port and the
+main thread reads it once the frame is up. The report therefore arrives after the window is
+showing, deliberately - a modal thrown over a blank screen reads as "it failed to start",
+which is exactly what did not happen.
+
+The map menu item explains itself for the rest of the session rather than doing nothing,
+which is the part that stops a dismissed warning from becoming a mystery. The outcome is
+settled at startup and is not re-tested, so freeing the port does not restore the map until
+the next run.
 
 ## The two executables
 
@@ -159,7 +247,7 @@ The division is the whole of what makes an uninstall safe:
 | -------- | ----- | ------------ |
 | the installation | the executables, the bundled Perl, `_res` | removed |
 | `$data_dir` | region sets, TSDs, the credential store, built output, the cache | **kept** |
-| `$temp_dir` | the ini, the per-machine timing record | kept, and disposable |
+| `$temp_dir` | the ini, the per-source observation records | kept, and disposable |
 
 **Nothing the user authored is inside the installation**, which is why an upgrade is an
 install over the top and a removal takes nothing away that anybody typed.

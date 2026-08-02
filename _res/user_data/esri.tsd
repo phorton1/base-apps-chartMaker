@@ -1,0 +1,21 @@
+{
+  "tsd_version": 1,
+  "id": "esri_world_imagery",
+  "name": "Esri - ArcGIS World Imagery",
+  "kind": "remote_xyz",
+  "url": "https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+  "tile_format": "jpeg",
+  "tile_size": 256,
+  "crs": "EPSG:3857",
+  "zoom": { "min": 0, "max": 23 },
+  "notes": "Note the {z}/{y}/{x} order - row before column - which is Esri's REST tile convention, not slippy z/x/y. The service serves a tile at every level to 23, but only UPSAMPLES where it has no real imagery: it never 404s, so a blurry tile is indistinguishable from a sharp one to any automatic check. Real depth is published per area as MaxMapLevel on layer 0 of the MapServer; Panama measured 17-18, Miami and New York 19. The eye decides. BEYOND that depth it stops upsampling and serves a fixed grey 'Map data not yet available' image instead - measured over Bocas as 2521 bytes, one md5, on 100 percent of z20-22 tiles and 62 percent of z19, which is the coverage boundary showing. That image is the absent_fingerprint below, so those tiles are recorded as absences rather than baked into a card.",
+  "attribution": "Source: Esri, Vantor, Earthstar Geographics, and the GIS User Community",
+  "terms_url": "https://www.esri.com/en-us/legal/terms/web-site-service",
+  "license": "Esri Master License Agreement. Esri's service terms permit download, view, copy and print for internal or noncommercial external purposes, and prohibit systematically harvesting a service. The World Imagery item states the layer is not intended to be used to export tiles for offline. Shipped here for display only; read the terms before changing 'uses'.",
+  "redistributable": "no",
+  "absent_fingerprints": [
+    { "bytes": 2521, "md5": "f27d9de7f80c13501f470595e327aa6d" }
+  ],
+  "uses": ["display"],
+  "policy": { "max_concurrency": 6, "min_interval_ms": 0 }
+}

@@ -41,6 +41,7 @@ use Pub::UA;
 use cm_defs;
 use dm_source;
 use dm_cache;
+use dm_engine;
 
 
 BEGIN
@@ -48,6 +49,7 @@ BEGIN
 	use Exporter qw( import );
 	our @EXPORT = qw(
 		fetchTile
+		fetchUrl
 		getTile
 	);
 }
@@ -84,6 +86,52 @@ sub _ua
 }
 
 
+sub fetchUrl
+	# ONE GET, NO TILE SEMANTICS.  A metadata document is not a tile: it
+	# has no coordinate, is never cached, is not an image, and an absence
+	# of it means the service does not offer one rather than that a place
+	# is empty.  So it does not go through fetchTile and produces no
+	# observation of its own.
+	#
+	# IT LIVES HERE ANYWAY, because _ua is the only thing in the
+	# application that knows this Perl's TLS needs naming explicitly.  A
+	# second user agent built anywhere else would work against every host
+	# that was already easy and fail against exactly the ones this
+	# workaround exists for -- and it would fail as an HTTP 500, which
+	# sends whoever debugs it to the wrong machine.
+{
+	my ($url,$timeout) = @_;
+
+	my $ua = _ua();
+	my $was = $ua->timeout();
+	$ua->timeout($timeout) if $timeout;
+
+	my $started  = time();
+	my $response = $ua->get($url);
+	my $ms       = int((time() - $started) * 1000);
+
+	$ua->timeout($was) if $timeout;
+
+	my $code = $response->code();
+	display($dbg_fetch,0,"fetchUrl -> $code (${ms}ms, ".
+		length($response->content() // '')." bytes) $url");
+
+	if (($response->header('Client-Warning') || '') eq 'Internal response')
+	{
+		my $why = $response->content() || $response->message();
+		$why =~ s/\s+/ /g;
+		return { ok => 0, ms => $ms, reason => substr($why,0,160) };
+	}
+	return { ok => 0, code => $code, ms => $ms,
+		reason => $response->message() || "http $code" }
+		if $code != 200;
+
+	return { ok => 1, code => $code, ms => $ms,
+		content => $response->content(),
+		type    => $response->header('Content-Type') || '' };
+}
+
+
 sub _detectFormat
 	# The actual format, from the image's own magic bytes.  tile_format
 	# in a TSD is an expectation: servers mix formats within one source,
@@ -95,6 +143,32 @@ sub _detectFormat
 	return 'gif'  if $$dataref =~ /^GIF8[79]a/;
 	return 'webp' if $$dataref =~ /^RIFF.{4}WEBP/s;
 	return undef;
+}
+
+
+sub _declaredAbsentHeader
+	# Whether the response carries a header the source declared as its way
+	# of saying "nothing here".  Returns the header name that matched, so
+	# the caller can say which one it was, or '' for no match.
+	#
+	# NAME FIRST, exactly as _isDeclaredAbsent measures length first.  A
+	# source with no declared headers - which is nearly all of them - pays
+	# one array test per tile, and one that has them pays a hash lookup
+	# per declaration rather than a string comparison against every header
+	# the server sent.
+{
+	my ($source,$response) = @_;
+	my $hdrs = $source->{absent_headers};
+	return '' if !$hdrs || !@$hdrs;
+
+	for my $hdr (@$hdrs)
+	{
+		my $got = $response->header($hdr->{name});
+		next if !defined $got;
+		$got =~ s/^\s+|\s+$//g;
+		return $hdr->{name} if $got eq $hdr->{value};
+	}
+	return '';
 }
 
 
@@ -123,6 +197,25 @@ sub fetchTile
 
 	if ($code == 200)
 	{
+		# THE SOURCE SAID NO IN A HEADER.  Checked before the body is
+		# looked at, because a declared absent header is the server's own
+		# statement and outranks whatever it chose to send alongside it --
+		# which for the known case is a perfectly valid image.
+		#
+		# Ahead of _detectFormat for a second reason: a source that
+		# answers an absence with an error PAGE would otherwise be
+		# reported as 'not a recognised image', an error, and errors are
+		# retried forever.  An absence is a result and is cached.
+
+		my $said = _declaredAbsentHeader($source,$response);
+		if ($said)
+		{
+			display($dbg_fetch,0,"$source->{id} $z/$x/$y - the source's ".
+				"'$said' header says it has no tile here");
+			return { status => 'absent', http => $code, ms => $ms,
+				reason => "the source's '$said' header says it has no tile here" };
+		}
+
 		my $data   = $response->content();
 		my $format = _detectFormat(\$data);
 
@@ -132,11 +225,13 @@ sub fetchTile
 			# most like success.  It is usually an error page.
 
 			return { status => 'error', http => $code, ms => $ms,
+				class => 'garbage',
 				reason => 'response is not a recognised image' };
 		}
 		if ($format ne 'jpeg' && $format ne 'png')
 		{
 			return { status => 'error', http => $code, ms => $ms,
+				class => 'garbage',
 				reason => "image format '$format' is not supported" };
 		}
 
@@ -163,6 +258,7 @@ sub fetchTile
 		$why = substr($why,0,160);
 		display($dbg_fetch,0,"fetch FAILED $source->{id} $z/$x/$y - local: $why");
 		return { status => 'error', ms => $ms, local => 1,
+			class => 'transport',
 			reason => "could not reach the source - $why" };
 	}
 
@@ -178,7 +274,32 @@ sub fetchTile
 	my $reason = $why{$code} || $response->message() || "http $code";
 	display($dbg_fetch,0,"fetch FAILED $source->{id} $z/$x/$y - $reason");
 
-	return { status => 'error', http => $code, ms => $ms, reason => $reason };
+	# THE CLASS BESIDE THE PROSE, and the reason there are two.  The
+	# sentence is for a person reading a log; the class is the only part
+	# with a policy consequence, and each of these has exactly one:
+	#
+	#	rate_limited  back off this source, and obey Retry-After if given
+	#	auth          stop and tell the user; retrying cannot help
+	#	transport     retry a few times
+	#	server        retry a few times
+	#	garbage       do not retry
+	#
+	# A 503 CARRYING Retry-After IS RATE LIMITING wearing a different
+	# number.  A service under real load and a service telling you to slow
+	# down are indistinguishable from here, and the header is the tell:
+	# nobody attaches a wait to an outage they did not schedule.
+
+	my $retry_after = $response->header('Retry-After');
+	my $class =
+		$code == 429                                 ? 'rate_limited' :
+		$code == 503 && defined($retry_after)        ? 'rate_limited' :
+		($code == 401 || $code == 403)               ? 'auth'         :
+		$code >= 500                                 ? 'server'       :
+		                                               'server';
+
+	return { status => 'error', http => $code, ms => $ms,
+		class => $class, reason => $reason,
+		defined($retry_after) ? ( retry_after => $retry_after ) : () };
 }
 
 
@@ -210,8 +331,24 @@ sub getTile
 	# The tile, cache first.  This is what everything actually calls --
 	# the map, the preview, the evaluator and the build alike, which is
 	# what makes displaying and building share one cache.
+	#
+	# THE ENGINE IS BELOW THIS, NOT ABOVE IT.  Everything that wants a tile
+	# still calls getTile and still blocks until it has one; what changed is
+	# that the request now goes out through a paced, bounded queue instead
+	# of straight at somebody's server.  That is why the proxy became paced
+	# without em_server changing at all.
+	#
+	# THE CACHE CHECK STAYS ON THE CALLING THREAD, deliberately.  A cache
+	# hit is a local file read of a few milliseconds and it is the common
+	# case by a wide margin; sending it through a queue would add a thread
+	# handoff to the cheapest thing this application does, and would let a
+	# saturated pool make cached panning feel slow.
+	#
+	# opts: priority  interactive or bulk; interactive queues ahead
+	#       advisory  a per-run interval floor from a build configuration
 {
-	my ($source,$z,$x,$y) = @_;
+	my ($source,$z,$x,$y,$opts) = @_;
+	$opts ||= {};
 
 	my $cached = cacheGet($source,$z,$x,$y);
 	if ($cached)
@@ -234,8 +371,22 @@ sub getTile
 		return $cached;
 	}
 
-	my $result = fetchTile($source,$z,$x,$y);
+	my $result = engineFetch($source,$z,$x,$y,
+		$opts->{priority},$opts->{advisory});
 	$result->{cached} = 0;
+
+	# THE OBSERVATION RECORD IS WRITTEN BY THE ENGINE, NOT HERE.  It used to
+	# be recorded at this point, which was correct only while getTile was
+	# the sole route to the network.  It stopped being that the moment
+	# dm_fill became a client of the engine and started calling
+	# engineSubmit directly: a fill is the largest source of traffic in the
+	# whole application, and it recorded nothing at all - no round trip, no
+	# error classes, and a clean-request counter that never advanced, so a
+	# ceiling could never be learned as honest.
+	#
+	# The recording belongs where every request actually leaves, which is
+	# the same argument that put the ENGINE below getTile's callers rather
+	# than above dm_fill.  See _doFetch in dm_engine.
 
 	# A 200 THAT MEANS 404.  Recorded as the absence it is, so it is
 	# never asked for again and never reaches a card.

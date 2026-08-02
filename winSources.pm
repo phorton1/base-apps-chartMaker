@@ -31,6 +31,7 @@ use cm_defs;
 use cm_state;
 use dm_source;
 use dm_cache;
+use dm_probe;
 use base qw(Wx::SplitterWindow Pub::WX::Window);
 
 
@@ -92,12 +93,26 @@ sub new
 	$this->{ctl_use}->Enable(0);
 	$this->{ctl_rescan} = Wx::Button->new($right,-1,'Rescan',
 		wxDefaultPosition,[$LBL,-1]);
+
+	# ASK THE SERVICE WHAT IT IS.  One request and no imagery, so it is a
+	# button rather than anything that needs confirming -- but it does go
+	# to the network, which is why it says so and why it is not run on
+	# selection.
+
+	$this->{ctl_probe} = Wx::Button->new($right,-1,'Probe',
+		wxDefaultPosition,[$LBL,-1]);
+	$this->{ctl_probe}->SetToolTip(
+		'Ask the service what it says about itself - one request, no imagery');
+	$this->{ctl_probe}->Enable(0);
+
 	$this->{ctl_what} = Wx::StaticText->new($right,-1,'');
 
 	my $row = Wx::BoxSizer->new(wxHORIZONTAL);
 	$row->Add($this->{ctl_use},0,$CV,0);
 	$row->AddSpacer(10);
 	$row->Add($this->{ctl_rescan},0,$CV,0);
+	$row->AddSpacer(10);
+	$row->Add($this->{ctl_probe},0,$CV,0);
 	$row->AddSpacer(16);
 	$row->Add($this->{ctl_what},0,$CV,0);
 
@@ -121,6 +136,7 @@ sub new
 	EVT_LEFT_DOWN($this->{tree},sub { $this->onTreeLeftDown($_[1]) });
 	EVT_BUTTON($this,$this->{ctl_use},\&onUse);
 	EVT_BUTTON($this,$this->{ctl_rescan},\&onRescan);
+	EVT_BUTTON($this,$this->{ctl_probe},\&onProbe);
 
 	$this->{seen_seq} = -1;
 	$this->{timer} = Wx::Timer->new($this,-1);
@@ -284,6 +300,7 @@ sub onUse
 sub onRescan
 {
 	my ($this,$event) = @_;
+	delete $this->{probed};
 	my $found = rescanSources();
 	display(0,0,"winSources: rescan found $found source".($found == 1 ? '' : 's'));
 	bumpState("sources rescanned");
@@ -295,6 +312,43 @@ sub onRescan
 sub onSelect
 {
 	my ($this,$event) = @_;
+
+	# A NEW SELECTION DROPS THE PROBE RESULT.  The findings are about ONE
+	# source, and leaving them on screen under a different source's name
+	# is the kind of thing somebody acts on before they notice.
+
+	delete $this->{probed};
+	$this->showProperties();
+}
+
+
+sub onProbe
+	# ON THE MAIN THREAD, ON PURPOSE.  Every other network act in this
+	# application is on a worker with a progress dialog, because a fill is
+	# thousands of requests over hours.  This is ONE request, and the two
+	# measured cases are 0.7s for ArcGIS and 7.8s for the 5.3 MB GIBS
+	# capabilities document -- long enough to want the cursor to say so,
+	# nowhere near long enough to earn a thread, a cancel button and a
+	# progress record.
+	#
+	# The busy cursor is therefore the whole of the UX here, and it is
+	# honest: the window really is unresponsive for those seconds.
+{
+	my ($this,$event) = @_;
+	my $id  = $this->selectedId();
+	my $src = $id ? getSource($id) : undef;
+	return if !$src;
+
+	$this->{ctl_probe}->Enable(0);
+	$this->{ctl_what}->SetLabel('asking the service...');
+	$this->{props}->SetValue("asking $src->{name}...\n");
+	$this->{props}->Update();
+
+	my $busy = Wx::BusyCursor->new();
+	my $found = probeSource($src);
+	undef $busy;
+
+	$this->{probed} = $found;
 	$this->showProperties();
 }
 
@@ -312,6 +366,7 @@ sub showProperties
 	if (!$src)
 	{
 		$this->{ctl_use}->Enable(0);
+		$this->{ctl_probe}->Enable(0);
 		$this->{ctl_what}->SetLabel('');
 		$this->{props}->SetValue("no source selected\n");
 		return;
@@ -320,8 +375,24 @@ sub showProperties
 	my $active = _activeId();
 	my $is_on  = ($active && $id eq $active) ? 1 : 0;
 	$this->{ctl_use}->Enable($is_on ? 0 : 1);
+	$this->{ctl_probe}->Enable(1);
 	$this->{ctl_what}->SetLabel($is_on ?
 		'this is the source the map is showing' : '');
+
+	# THE PROBE'S FINDINGS REPLACE THE PANEL RATHER THAN JOINING IT, and
+	# that is deliberate.  What the file declares and what the service
+	# answers are two different claims, and interleaving them makes it
+	# impossible to see which is which -- which is exactly the confusion
+	# the disagreement list exists to resolve.  Selecting anything, or
+	# rescanning, brings the file's own properties back.
+
+	if ($this->{probed})
+	{
+		$this->{ctl_what}->SetLabel('what the SERVICE says - select again '.
+			'for what the FILE says');
+		$this->{props}->SetValue(join("\n",@{probeLines($this->{probed})})."\n");
+		return;
+	}
 
 	my $text = '';
 	for my $key (qw( id name kind file cache_key tile_format tile_size crs
@@ -344,6 +415,32 @@ sub showProperties
 	{
 		$text .= sprintf("%-16s %s\n",'credentials',
 			join(',',map { $_->{slot} } @{$src->{credentials}}));
+	}
+
+	# HOW THIS SOURCE SAYS NO.  Counts rather than the values themselves:
+	# a digest and a header token are not things a person reads, and what
+	# is worth knowing here is whether the source has been taught to say
+	# it at all -- an Esri source showing no fingerprints is a source that
+	# will bake grey 'not yet available' tiles into a card.
+
+	my $fps  = $src->{absent_fingerprints} || [];
+	my $hdrs = $src->{absent_headers} || [];
+	$text .= sprintf("%-16s %d fingerprint%s, %d header%s\n",'says absent',
+		scalar(@$fps),  scalar(@$fps)  == 1 ? '' : 's',
+		scalar(@$hdrs), scalar(@$hdrs) == 1 ? '' : 's')
+		if @$fps || @$hdrs;
+
+	# REGISTRATION IS ADVISORY AND SAYS SO IN THE SAME BREATH.  The field
+	# is a statement that this imagery is knowingly displaced -- GCJ-02 is
+	# off by a few hundred metres -- and the application does not correct
+	# it.  Showing the name without showing that nothing acts on it would
+	# read as "handled", which is the one impression it must not give.
+
+	if (defined $src->{registration})
+	{
+		$text .= "\n".sprintf("%-16s %s\n",'registration',$src->{registration});
+		$text .= sprintf("%-16s %s\n",'',
+			'this imagery is displaced and chartMaker does NOT correct it');
 	}
 
 	$text .= "\n".sprintf("%-16s %s\n",'attribution',$src->{attribution});

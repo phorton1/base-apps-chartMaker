@@ -28,6 +28,9 @@ use dm_set;
 use dm_source;
 use dm_cache;
 use dm_fetch;
+use dm_observe;
+use dm_engine;
+use dm_probe;
 use dm_region;
 use dm_coverage;
 use cm_config;
@@ -309,6 +312,116 @@ sub _sourceCommand
 		display(0,1,sprintf("%-16s %s",'credentials',
 			join(',',map { $_->{slot} } @{$src->{credentials}})));
 	}
+}
+
+
+sub _engineCommand
+	# 'engine'          what the pool has been doing
+	# 'engine <id>'     and what it would do for one source right now
+	#
+	# WORTH HAVING BECAUSE THE ENGINE IS OTHERWISE INVISIBLE.  Everything it
+	# does is a thing that does NOT happen - a request that waited, a retry
+	# that was not made, a source that is backed off - and there is no
+	# screen anywhere that a delay shows up on.
+{
+	my ($rpart) = @_;
+	my $stats = engineStats();
+
+	display(0,0,"engine");
+	display(0,1,sprintf("%-16s %s",'pool',$stats->{pool} ?
+		"$stats->{pool} workers" :
+		'not running - fetches happen on the calling thread'));
+	display(0,1,sprintf("%-16s %d",'queued',$stats->{queued} || 0));
+	display(0,1,sprintf("%-16s %d",$_,$stats->{$_} || 0))
+		for grep { defined $stats->{$_} }
+			qw( requests retries unretried backoffs interactive bulk );
+	display(0,1,sprintf("%-16s %s",'backed off',
+		$stats->{backed_off} || 'nothing'));
+
+	my ($id) = split(/\s+/,$rpart || '');
+	return if !defined($id) || !length($id);
+
+	my $src = getSource($id);
+	if (!$src)
+	{
+		warning(0,0,"engine: no source with id '$id'");
+		return;
+	}
+
+	# WHAT IT WOULD DO RIGHT NOW, which is not a stored value: it is the
+	# composition of the TSD, the two preferences and any live backoff,
+	# recomputed on the spot.  That is the number to check against when a
+	# fill seems slower or faster than expected.
+
+	display(0,1,'');
+	display(0,1,"for '$id'");
+	display(0,2,sprintf("%-16s %d ms",'interval',engineInterval($src,0)));
+	display(0,2,sprintf("%-16s %d",'concurrency',engineConcurrency($src,0)));
+
+	my $rec = obsRecord($src);
+	display(0,2,sprintf("%-16s %d ms",'measured rtt',$rec->{rtt_ms} || 0));
+	display(0,2,sprintf("%-16s %d ms",'ms per tile',$rec->{ms_per_tile} || 0));
+	display(0,2,sprintf("%-16s %s",'ceiling',$rec->{ceiling} || 'unknown'));
+	display(0,2,sprintf("%-16s %s",'seen a 429',$rec->{saw_429} ?
+		"yes, at $rec->{saw_429_interval} ms and ".
+		"$rec->{saw_429_concurrency} concurrent" : 'no'));
+}
+
+
+sub _probeCommand
+	# 'probe <id>'            what the service says about itself
+	# 'probe <id> <z> <x> <y> [n]'   which tiles an n x n block holds
+	#
+	# THE SAME RENDERING THE PANE READS.  probeLines is called here and by
+	# winSources, so the console and the window cannot drift -- the same
+	# discipline the build report and the analysis already follow.
+{
+	my ($rpart) = @_;
+	my ($id,$z,$x,$y,$n) = split(/\s+/,$rpart);
+
+	if (!defined($id) || !length($id))
+	{
+		warning(0,0,"probe: usage is 'probe <id>' or ".
+			"'probe <id> <z> <x> <y> [block]'");
+		return;
+	}
+	my $src = getSource($id);
+	if (!$src)
+	{
+		warning(0,0,"probe: no source with id '$id'");
+		return;
+	}
+
+	# THE PLACED FORM IS A DIFFERENT ACT and is only offered where the
+	# family supports it, which is why it refuses rather than falling back
+	# to fetching the tiles one at a time.
+
+	if (defined $y)
+	{
+		$n ||= 8;
+		my $tm = probeTilemap($src,$z,$x,$y,$n,$n);
+		if (!$tm->{ok})
+		{
+			warning(0,0,"probe: $tm->{reason}");
+			return;
+		}
+		display(0,0,"probe $id tilemap $z/$x/$y ${n}x${n}");
+		display(0,1,"$tm->{count_present} of $tm->{count_total} present ".
+			"in $tm->{ms} ms, one request");
+
+		# The block drawn as it lies on the ground: row major, north at
+		# the top, which is the only reading of a coverage answer that is
+		# worth having in a console.
+
+		for my $r (0..$n-1)
+		{
+			my @row = @{$tm->{present}}[$r*$n .. $r*$n+$n-1];
+			display(0,2,join('',map { $_ ? '#' : '.' } @row));
+		}
+		return;
+	}
+
+	display(0,1,$_) for @{probeLines(probeSource($src))};
 }
 
 
@@ -1462,6 +1575,14 @@ sub dispatchCommand
 	elsif ($lpart eq 'tile')
 	{
 		_tileCommand($rpart);
+	}
+	elsif ($lpart eq 'probe')
+	{
+		_probeCommand($rpart);
+	}
+	elsif ($lpart eq 'engine')
+	{
+		_engineCommand($rpart);
 	}
 	elsif ($lpart eq 'cache')
 	{
