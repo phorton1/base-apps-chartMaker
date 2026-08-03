@@ -124,6 +124,7 @@ sub analyseFetch
 		secs_est	=> 0,
 		est_known	=> 1,		# 0 if any source has no basis for an estimate
 		missing_src	=> [],		# resolved ids that are not installed
+		displaced	=> [],		# sources that declare a displacement
 		zagree		=> undef,	# set when the card would disagree with itself
 		overwrite	=> [],		# cards in out_dir this build would replace
 		foreign		=> [],		# cards in out_dir NOT part of this build
@@ -159,6 +160,18 @@ sub analyseFetch
 			if (!$seen_src{$sid}++)
 			{
 				push @{$out->{source_order}},$sid;
+
+				# DISPLACEMENT REACHES PREFLIGHT.  The source list shows it
+				# to whoever goes looking; this carries it to the one moment
+				# somebody is certainly looking, which is the dialog that
+				# starts the run.  Collected here because this is where the
+				# sources a build will actually use are resolved.
+
+				push @{$out->{displaced}},
+					{ id => $sid, name => $src->{name},
+					  displacement => $src->{displacement} }
+					if defined $src->{displacement};
+
 				$out->{sources}{$sid} = {
 					id => $sid, name => $src->{name},
 					total => 0, cached => 0, absent => 0, need => 0,

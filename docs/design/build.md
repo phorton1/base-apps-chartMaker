@@ -269,6 +269,13 @@ source; it does not mean retry this coordinate sooner. It doubles on repetition,
 halving on success rather than clearing outright - clearing sends the next burst straight back
 into the limit - and never makes the client faster than the settings already allow.
 
+**What a response MEANS is decided where the request lands, not by whoever asked.** The
+sentinel check that turns a "200 that means 404" into an absence, and the cache write, both
+happen at the engine's own fetch, so every route to the network gets them: the map proxy, a
+fill, a build's fill phase, a probe. Anything hanging off "the only route to the network" has
+to live there rather than in one of its callers, which is the same argument that put the
+observation record there.
+
 **The engine governs when a request goes out, never when a result is stored.** Tiles still
 commit one at a time, on arrival, in every mode. Resume being nearly free and the coverage
 picture accumulating from ordinary use both depend on that, and neither is the engine's to
@@ -353,6 +360,184 @@ hole by a different route.
 outstanding and lets the engine decide when each one leaves; it does no pacing of its own and
 sleeps nowhere. A cache hit still short-circuits everything and never reaches the engine, so a
 resumed run over cached ground goes at local disk speed.
+
+## The probe
+
+**A probe is about a SOURCE.** It asks whether a service is any good here and how deep it
+holds up, so that choosing among a folder of candidate `.tsd` files stops being guesswork.
+
+A region contributes its polygons and **nothing else** - not `zmin`, not `zmax`, not
+`zauthor`, and above all not the source it is assigned. The zoom range is asked for, not
+derived. Any installed source may be probed, including a display-only one.
+
+**It is started by right-clicking the node to probe** - in the tree, or on the map - and never
+from a menu that would have to ask for an area it was not told. The gesture says where; the
+dialog then asks the two things it did not, which are the source and the range. Nothing picks a
+source on the user's behalf: the source is the subject, and choosing it silently would answer
+the only question being asked.
+
+**The dialog opens on the node's own band**, and that is a default rather than a derivation. A
+region gives its `zmin`..`zmax`; a subregion gives the band it adds above its parent, starting
+at that parent's `zmax + 1` - which is the region model's own definition and the reason a
+subregion carries only a `zmax`. Those are exactly the levels a source is about to be asked to
+satisfy, so it is a better opening guess than a preference somebody set once and now has to
+change per node. **Nothing clamps to it.** What is sampled is whatever the spinners say, and
+they reach z0-24 whatever the region or the file declares.
+
+**The source and the range are remembered for the session** - in the application and in the
+browser, separately, neither being the other's state to change. Comparing several services over
+one area means opening this repeatedly, and re-picking from the top of the list every time is
+the friction that stops somebody running the third and fourth probe. Not written to disk: it is
+about what is being done now, not about what was meant last month.
+
+**Why it cannot be about a region.** Once a region names its source and its levels, the build
+already answers coverage exactly within those constraints; sampling it would re-derive
+something already known precisely. The expensive question is the other one: with
+twenty-five candidate services, which are worth specifying at all? That question has no
+region in it, and the geometry is only where you stand to look.
+
+### Three questions, in falling order of certainty
+
+| question | how | cost |
+| --- | --- | --- |
+| does it **answer** here | a refusal | free, and exact |
+| does it **admit** it has nothing | a declared no-data body | free, and exact |
+| is what it returns **imagery** | a flat fill is neither | one decode |
+| does **depth** buy anything | against the sample's own parent | a second fetch and two decodes |
+
+**A refusal and a sentinel are not the same finding.** A 404 is a service saying "I have
+nothing here". A 200 carrying a known no-data image is a service *declining to say so* - you
+only know because somebody fingerprinted it, and until they did, every one of those counted as
+imagery. The second is a worse property of a service and it is exactly what a candidate
+evaluation should surface, so the two are reported separately rather than folded into one
+`absent`.
+
+**The first is often the whole answer.** A source that refuses tiles it does not have
+declares its own ceiling by refusing: three quarters of a level coming back absent is not a
+subtle statistic. A source that never refuses anything at any depth declares nothing, and for
+that class the depth test is the only instrument there is. Both regimes are real, and the
+report says which one it is looking at rather than leaving it to be inferred from a column of
+zeroes.
+
+**Caching a blown-up tile is worse than not having it.** A z18 magnified from z15 costs
+sixty-four times the storage and sixty-four times the fetches of its ancestor, and the plotter
+would have overzoomed a pixel-identical result from that ancestor for nothing - which is what
+the RCT format is built to do. So the depth answer is not curiosity about a service's honesty.
+It is the level past which you are paying for tiles the device fakes for free.
+
+### Stratified, on the canonical grid
+
+For each level the sampler takes the **coarsest set of cells that holds enough of them**,
+quantised against the polygons at each step, and draws one descendant inside each. Pure random
+draws clump, which is tolerable for a ratio and useless for a map.
+
+**Quantised at each level, never descended arithmetically.** The children of a covering tile
+include every child that lies inside the tile and outside the area, so descending from a coarse
+level over a small one produces a set that is mostly nowhere near it. Quantising directly costs
+the area's bounding box in tiles *at that level*, and the search stops the moment there are
+enough cells - so the most expensive call is bounded by the sample count rather than by the
+depth being probed, and a z19 sample never enumerates z19.
+
+It also self-balances. A large area has enough cells while they are still coarse, and a coarse
+cell of a large area is mostly interior; a small area keeps going until its cells are small
+relative to it. Either way a descendant drawn inside a cell is usually on the ground, and it is
+checked against the same geometry the build walks rather than a cheaper test.
+
+**`min(num_samples[z], level size)`.** A level holding fewer tiles than the sample count is
+enumerated exhaustively, and its row says `all` rather than `sampled`. Nothing is extrapolated:
+a row reports what came back.
+
+**Choose the points, then resolve them.** Selection never consults the cache. Resolution is
+cache first like every other request, so earlier runs make a run cheaper without making it
+biased - which is the whole reason they are separate steps.
+
+**A network failure is not an outcome** and never enters the ratio. A timeout says nothing
+about whether a tile exists, so counting it as an absence would report a bad connection as
+missing imagery. Failures are counted and named separately.
+
+### The sample arrives with its parent
+
+Answering "does depth buy anything" means comparing a tile against the level above it, and a
+sample drawn independently at each level has neither its children nor reliably its parents. So
+each sample's parent is **fetched alongside it**. That costs about twice the requests and keeps
+every level's draws statistically independent, which sampling a chain from the deepest level
+would not.
+
+**The control is a tile, not a number.** Comparing a tile's detail against an absolute number
+cannot work: uniform ground and invented pixels are both smooth, and no threshold separates
+them - which is exactly why a compression-ratio test was tried and abandoned. Comparing it
+against its parent magnified does not work either, because a service magnifies and then
+re-encodes, and the encoder puts ringing back as high-frequency content a parent magnified in
+memory has none of.
+
+So the false answer is **manufactured, per sample, and divided out**. The parent's own quadrant
+is magnified and encoded to the length in bytes the child actually arrived in - which is the
+tile the service would have sent had it held nothing at this level. Same ground, same parent,
+same encoder, same compression. The question stops being "how much detail is this" and becomes
+"how much more than that", and everything that defeated the earlier measures is present on both
+sides of the division.
+
+**What is reported is a number per level, not a verdict per tile**: the median of that ratio.
+1.0 means the level is indistinguishable from the one above blown up, and real imagery runs
+about 1.5 to 5. **Read where it falls, not what it is** - the fall is where depth stops being
+worth fetching, and it is legible even when no single tile crosses any threshold.
+
+That deliberately does not distinguish "the service invented these pixels" from "the ground has
+no detail at this scale". For deciding what to build those are the same answer, and the second
+is not knowable anyway. It also **cannot see through sharpening**: a service that magnifies and
+then sharpens has invented fine detail, and invented fine detail is fine detail. It catches the
+naive magnification, which is the case that costs sixty-four times the storage for nothing, and
+it guides a person choosing a `zmax` rather than deciding for them.
+
+**It is measured, and it has a fixed point.** A known magnification fed in as the child reads
+1.00 - which is the test the previous measure would have failed, and the reason it is worth
+printing where that one was not.
+
+**And it has been checked against a human eye exactly once.** Over one property, a service's
+column fell 3.19, 2.36, 1.51 across three levels and the real imagery genuinely stops where the
+fall is. That is one confirmed case on one service in one place, which is enough to print a
+column and nowhere near enough to draw a conclusion from. The report says so in those words, and
+**there is no per-tile verdict anywhere** - a threshold on this fired on open water at a coarse
+level, where a blow-up costs a handful of tiles and nobody would choose differently, and stayed
+silent at the depth where the enlargement is visible without any instrument at all.
+
+For a service that refuses what it does not have - which is most of a shipped catalog - none of
+this is needed and the free columns are the whole answer.
+
+Everything else here stands on its own: **absent against found needs no pixels at all**, and
+for a service that refuses what it does not have that is the entire answer.
+
+### It needs a decoder, and works without one
+
+Pixels are reached through one narrow seam that decodes a tile and encodes one - the same seam
+the exporter will use to turn a png source into a jpeg for a card. Neither consumer resamples
+output, reprojects or composites.
+
+**With no decoder installed the probe still runs**, reports samples, found and absent, and
+leaves the depth columns blank rather than zero. Blank reads as *not measured*; a zero would
+read as *none of these were blow-ups*, which is a claim. The same rule covers ground with no
+variation to divide by: no number, rather than an accusation. For a source that refuses what it
+does not have, the free columns are the whole answer regardless.
+
+**Measuring depth is asked for and can be declined**, and what it costs is a second fetch per
+sample plus about a tenth of a second of processing. That is a price, not a doubt, and it is
+stated where it is chosen.
+
+### What is remembered, and what is not
+
+**Nothing placed survives the probe.** Coverage findings live for as long as probe mode does
+and then they are gone. There is no result file and no spatial index: a placed finding has no
+home in the observation record by that record's own rule, and re-running is cheap because the
+tiles a run fetched are in the cache.
+
+**Two placeless facts do persist**, both about the server rather than about a place:
+
+- **rate statistics**, as every other act already contributes.
+- **candidate fingerprints.** A body that comes back byte-identical at several different
+  coordinates is offered as a possible "no tile" marker, with one copy of the image kept beside
+  the observation record so a person can look at it. **Never acted on** - a source that
+  legitimately serves identical tiles, open ocean or a uniform icecap, would have real imagery
+  declared missing and nothing downstream could tell. A person promotes it into the `.tsd`.
 
 ## Editor and preview are one component in two modes
 
@@ -579,6 +764,8 @@ installation-wide preferences:
 | requests at once | installation | the pool size; **requires a restart** |
 | slowest interval | installation | a floor under every source |
 | advisory interval | per set | in the build configuration, per source the set uses |
+| `num_samples[z]` | installation | how many tiles the sampler draws per level; a table, not a scalar |
+| finish-by budget | per set | a **computed** advisory interval, never a stop condition |
 
 **`max()`, never a replacement.** That one operator is the whole of what keeps a
 user-settable rate from becoming a way to violate a source's declared policy: every one of
@@ -587,7 +774,19 @@ only ever make you narrower - and a client-wide cap is the only limiter measured
 unit anyway, because a ban is per client rather than per source and several services share
 infrastructure.
 
-The two installation knobs are preferences because a user's connection, conscience and patience
+**Rate knobs compose one way and the sample count does not.** Interval and concurrency may only
+make the client gentler, which is what `max()` and `min()` enforce. Raising `num_samples[z]`
+sends more requests but not faster ones, because the sampler goes through the engine and the
+engine still paces it, so the two are independent and neither operator has to reach the sample
+count.
+
+**"Finish by 6am" is an interval, not a deadline.** It is computed from remaining tiles over
+remaining time and enters the same `max()` as everything else, so it can only ever make a run
+slower than declared. Expressed that way it cannot become a way to go faster, and it is the
+honest version of what an overnight run means: a run that has not finished by six is a run
+with fewer samples, not a run that sped up to make the time.
+
+The installation knobs are preferences because a user's connection, conscience and patience
 genuinely differ. That is the test: the observation record's flush interval is a constant
 rather than a preference precisely because no user has a basis on which to choose it and no
 outcome differs if they choose badly.

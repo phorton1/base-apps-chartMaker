@@ -41,6 +41,10 @@ use cm_utils;
 use dm_set;
 use dm_region;
 use dm_source;
+use dm_sample;
+use w_probe;
+use w_probecfg;
+use w_resources;
 use base qw(Wx::SplitterWindow Pub::WX::Window);
 
 
@@ -62,6 +66,7 @@ my $MENU_NEW_SUB	= 10504;
 my $MENU_DELETE		= 10505;
 my $MENU_EXPLORE	= 10506;
 my $MENU_RESCAN		= 10507;
+my $MENU_PROBE		= 10508;
 
 
 sub _makeCheckBitmap
@@ -321,7 +326,7 @@ sub new
 	EVT_RIGHT_DOWN($this->{tree},sub { $this->onTreeRightDown($_[1]) });
 	EVT_MENU($this,$_,\&onTreeMenu) for ($MENU_COMMIT, $MENU_REVERT,
 		$MENU_NEW_REGION, $MENU_NEW_SUB, $MENU_DELETE, $MENU_EXPLORE,
-		$MENU_RESCAN);
+		$MENU_RESCAN, $MENU_PROBE);
 	# Name and zoom are STAGED and committed by Save.  Applying them as
 	# they were typed meant saving the file on every spinner tick, and
 	# each save rebuilt the tree, which destroyed the very item being
@@ -712,6 +717,15 @@ sub onTreeRightDown
 
 		$menu->Append($MENU_NEW_SUB,'New subregion...');
 		$menu->AppendSeparator();
+
+		# PROBE IS REACHED BY POINTING AT WHAT TO PROBE, which is why it is
+		# here rather than on the Build menu where it started.  A probe is
+		# about a SOURCE, but it has to be told where to stand and look,
+		# and a node is exactly that - so the gesture supplies the area and
+		# the dialog asks only which source and how deep.
+
+		$menu->Append($MENU_PROBE,"Probe over $what...");
+		$menu->AppendSeparator();
 		$menu->Append($MENU_COMMIT,"Commit '$node->{root_id}'");
 		$menu->Append($MENU_REVERT,"Revert '$node->{root_id}'...");
 		$menu->Enable($MENU_COMMIT,$dirty ? 1 : 0);
@@ -722,6 +736,62 @@ sub onTreeRightDown
 
 	$this->{_menu_node} = $node;
 	$this->PopupMenu($menu,$event->GetPosition());
+}
+
+
+sub probeDialog
+	# START A PROBE OVER THE NODE THAT WAS CLICKED.
+	#
+	# The gesture already said WHERE, so the dialog asks only which source
+	# and how deep.  A probe is about a source; the node is where to stand
+	# and look, and offering a list of areas here would be a second way to
+	# choose one that could disagree with the node under the pointer.
+{
+	my ($this,$node) = @_;
+	return if !$node;
+
+	if (probeRunning())
+	{
+		Wx::MessageBox("A probe is already running.\n\n".
+			"Halt it in the Probe pane first - two runs publish into one ".
+			"result set.",
+			$$resources{app_title},wxOK | wxICON_INFORMATION,$this);
+		return;
+	}
+	if (!getSourceIds())
+	{
+		Wx::MessageBox("No sources are installed.",
+			$$resources{app_title},wxOK | wxICON_EXCLAMATION,$this);
+		return;
+	}
+
+	my $scope = $node->{is_root} ?
+		{ region => $node->{root_id} } :
+		{ region => $node->{root_id}, sub => $node->{id} };
+	my $label = $node->{is_root} ? $node->{root_id} :
+		"$node->{root_id}/$node->{id}";
+
+	my $frame = Pub::WX::Frame::getAppFrame();
+	my $dlg = w_probecfg->new($frame,$label,$scope);
+	my $go  = $dlg->ShowModal();
+	my ($src_id,$opts) = $dlg->chosen();
+	$dlg->Destroy();
+	return if $go != wxID_OK || !$src_id;
+
+	# THE MODE FIRST, THEN THE PANE THAT SHOWS IT.  Raised rather than
+	# duplicated: two tables of one result set would be two things to keep
+	# in step for no gain, which is what findPane settles.
+
+	probeSetMode(1);
+	my $pane = $frame->findPane($WIN_PROBE) || $frame->createPane($WIN_PROBE);
+
+	my $prog = newProgress(1,'');
+	$prog->{active} = 1;
+	$prog->{phase}  = 'Sampling';
+	$pane->setProgress($prog) if $pane;
+
+	threads->create(\&dm_sample::sampleWorker,$prog,[$src_id,$scope],
+		$opts)->detach();
 }
 
 
@@ -816,6 +886,11 @@ sub onTreeMenu
 	if ($id == $MENU_NEW_REGION)
 	{
 		$this->newRegionDialog();
+		return;
+	}
+	if ($id == $MENU_PROBE)
+	{
+		$this->probeDialog($node);
 		return;
 	}
 	if ($id == $MENU_NEW_SUB)

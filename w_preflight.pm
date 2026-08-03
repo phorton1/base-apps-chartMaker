@@ -18,16 +18,17 @@
 # WHAT IT SHOWS, in the order it matters:
 #
 #	how many tiles, per SOURCE, and how long
+#	whether any source declares a DISPLACEMENT
 #	which cards it will REPLACE
 #	which cards are in that folder and are NOT part of this build
 #	whether the card would disagree with itself about zauthor / zmin
 #
-# The third is the one nobody asks for and is the more dangerous: a card
+# The fourth is the one nobody asks for and is the more dangerous: a card
 # left from an earlier set or a renamed region is still read by the
 # plotter, still contributes to the pyramid, and is invisible everywhere
 # else.
 #
-# The fourth WARNS AND DOES NOT REFUSE.  Trying a new zauthor on one
+# The fifth WARNS AND DOES NOT REFUSE.  Trying a new zauthor on one
 # region before converting a whole chartset is a legitimate thing to want,
 # and a refusal makes it impossible.  The author decides - which is the
 # same position this application takes about imagery depth.
@@ -117,7 +118,7 @@ sub new
 
 	$nc->SetForegroundColour(Wx::Colour->new(170,0,0))
 		if $an->{zagree} || @{$an->{overwrite}} || @{$an->{foreign}} ||
-		   @{$an->{missing_src}};
+		   @{$an->{missing_src}} || @{$an->{displaced}};
 	$y += 200;
 
 	# ---- START IS NOT THE DEFAULT BUTTON.  The whole dialog exists
@@ -146,6 +147,22 @@ sub _notes
 	{
 		push @n,"THESE SOURCES ARE NOT INSTALLED and the build will refuse:";
 		push @n,"  $_" for @{$an->{missing_src}};
+		push @n,'';
+	}
+
+	if (@{$an->{displaced}})
+	{
+		# THE FAILURE NO STRUCTURAL CHECK CAN CATCH.  The tiles are valid,
+		# the grid is right, they align with each other, and they are in
+		# the wrong place on the earth.  Said here because the source list
+		# only tells whoever goes looking, and this is the last moment
+		# before hours of fetching.  A WARNING, NOT A REFUSAL - a consumer
+		# may apply its own offset and the purpose may not be navigation.
+
+		push @n,"WARNING - displaced imagery. This build will NOT align with GPS.";
+		push @n,sprintf("  %-20s %s",$_->{name},$_->{displacement})
+			for @{$an->{displaced}};
+		push @n,"  chartMaker records the displacement and does NOT correct it.";
 		push @n,'';
 	}
 

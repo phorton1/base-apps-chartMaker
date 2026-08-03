@@ -84,7 +84,7 @@ my @FORMATS			= qw( jpeg png );
 my @FIELDS = qw(
 	tsd_version id name notes kind url subdomains tile_format tile_size
 	crs zoom attribution terms_url license redistributable uses
-	credentials policy absent_fingerprints absent_headers registration );
+	credentials policy absent_fingerprints absent_headers displacement );
 
 # The closed placeholder set.  A url may contain these and the credential
 # slots the file itself declares, and nothing else.  {-y} covers the TMS
@@ -345,8 +345,9 @@ sub _validate
 		}
 	}
 
-	# REGISTRATION -- a known displacement of the imagery, recorded and
-	# shown, NEVER acted on.
+	# DISPLACEMENT -- a known displacement of the imagery, recorded and
+	# shown, NEVER acted on.  Named for the oddity it is: 'registration'
+	# is what every dataset has, and reads as a field to go fill in.
 	#
 	# China's GCJ-02 is the case that names the field: imagery published
 	# on a deliberately offset datum, off by a few hundred metres in a way
@@ -361,11 +362,11 @@ sub _validate
 	# behaviour is a pure loss.  The pattern only keeps it a short printable
 	# name, so that showing it cannot wreck a layout.
 
-	if (defined $tsd->{registration})
+	if (defined $tsd->{displacement})
 	{
-		return _err($file,"registration must be a short name like 'GCJ-02'")
-			if ref($tsd->{registration}) ||
-			   $tsd->{registration} !~ /^[A-Za-z0-9][A-Za-z0-9 ._-]{0,31}$/;
+		return _err($file,"displacement must be a short name like 'GCJ-02'")
+			if ref($tsd->{displacement}) ||
+			   $tsd->{displacement} !~ /^[A-Za-z0-9][A-Za-z0-9 ._-]{0,31}$/;
 	}
 
 	# the url and its closed placeholder set

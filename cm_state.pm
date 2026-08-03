@@ -69,6 +69,23 @@ BEGIN
 		notePoll
 		mapIsOpen
 
+		probeSetMode
+		probeIsOn
+		probeAddUnit
+		probeReset
+		probeBeginSource
+		probeEndSource
+		probeSources
+		probeSeq
+		probeRequestStop
+		probeClearStop
+		probeStopRequested
+		probeRunning
+		probeSetRunning
+		probeMarkList
+		probeTableLines
+		probeOverlay
+
 		$EDIT_BROWSE
 		$EDIT_SHAPE
 		$EDIT_DRAW
@@ -82,6 +99,216 @@ our $dbg_state:shared = 0;
 
 my $state_seq:shared		= 1;
 my $model_seq:shared		= 1;
+
+
+#---------------------------------------------
+# the probe result set
+#---------------------------------------------
+# A MODE THAT HOLDS ACCUMULATED RESULTS, not a run that finishes.  A run
+# happens inside it, the results stay, the user may add to them, and it
+# ends only when it is cancelled or a different scope is probed.  That is
+# a longer life than a build has, and it is the point: nobody sets a zmax
+# from a number that vanished.
+#
+# NOTHING HERE OUTLIVES THE MODE.  There is no file and no spatial index.
+# A placed finding has no home in the observation record by that record's
+# own rule, and re-running is cheap because the tiles a run fetched are in
+# the cache -- so the checkpoint already exists and does not need writing
+# twice.
+#
+# IT CROSSES THREADS AS FLAT STRINGS.  A nest of hashes cannot cross as a
+# reference and shipping a copy back would be a second representation free
+# to drift from the first, which is the same argument the build report
+# already settles.  Two shared arrays do it and neither needs nested
+# shared memory, which is the awkward part of Perl ithreads:
+#
+#	marks   'z/x/y/outcome', for the browser to parse into dots
+#	lines   rendered table rows, for the wx window
+#
+# ITS OWN SEQUENCE, NOT THE STATE COUNTER.  A run publishes a unit every
+# few seconds and the whole /state document would be refetched for each
+# one; worse, the marks are the one part of the display that legitimately
+# lags, since a dot arriving a poll late is invisible.  So /state carries
+# the number and /probe carries the payload, which is the arrangement
+# preview already uses for the same reason.
+
+# KEYED BY SOURCE, because comparing two services over the same ground is
+# the whole point of the mode.  A run ADDS a source rather than replacing
+# what is there, so Esri's marks and Google's marks sit on the map at once
+# and the palette turns each on and off.
+#
+# The marks carry their source in the string for the same reason everything
+# else here is a flat string: a hash of arrays cannot cross a thread
+# boundary, and a parallel structure keyed the same way twice is two things
+# free to disagree.  'source z/x/y/outcome' parses in one split.
+
+my $probe_on:shared		= 0;
+my $probe_seq:shared	= 0;
+my $probe_stop:shared	= 0;
+my @probe_marks:shared;		# "source z/x/y/outcome"
+my @probe_lines:shared;		# "source <rendered row>"
+my @probe_sources:shared;	# ids, in the order they were first probed
+my %probe_status:shared;	# id => one line of prose for the palette
+
+# BOUNDED BY CONSTRUCTION, AND THE OVERLAY SAYS WHEN IT BINDS.  'All marks
+# persist' is the design and this does not contradict it: a mode left open
+# for a day across dozens of runs would otherwise grow without limit, and
+# silent truncation is the thing actually worth refusing.  At the cap the
+# oldest go and the count is reported, so a reader is never told they are
+# looking at everything when they are not.
+
+my $MAX_MARKS = 100000;
+
+
+sub probeSetMode
+{
+	my ($on) = @_;
+	$on = $on ? 1 : 0;
+	return 0 if $on == $probe_on;
+	$probe_on = $on;
+	probeReset() if !$on;
+	bumpView("probe mode ".($on ? 'on' : 'off'));
+	return 1;
+}
+
+sub probeIsOn		{ return $probe_on }
+sub probeSeq		{ return $probe_seq }
+
+
+# STOP IS A PROPERTY OF THE MODE, NOT OF ONE RUN'S PROGRESS RECORD.
+#
+# A run started from the console has a progress record the console owns,
+# and a wx window that opened afterwards has never seen it - so a Stop
+# button that could only reach into a record it was handed would be inert
+# for exactly the runs somebody most wants to stop, and the application
+# would hold a mode that nothing could leave.
+#
+# So the flag lives beside the mode.  Every run checks it whoever started
+# it, and every surface can set it without knowing who did.
+
+# CLEARED WHERE A RUN BEGINS, never inferred from the result set.  An
+# amending point probe starts with rows already on screen, so any rule
+# along the lines of "clear it when the table is empty" would leave a
+# stale stop in place and kill the one kind of run that is supposed to be
+# instant.
+
+sub probeRequestStop	{ $probe_stop = 1; return 1 }
+sub probeClearStop		{ $probe_stop = 0; return 1 }
+sub probeStopRequested	{ return $probe_stop }
+
+
+# ONE RUN AT A TIME, ASKED ACROSS THREADS.  Two samplers publish into one
+# result set, so the table would read as a single run with every row twice
+# and the marks would be drawn from two scopes at once.  The flag lives
+# here rather than in the window because the menu, the console and the map
+# can all start one and none of them can see the others.
+
+my $probe_running:shared = 0;
+
+sub probeRunning		{ return $probe_running }
+sub probeSetRunning		{ $probe_running = $_[0] ? 1 : 0; return 1 }
+
+
+sub probeReset
+	# EVERYTHING, every source.  THE ONLY THING THAT REMOVES ANYTHING - Clear
+	# and leaving the mode are the two ways here, and every run adds.
+{
+	lock(@probe_marks);
+	@probe_marks   = ();
+	@probe_lines   = ();
+	@probe_sources = ();
+	%probe_status  = ();
+	$probe_seq++;
+	return 1;
+}
+
+
+sub probeBeginSource
+	# NOTHING IS DROPPED HERE.  Every run adds to the set, including a
+	# re-run of a source already in it, and only Clear or leaving the mode
+	# takes anything away.
+	#
+	# A re-probe USED to replace its own results, on the reasoning that two
+	# runs of one service would double every row.  That was wrong about what
+	# the marks are for.  Selection draws different points every time, so a
+	# second run of the same source over the same ground is not a repeat of
+	# the first - it is more of the same sample, and running it again is how
+	# a spread of a few dozen dots becomes a picture dense enough to read.
+	# Throwing the first run away was throwing away exactly the accumulation
+	# that made it worth running twice.
+	#
+	# It also made the two cases behave differently for no reason a user
+	# could see: probing a second source added, probing the same one wiped,
+	# and nothing on screen said which was about to happen.
+{
+	my ($id) = @_;
+	lock(@probe_marks);
+	push @probe_sources,$id if !grep { $_ eq $id } @probe_sources;
+	$probe_status{$id} = 'running';
+	$probe_seq++;
+	return 1;
+}
+
+
+sub probeEndSource
+{
+	my ($id,$text) = @_;
+	lock(@probe_marks);
+	$probe_status{$id} = $text // '';
+	$probe_seq++;
+	return 1;
+}
+
+
+sub probeAddUnit
+	# ONE (SOURCE, LEVEL) AT A TIME, which is the unit the report rows use
+	# and the batch the map is handed.  Per tile would be too chatty for a
+	# poll and per run too slow to watch, so finishing one level publishes
+	# its marks and its row together.
+{
+	my ($id,$line,$marks) = @_;
+	lock(@probe_marks);
+
+	push @probe_lines,"$id $line" if defined $line;
+	push @probe_marks,map { "$id $_" } @$marks if $marks && @$marks;
+
+	splice(@probe_marks,0,scalar(@probe_marks) - $MAX_MARKS)
+		if @probe_marks > $MAX_MARKS;
+
+	$probe_seq++;
+	return 1;
+}
+
+
+sub probeMarkList
+	# A COPY, because the caller is another thread and the array is going
+	# to keep changing under it.  Bounded above, so the copy is bounded.
+{
+	lock(@probe_marks);
+	return [ @probe_marks ];
+}
+
+sub probeTableLines
+{
+	lock(@probe_marks);
+	return [ @probe_lines ];
+}
+
+sub probeSources
+	# In the order first probed, with what each one is doing or found.
+	# This is what the palette draws a row from.
+{
+	lock(@probe_marks);
+	return [ map { { id => $_, status => ($probe_status{$_} // '') } }
+			 @probe_sources ];
+}
+
+sub probeOverlay
+{
+	lock(@probe_marks);
+	return { marks  => scalar(@probe_marks),
+			 capped => (scalar(@probe_marks) >= $MAX_MARKS ? 1 : 0) };
+}
 
 
 #---------------------------------------------

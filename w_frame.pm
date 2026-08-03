@@ -35,10 +35,13 @@ use dm_region;
 use dm_fill;
 use dm_analysis;
 use dm_build;
+use dm_sample;
 use w_resources;
 use w_ini;
 use w_prefs;
 use w_progress;
+use w_probe;
+use w_probecfg;
 use w_report;
 use w_buildcfg;
 use w_preflight;
@@ -142,6 +145,20 @@ sub onTimer
 
 	clearEditState()
 		if !mapIsOpen() && getEditState()->{mode} ne $EDIT_BROWSE;
+
+	# COVERAGE MODE IS ENTERED FROM THE CONSOLE TOO, and the argument above
+	# applies to it unchanged.  em_command cannot open the pane itself -
+	# a worker thread touching a wx window is the one thing that reliably
+	# takes this application down - so wx notices the mode the way it
+	# notices everything else, by polling for it.
+	#
+	# WITHOUT THIS, 'sample' TYPED AT THE CONSOLE PUTS THE APPLICATION IN A
+	# MODE NOTHING CAN LEAVE: the marks are on the map, the mode is on, and
+	# the only surface carrying an off switch never opened.  That is not a
+	# missing convenience, it is a state with no exit.
+
+	$this->createPane($WIN_PROBE)
+		if probeIsOn() && !$this->findPane($WIN_PROBE);
 
 	$this->showDocument();
 }
@@ -255,6 +272,7 @@ sub createPane
 
 	return winRegions->new($this,$book,$id,$data) if $id == $WIN_REGIONS;
 	return winSources->new($this,$book,$id,$data) if $id == $WIN_SOURCES;
+	return w_probe->new($this,$book,$id,$data)    if $id == $WIN_PROBE;
 
 	return $this->SUPER::createPane($id,$book,$data);
 }

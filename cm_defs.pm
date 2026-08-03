@@ -27,6 +27,7 @@ BEGIN
 
 		$WIN_REGIONS
 		$WIN_SOURCES
+		$WIN_PROBE
 
 		$COMMAND_OPEN_MAP
 		$COMMAND_SET_OPEN
@@ -40,6 +41,7 @@ BEGIN
 		$COMMAND_BUILD_RCT
 		$COMMAND_BUILD_MBTILES
 		$COMMAND_FETCH
+		$COMMAND_PROBE
 	);
 }
 
@@ -105,6 +107,19 @@ our $SOURCE_INHERITED = 'inherited';
 our $WIN_REGIONS		= 10001;
 our $WIN_SOURCES		= 10002;
 
+# THE PROBE'S RESULTS ARE A PANE, not a floating frame.  A frame came up
+# behind the application and the only cure for that is 'always on top'.  A
+# pane is docked, torn off or shut by the user, which is where that decision
+# belongs -- and docked beside the tree it can be read against the map, which
+# is the whole reason to look at it.
+#
+# It is NOT in the View menu, for the reason the Regions pane is not: it is
+# the view of the probe MODE, and there is no such thing as opening it over a
+# mode nobody entered.  Right-clicking a node opens it; closing it ends the
+# mode.
+
+our $WIN_PROBE			= 10003;
+
 our $COMMAND_OPEN_MAP	= 10021;
 
 # THE DOCUMENT'S OWN COMMANDS.  A region set is opened, saved and closed
@@ -134,6 +149,12 @@ our $COMMAND_PREFS		= 10032;
 our $COMMAND_BUILD_RCT		= 10041;
 our $COMMAND_FETCH			= 10042;
 our $COMMAND_BUILD_MBTILES	= 10043;
+
+# PROBE BELONGS BESIDE THEM because it is the same kind of act - it walks
+# the working set, goes to the network and takes real time - and it is the
+# one you run FIRST, before deciding the zmax the other three build to.
+
+our $COMMAND_PROBE			= 10044;
 
 
 1;

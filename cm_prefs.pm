@@ -62,6 +62,9 @@ BEGIN
 
 		$PREF_MAX_CONCURRENT
 		$PREF_MIN_INTERVAL
+		$PREF_NUM_SAMPLES
+		$PREF_PROBE_ZMIN
+		$PREF_PROBE_ZMAX
 
 		$PREF_SOURCES_DIR
 		$PREF_REGION_SETS_DIR
@@ -85,6 +88,9 @@ our $PREF_MAP_MAX_ZOOM		= 'MAP_MAX_ZOOM';
 
 our $PREF_MAX_CONCURRENT	= 'MAX_CONCURRENT';
 our $PREF_MIN_INTERVAL		= 'MIN_INTERVAL';
+our $PREF_NUM_SAMPLES		= 'NUM_SAMPLES';
+our $PREF_PROBE_ZMIN		= "PROBE_ZMIN";
+our $PREF_PROBE_ZMAX		= "PROBE_ZMAX";
 
 our $PREF_SOURCES_DIR		= 'SOURCES_DIR';
 our $PREF_REGION_SETS_DIR	= 'REGION_SETS_DIR';
@@ -138,6 +144,31 @@ my %defaults = (
 
 	$PREF_MAX_CONCURRENT	=> 4,
 	$PREF_MIN_INTERVAL		=> 0,
+
+	# HOW MANY TILES THE SAMPLER DRAWS PER LEVEL, and a TABLE rather than a
+	# scalar because the levels are not alike: a coarse level holds so few
+	# tiles that min(count, level size) enumerates it whatever this says,
+	# while a deep level is the one somebody is actually asking about and
+	# is where more points buy a better map.
+	#
+	# '*:N' is the default for any level not named, and 'z:N' overrides one.
+	# So '*:24,19:40' means twenty-four everywhere and forty at z19.
+	#
+	# IT DOES NOT COMPOSE WITH THE RATE KNOBS and does not need to.  Raising
+	# it sends more requests but not faster ones, because the sampler goes
+	# through the engine and the engine still paces it.  That independence
+	# is why it can be a plain number where a rate can only ever be a max().
+
+	$PREF_NUM_SAMPLES		=> '*:24',
+
+	# THE RANGE A PROBE OPENS AT, and z0 is not in it.  A z0 tile is the
+	# whole world and probing one says nothing about anywhere; the useful
+	# range starts around z10.  These are the defaults a probe dialog
+	# offers - not a limit, since a .tsd can hide depth it really has and
+	# finding that out is half the point.
+
+	$PREF_PROBE_ZMIN		=> 10,
+	$PREF_PROBE_ZMAX		=> 22,
 
 	# THE LEVELS A NEW REGION STARTS WITH, and nothing else.  Changing
 	# them never touches a region that exists: they are seeds, so they are

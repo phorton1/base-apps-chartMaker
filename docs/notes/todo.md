@@ -32,17 +32,8 @@ This document is organized into various sections according to Patrick's current
 prioritization or other axes that Patrick determines.  This document and the
 structure of it may be changed at anytime by Patrick, and only by Patrick.
 
-## BUILD AND FETCH
 
-### The real fetch engine
-
-Improvements to the current FETCH cycle including concepts like:
-
-- queueing of tile fetch requests
-- concurrent fetching of tiles over multiple async requests bound by a limit of concurrent requests at any given time
-- rate limiting by interval or other techniques
-- retry and resume methodologies
-- failure classification in cases of dropped connections versus returned negative results
+## Mainline Functionality
 
 ### SOURCE probing and testing
 
@@ -51,13 +42,14 @@ workable, and to potentially ascertain things like the formats and resolutions i
 absent fingerprints it may utilize, the syntax (addressing-order), rate limitations, or other
 characteristics.
 
-### Build Analysis Features / Commands
+### Post-Build Analysis / Commands
 
 - overzoom detector (downsample/upsample residual)
 - identification of, remembering, and noticing sentinel "missing tile" images
 - cache cleanups of tiles that are identified as sentinels or overzoomed into 0 length "none"
   or similarly indicated filenames, whether by promoting existing scripts/tools, like
   scripts/tool_prune_absent.pl, or writing new user-facing operation.
+
 
 ### Format conversion at the exporter seam
 
@@ -94,7 +86,7 @@ respective TOS.
 
 ## User-Manual Tutorial
 
-The repo will include a User Manual of a tutorial nature that will onboard users through
+The repo will include a User Manual of a tutorial nature that will onboaand rd users through
 the entire process of creating region sets and doing builds within the constraints of the
 shipped TSDs.
 
@@ -111,8 +103,7 @@ scheme ala the way that navMate is currently released.
 Other kinds of things can be served that are of interest including, but not limited to
 - vector or rasterized region or political/administrative boundaries
 - placenames, bathyrimic data, points of interest, etc
-
-
+ok,
 
 ## OTHER
 

@@ -38,6 +38,7 @@ use dm_source;
 use dm_region;
 use dm_coverage;
 use dm_cache;
+use dm_fetch;
 use dm_engine;
 use dm_fill;
 
@@ -336,6 +337,50 @@ ok(!$stats->{inflight},
 
 
 #---------------------------------------------
+# a fetched tile is KEPT
+#---------------------------------------------
+# THE BUG THIS PINS COST A DAY AND WAS INVISIBLE.  When dm_fill stopped
+# calling getTile and became a client of the engine, the sentinel check and
+# the cache write stayed behind in getTile - so a fill fetched everything,
+# wrote NOTHING, and a build's fill phase then handed the exporter an empty
+# cache.  Every test here passed throughout, because they all plant the
+# cache themselves and assert hits.
+#
+# So this asserts the opposite of everything above it: that something which
+# was NOT planted and DID go out is on disk afterwards.  No network - the
+# store is driven directly, which is the whole point of it being one
+# function at one place rather than a step inside a fetch.
+
+print "\n=== what goes out comes back to disk ===\n";
+
+my $store_src = getSource('fill_a');
+my $body      = "\xFF\xD8\xFF".('y' x 128);
+
+ok(!cacheGet($store_src,9,7,7),"z9/7/7 is not in the cache to begin with");
+
+my $stored = fetchStore($store_src,9,7,7,
+	{ status => 'ok', format => 'jpeg', bytes => \$body, ms => 12 });
+ok($stored->{status} eq 'ok',"a fetched tile is still reported ok");
+
+my $back = cacheGet($store_src,9,7,7);
+ok($back && $back->{status} eq 'ok',"and it IS on disk afterwards");
+ok($back && ${$back->{bytes}} eq $body,"byte for byte what was fetched");
+
+# AN ASSERTED ABSENCE IS KEPT TOO, and one derived from the TSD's own zoom
+# range is not - it has no http code, costs nothing to recompute, and would
+# go stale the moment the file changed.
+
+fetchStore($store_src,9,7,8,{ status => 'absent', http => 404, ms => 9 });
+my $miss = cacheGet($store_src,9,7,8);
+ok($miss && $miss->{status} eq 'absent',"an absence the SOURCE asserted is kept");
+
+fetchStore($store_src,9,7,9,{ status => 'absent', reason => 'out of range' });
+ok(!cacheGet($store_src,9,7,9),
+	"an absence derived from the .tsd's own range is NOT kept");
+
+fetchStore($store_src,9,7,10,{ status => 'error', class => 'transport' });
+ok(!cacheGet($store_src,9,7,10),"an error is never cached, so it can be retried");
+
 
 print "\n".($fails ? "$fails FAILED\n" : "ALL PASSED\n");
 exit($fails ? 1 : 0);

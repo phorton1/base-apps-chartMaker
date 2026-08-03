@@ -209,6 +209,36 @@ sub _generalPage
 	$sizer->Add($rs,0,wxEXPAND|wxLEFT|wxRIGHT,10);
 	$sizer->AddSpacer(10);
 
+	# WHAT A PROBE OPENS AT.  These are defaults a probe dialog offers, not
+	# limits it enforces: a .tsd can hide depth a service really has, and
+	# finding that out is half the reason to probe one.
+	#
+	# z0 IS NOT A USEFUL LEVEL.  A z0 tile is the whole world and a sample
+	# of one says nothing about anywhere, so the floor starts around z10
+	# rather than at whatever a source happens to declare.
+
+	my $pbox = Wx::StaticBox->new($p,-1,'Probing a source');
+	my $ps   = Wx::StaticBoxSizer->new($pbox,wxVERTICAL);
+	$ps->AddSpacer(4);
+	$ps->Add(_row($p,'Samples per level:',
+		$this->_text($p,$PREF_NUM_SAMPLES,90,0),
+		Wx::StaticText->new($p,-1,"'*:24' is 24 everywhere; '*:24,19:40' ".
+			'is 40 at z19')),0,wxLEFT,6);
+	$ps->AddSpacer(4);
+	$ps->Add(_row($p,'Probe from level:',
+		$this->_spin($p,$PREF_PROBE_ZMIN,0,24),
+		Wx::StaticText->new($p,-1,'below about z10 a tile covers too much '.
+			'to mean anything')),0,wxLEFT,6);
+	$ps->AddSpacer(4);
+	$ps->Add(_row($p,'Probe to level:',
+		$this->_spin($p,$PREF_PROBE_ZMAX,0,24),
+		Wx::StaticText->new($p,-1,'asked even where a source declares less')),
+		0,wxLEFT,6);
+	$ps->AddSpacer(4);
+
+	$sizer->Add($ps,0,wxEXPAND|wxLEFT|wxRIGHT,10);
+	$sizer->AddSpacer(10);
+
 	$p->SetSizer($sizer);
 	return $p;
 }

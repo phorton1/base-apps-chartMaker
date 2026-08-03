@@ -160,14 +160,22 @@ function hitsNode(node, lng, lat) {
 }
 
 // Deepest first, so a subregion wins over the parent that contains it.
+// The PATH rides along because it is how every consumer in the application
+// keys a node -- 'Bocas/Popa00/Dock'. An id is unique within a region but
+// says nothing across regions, and the probe addresses a subregion by path.
+// THE PARENT RIDES ALONG TOO, because a subregion's BAND is defined against
+// it - a subregion carries only a zmax and its band starts where its parent's
+// zmax leaves off - and a node cannot say that about itself. The walk already
+// knows it; nothing else can work it out afterwards without re-walking.
 function hitChain(lng, lat) {
     const chain = [];
-    const walk = (node, root) => {
+    const walk = (node, root, path, parent) => {
         if (!hitsNode(node, lng, lat)) return;
-        for (const s of (node.subregions || [])) walk(s, root);
-        chain.push({ root: root, node: node });
+        for (const s of (node.subregions || []))
+            walk(s, root, path + '/' + s.id, node);
+        chain.push({ root: root, node: node, path: path, parent: parent });
     };
-    for (const r of (cmState && cmState.regions || [])) walk(r, r);
+    for (const r of (cmState && cmState.regions || [])) walk(r, r, r.id, null);
     return chain;
 }
 
@@ -529,6 +537,148 @@ function gridItem() {
              fn: () => toggleGrid() };
 }
 
+// PROBING THE AREA UNDER THE CURSOR, and it ASKS which source.
+//
+// The right-click says WHERE. It does not say what to probe, and using the
+// source that happens to be displayed was wrong: the source is the SUBJECT of
+// a probe, and the whole reason the feature exists is to compare services you
+// are not currently looking at. Picking one for the user silently answered the
+// only question that matters.
+//
+// So the item opens a dialog with the same two things the application's own
+// dialog asks - a source, and a zoom range - and the polygon is the one thing
+// it does not have to ask about, because that is what was pointed at.
+//
+// TWO ENTRIES OVER A SUBREGION, and they are not the same question. Probing
+// the detail area alone is a far more intimate answer than probing the whole
+// region around it, which is exactly the judgement somebody siting one is
+// making. Over a plain region there is only the one.
+//
+// AVAILABLE WHILE A PROBE IS ALREADY SHOWING. The mode HOLDS results from
+// several sources at once so they can be compared, so adding to what is on
+// screen is the ordinary thing rather than a special case.
+
+// NOT 'probeSources' - cmProbe.js holds a top-level `let probeSources` for
+// the ones already probed, and a function and a let of the same name in two
+// scripts sharing the global scope resolve to the let, which is an array and
+// is not callable.
+function probeSourceList() {
+    return ((cmState && cmState.sources) || []).slice();
+}
+
+function probePrefZ(which, fallback) {
+    const p = (cmState && cmState.probe) || {};
+    const v = p[which];
+    return (typeof v === 'number' && v >= 0 && v <= 24) ? v : fallback;
+}
+
+// WHAT THE LAST PROBE ACCEPTED, for as long as this page is open. Comparing
+// several services over one area means opening this repeatedly, and
+// re-picking from the top of the list each time is the friction that stops
+// somebody running the third and fourth probe. Not persisted: it is about
+// what you are doing now, not about what you meant last month.
+//
+// The application keeps its own, in w_probecfg. Two surfaces, two memories,
+// deliberately - they are separate conversations and neither is the other's
+// state to change.
+let probeLastSource = '';
+let probeLastZ      = null;
+
+// THE NODE'S OWN BAND, which is the range about to be asked of a source.
+//
+// A region is its zmin..zmax. A subregion adds a band ABOVE its parent, so
+// it starts at the parent's zmax + 1 and runs to its own zmax - that is the
+// region model's own definition and the reason a subregion carries only a
+// zmax. Everything below it is already painted by the thing it sits in.
+//
+// Falls back to the last accepted range, then to preferences, so a shape
+// that has not said anything still opens on something sensible.
+function probeBandFor(hit) {
+    if (hit && hit.node && hit.root) {
+        const lo = (hit.node === hit.root) ? hit.root.zmin
+                                           : (hit.parent ? hit.parent.zmax + 1 : null);
+        const hi = hit.node.zmax;
+        if (typeof lo === 'number' && typeof hi === 'number' && lo <= hi)
+            return { zmin: lo, zmax: hi, fromNode: true };
+    }
+    if (probeLastZ) return { zmin: probeLastZ.zmin, zmax: probeLastZ.zmax };
+    return { zmin: probePrefZ('zmin', 10), zmax: probePrefZ('zmax', 22) };
+}
+
+function probeDialog(scope, label, hit) {
+    const srcs = probeSourceList();
+    if (!srcs.length) { banner('no sources are installed', true); return; }
+
+    const byId = {};
+    srcs.forEach(s => { byId[s.id] = s; });
+
+    // THE ONE PROBED LAST, then the one being displayed. A rescan can drop a
+    // source between two probes, so the remembered id is looked up rather
+    // than trusted.
+    const active = (window.cmActiveSourceId && cmActiveSourceId()) || srcs[0].id;
+    const start  = byId[probeLastSource] || byId[active] || srcs[0];
+
+    const band = probeBandFor(hit);
+
+    buildDialog('Probe over ' + label, [
+        { key: 'source', label: 'source', value: start.id,
+          choices: srcs.map(s => ({ value: s.id,
+              label: s.id + '  (z' + s.zoom_min + '-' + s.zoom_max + ')' })) },
+        // FROM THE NODE, NOT FROM THE SOURCE. Opening at what the .tsd
+        // declares is opening at the one number a probe exists not to
+        // trust. Opening at the levels the node will be BUILT at is the
+        // range the question is actually about.
+        // WHERE THE RANGE CAME FROM, said out loud. A number that appeared
+        // by itself is one nobody trusts or corrects; one that says it is
+        // the node's own band is one you can agree with at a glance - and
+        // it stops saying so the moment you change it.
+        { key: 'zmin', label: 'from z', value: band.zmin,
+          numeric: true, size: 4,
+          check: v => (band.fromNode && +v.zmin === band.zmin &&
+                       +v.zmax === band.zmax) ?
+              'the levels ' + label + ' is built at' : '' },
+        { key: 'zmax', label: 'to z', value: band.zmax,
+          numeric: true, size: 4,
+          // THE FILE'S RANGE IS NOT A CEILING. A .tsd can hide depth the
+          // service actually has, and finding that out is half the reason
+          // to probe at all - so a range past what it declares is asked
+          // anyway, and the dialog says that is what will happen rather
+          // than implying a limit that does not exist.
+          check: v => {
+              const s = byId[v.source];
+              if (!s) return '';
+              return (+v.zmin < s.zoom_min || +v.zmax > s.zoom_max) ?
+                  'past the declared z' + s.zoom_min + '-' + s.zoom_max +
+                  ' - asked anyway' : '';
+          } },
+    ], async v => {
+        // REMEMBERED ON ACCEPT, not on every keystroke: what was accepted is
+        // what was meant, and a cancelled dialog said nothing.
+        probeLastSource = v.source;
+        probeLastZ      = { zmin: +v.zmin, zmax: +v.zmax };
+
+        const r = await postEdit('sample',
+            v.source + ' ' + scope + ' ' + v.zmin + ' ' + v.zmax);
+        if (!r.ok) banner(await refusalText(r.since), true);
+    }, { okLabel: 'Probe' });
+}
+
+function probeItemsFor(hit) {
+    const items = [];
+    if (hit.node !== hit.root)
+        items.push({ label: 'Probe ' + hit.node.id + '...',
+                     fn: () => probeDialog(hit.path || hit.node.id, hit.node.id,
+                                           hit) });
+
+    // THE ROOT IS ITS OWN HIT for band purposes - probing the whole region
+    // asks about the region's own zmin..zmax, not about the subregion that
+    // happened to be under the cursor.
+    items.push({ label: 'Probe ' + hit.root.id + '...',
+                 fn: () => probeDialog(hit.root.id, hit.root.id,
+                                       { node: hit.root, root: hit.root }) });
+    return items;
+}
+
 map.on('contextmenu', ev => {
     // A MODE OWNS THE RIGHT BUTTON.  While drawing or shaping, the only
     // right-click that means anything is the one on a vertex handle, which
@@ -570,6 +720,8 @@ map.on('contextmenu', ev => {
           fn: () => deletePolygonAt(hit, ev.latlng) },
         { label: 'Delete ' + hit.node.id + '...',
           fn: () => deleteNode(hit) },
+        '-',
+        ...probeItemsFor(hit),
         '-',
         gridItem(),
     ], title);
@@ -650,17 +802,33 @@ function buildDialog(title, fields, onOk, opts) {
         row.className = 'cm-dlg-row';
         const lab = document.createElement('label');
         lab.textContent = f.label;
-        const inp = document.createElement('input');
-        inp.value = f.value;
-        inp.size  = f.size || 18;
-        if (f.numeric) { inp.type = 'number'; inp.min = 0; inp.max = 24; }
+
+        // A CHOICE IS A SELECT, and it is the same field otherwise: it has a
+        // key, it has a value, and it revalidates.  Added for the probe,
+        // which has to name a SOURCE and cannot ask anybody to type an id.
+        let inp;
+        if (f.choices) {
+            inp = document.createElement('select');
+            for (const c of f.choices) {
+                const o = document.createElement('option');
+                o.value = c.value; o.textContent = c.label;
+                inp.appendChild(o);
+            }
+            inp.value = f.value;
+        } else {
+            inp = document.createElement('input');
+            inp.value = f.value;
+            inp.size  = f.size || 18;
+            if (f.numeric) { inp.type = 'number'; inp.min = 0; inp.max = 24; }
+        }
         const note = document.createElement('span');
         note.className = 'cm-dlg-note';
         row.appendChild(lab); row.appendChild(inp); row.appendChild(note);
         dlgDiv.appendChild(row);
         inputs[f.key] = inp;
         notes[f.key]  = note;
-        inp.oninput = () => revalidate();
+        inp.oninput  = () => revalidate();
+        inp.onchange = () => revalidate();
     }
 
     const btns = document.createElement('div');
@@ -953,6 +1121,10 @@ function clearHandles() {
     vtxHandles = []; midHandles = [];
 }
 
+// Exposed so the shade switch can repaint an edit in flight - see map.js.
+// It is safe with nothing being edited: the layer is simply cleared.
+window.cmRedrawWork = redrawWork;
+
 function redrawWork() {
     clearHandles();
     workLayer.clearLayers();
@@ -977,8 +1149,16 @@ function redrawWork() {
         // worked on.  NOT interactive: the polygon must never eat a mouse press,
         // because a press on the map is a PAN, and panning to reach another part
         // of a large region is the commonest thing done during an edit.
+        //
+        // UNDER THE SAME SWITCH as the selection's own wash, because it is the
+        // same wash on the same object - the thing being edited IS the thing
+        // selected. Honouring the switch on one surface and not the other
+        // would turn it off everywhere except where it is most in the way,
+        // which is here, with somebody looking hard at the ground under a
+        // vertex.
+        const shade = !window.cmShadeSelection || window.cmShadeSelection();
         const poly = L.polygon(pts, Object.assign({ interactive: false }, style,
-            current ? { fill: true, fillOpacity: 0.08 } : {}));
+            (current && shade) ? { fill: true, fillOpacity: 0.08 } : {}));
         poly.addTo(workLayer);
     });
 

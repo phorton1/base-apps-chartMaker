@@ -139,8 +139,20 @@ sub handle_request
 		# THE ONE PLACE THE APPLICATION LEARNS THE MAP IS THERE.  Nothing
 		# else is recorded and no session is created - see cm_state.
 
+		# THE PROBE'S OWN SEQUENCE RIDES HERE, and this is the right place
+		# for it rather than a second channel: /poll exists to answer "has
+		# anything changed" as cheaply as possible, and a running probe is
+		# a thing that changes.  Carried separately from the state version
+		# because a published unit changes nothing in the /state document -
+		# so the applet goes straight to /probe without refetching a
+		# document that did not move.
+
 		notePoll();
-		return $this->api_json_response($request,{ version => 0 + getStateSeq() })
+		return $this->api_json_response($request,{
+			version		=> 0 + getStateSeq(),
+			probe_seq	=> 0 + probeSeq(),
+			probe_on	=> probeIsOn() ? 1 : 0,
+		})
 	}
 	elsif ($uri eq '/state')
 	{
@@ -153,6 +165,10 @@ sub handle_request
 	elsif ($uri eq '/preview')
 	{
 		return $this->applet_preview($request)
+	}
+	elsif ($uri eq '/probe')
+	{
+		return $this->applet_probe($request)
 	}
 	elsif ($uri eq '/counts')
 	{
@@ -424,6 +440,22 @@ sub applet_state
 		regions			=> _regionsForState(),
 		selection		=> { region => $sel_region, sub => $sel_sub },
 		edit			=> getEditState(),
+
+		# THE NUMBER, NOT THE MARKS.  Coverage mode accumulates thousands
+		# of them across a long-lived mode and they do not belong in a
+		# document refetched on every selection change.  The applet
+		# compares this and asks /probe only when it moves.
+
+		# The probe's preferences travel with the state for the same reason
+		# map_max_zoom does: the page is a static file and cannot read one.
+		# Without them the map's own probe dialog opened at whatever the
+		# SOURCE declared, which is exactly the number a probe exists not to
+		# trust, and disagreed with the application's dialog beside it.
+
+		probe			=> { on   => probeIsOn() ? 1 : 0,
+							 seq  => 0 + probeSeq(),
+							 zmin => int(prefVal($PREF_PROBE_ZMIN) // 10),
+							 zmax => int(prefVal($PREF_PROBE_ZMAX) // 22) },
 	});
 }
 
@@ -488,6 +520,42 @@ sub applet_preview
 	return $this->api_json_response($request,{
 		zoom	=> 0 + $z,
 		tiles	=> previewTiles(_workingCoverage(),$z,$x0,$y0,$x1,$y1),
+	});
+}
+
+
+sub applet_probe
+	# GET /probe
+	#
+	# The whole accumulated result set: every mark, and the overlay.  Not
+	# clipped to the view and not filtered by zoom, because coverage mode
+	# draws ALL LEVELS AT ONCE - a tile at z+1 is a quadrant of its parent,
+	# so centres never coincide and no two levels can occlude each other.
+	# Marks are self-scaling at their true footprint, which is what gives
+	# the level with no legend.
+	#
+	# THE APPLICATION COUNTED THIS AND THE BROWSER RENDERS IT.  The map
+	# picks no sample points, fetches nothing and counts nothing; if it
+	# decided any of it the marks would illustrate the analysis rather than
+	# be it, which is the same reason preview does not decide coverage for
+	# itself.
+	#
+	# ASKED FOR ONLY WHEN THE SEQUENCE MOVES.  /state carries probe_seq and
+	# the applet compares it, so a mode holding twenty thousand marks costs
+	# one poll of a small document rather than a refetch of all of them.
+	#
+	# EVERY SOURCE PROBED, not just the last one.  Comparing two services
+	# over the same ground is what the mode is for, so the marks carry
+	# their source and the palette turns each on and off.
+{
+	my ($this,$request) = @_;
+
+	return $this->api_json_response($request,{
+		seq		=> 0 + probeSeq(),
+		on		=> probeIsOn() ? 1 : 0,
+		marks	=> probeMarkList(),
+		sources	=> probeSources(),
+		overlay	=> probeOverlay(),
 	});
 }
 

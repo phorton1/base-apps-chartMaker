@@ -389,3 +389,113 @@ html, body {
     gap: 6px;
     margin-top: 8px;
 }
+
+/* ------------------------------------------------------------------ */
+/* probe mode -- see docs/design/editing_map.md                        */
+/* ------------------------------------------------------------------ */
+
+/* BOTTOM RIGHT, and the semi-translucent dark box rather than the white of
+   the palette at top left.  Both are Patrick's stated preference and
+   neither is deduced from anything: the probe's furniture is modal and
+   belongs to the probe, and he likes it there and likes it grey.  No
+   scheme is being followed, and none should be inferred from this.
+
+   NOT pointer-events:none, unlike the readouts.  This one has checkboxes
+   in it - it is the thing that turns one source's marks off so another
+   can be seen underneath. */
+
+.cm-probe-overlay {
+    background: rgba(0, 0, 0, 0.65);
+    color: #ddd;
+    font: 11px/1.6 monospace;
+    padding: 5px 9px 6px 9px;
+    border-radius: 3px;
+    max-width: 30em;
+}
+
+.cm-probe-title {
+    color: #fff;
+    font-weight: bold;
+    letter-spacing: 0.06em;
+    margin-bottom: 3px;
+}
+
+.cm-probe-empty { color: #999; }
+
+.cm-probe-row {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    cursor: pointer;
+}
+
+.cm-probe-row input { margin: 0; }
+
+/* The per-source hue, so two services are distinguishable before anybody
+   reads a name.  The outcome colour still owns the dot itself. */
+
+.cm-probe-swatch {
+    width: 9px;
+    height: 9px;
+    border-radius: 2px;
+    flex: 0 0 auto;
+}
+
+.cm-probe-name { color: #9ecbff; }
+
+.cm-probe-stat {
+    color: #aaa;
+    margin: 0 0 3px 19px;
+}
+
+.cm-probe-stat i { color: #f0a020; font-style: normal; }
+
+/* Five words, because a colour on a small dot is unreadable without them
+   and the pane carrying the numbers is as often as not on another monitor.
+
+   IT WRAPS NOW, and used to be nowrap.  Four outcomes fitted on one line and
+   five do not, and a legend that runs off the side of its own box is worse
+   than a legend on two lines. */
+
+.cm-probe-key {
+    margin-top: 4px;
+    padding-top: 3px;
+    border-top: 1px solid rgba(255, 255, 255, 0.18);
+}
+
+/* The size rule, which the colours cannot carry: a legend can show four
+   colours and cannot show twelve sizes, so this says the rule instead.
+   Continues the key rather than starting a new block, so no rule above it. */
+
+.cm-probe-size {
+    color: #999;
+    white-space: nowrap;
+}
+
+/* Stop halts the run and keeps the marks; End leaves the mode and clears
+   them.  Both here because the map is where the marks are, and the window
+   carrying the same two buttons is as often as not on another monitor. */
+
+.cm-probe-btns {
+    display: flex;
+    gap: 5px;
+    margin-top: 5px;
+}
+
+.cm-probe-btns button {
+    font: 11px monospace;
+    padding: 1px 7px;
+    cursor: pointer;
+}
+
+/* GREYED, NOT FADED.  opacity on a native button sitting over a dark
+   translucent panel washes the label out with the chrome, and Halt spends
+   most of its life disabled - so it read as an empty grey box beside a
+   labelled one, which looks like a bug rather than a button with nothing
+   to do. */
+
+.cm-probe-btns button:disabled {
+    color: #777;
+    background: #d8d8d8;
+    cursor: default;
+}

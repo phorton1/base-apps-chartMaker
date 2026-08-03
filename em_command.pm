@@ -38,6 +38,7 @@ use dm_fill;
 use dm_rct;
 use dm_analysis;
 use dm_build;
+use dm_sample;
 
 
 BEGIN
@@ -135,6 +136,8 @@ sub commandHelp
 		[ 'config rate <src> <ms>',		'go no faster than this (on top of the TSD)'],
 		[ 'config reset',		'back to defaults, removing build.json'				],
 		[ 'analyse [id|set|all]','what a fetch/build would cost - reads nothing else'],
+		[ 'sample <tsd> <region>[/<sub>] [zmin zmax] [nodepth]',
+										'probe ONE service over an area - is it worth using?'],
 		[ 'fetch <id|set|all> [zmax]',	'fill the cache with every tile the build will read'],
 		[ 'build rct <id|set> [zmax]',	'fetch, then export region(s) as .rct card files'	],
 		[ 'build mbtiles <id|set> [zmax]',
@@ -574,6 +577,122 @@ sub _fetchCommand
 		$stats->{tiles},$stats->{secs},
 		$stats->{tiles} - $stats->{cached},$stats->{cached},
 		$stats->{absent},$stats->{error}));
+}
+
+
+sub _sampleCommand
+	# sample <tsd> <region>[/<sub>] [zmin zmax]
+	#
+	# THE SUBJECT IS THE TSD AND THE REGION IS ONLY WHERE TO LOOK.  Nothing
+	# of the region's own levels or assigned source is used: once a region
+	# names those, the BUILD answers coverage exactly within them, and
+	# sampling would re-derive a thing already known precisely.
+	#
+	# 'sample', NOT 'probe', AND THE COLLISION IS THE REASON.  'probe' is
+	# already the verb for asking a service what it says about ITSELF,
+	# which is placeless and costs one request.  This is the placed
+	# question and costs hundreds, so they are two verbs.
+	#
+	# THE CONSOLE FACE OF PROBE MODE, because the vocabulary rule says
+	# nothing may be reachable only from a dialog - and because it makes
+	# the sampler drivable with no wx at all, which is what lets the marks
+	# be checked without anybody looking at a map.
+{
+	my ($rest) = @_;
+	$rest = '' if !defined $rest;
+
+	# 'nodepth' IS TAKEN OFF THE LINE BEFORE ANYTHING IS PARSED, so it can
+	# be written anywhere after the source and never has to be defended
+	# against by the zoom validator below.
+
+	my $depth = 1;
+	$depth = 0 if $rest =~ s/\s*\bnodepth\b\s*/ /;
+
+	my ($tsd,$where,$zmin,$zmax) = split(/\s+/,$rest);
+
+	# STOP AND END ARE VERBS OF THE MODE, not of a source, so they take no
+	# area and no range.  They exist because the map has no other way to
+	# halt a run or leave the mode: its palette is the probe's only
+	# furniture there, and a mode nothing can leave from the surface it is
+	# drawn on is the same hole the console version had.
+
+	if (defined($tsd) && $tsd eq 'stop')
+	{
+		probeRequestStop();
+		display(0,0,"probe halted - the marks stay");
+		return;
+	}
+	if (defined($tsd) && ($tsd eq 'end' || $tsd eq 'off'))
+	{
+		probeRequestStop();
+		probeSetMode(0);
+		display(0,0,"probe mode ended");
+		return;
+	}
+
+	if (!$tsd || !$where)
+	{
+		_fail("sample: 'sample <tsd> <region>[/<sub>] [zmin zmax]'");
+		display(0,1,"installed sources: ".join(', ',getSourceIds()));
+		return;
+	}
+	if (!getSource($tsd))
+	{
+		_fail("sample: no source with id '$tsd'");
+		return;
+	}
+	for my $z ($zmin,$zmax)
+	{
+		next if !defined $z;
+		if ($z !~ /^\d+$/ || $z > 24)
+		{
+			_fail("sample: '$z' is not a zoom level");
+			return;
+		}
+	}
+	if (!getActiveSet())
+	{
+		_fail("sample: there is no active region set");
+		return;
+	}
+
+	# ONE RUN AT A TIME, from every door.  Two samplers publishing into one
+	# result set would double every row of whichever source they shared.
+
+	if (probeRunning())
+	{
+		_fail("sample: a probe is already running - stop it first");
+		return;
+	}
+
+	my ($region,$sub) = split(m{/},$where,2);
+	my $scope = { region => $region, $sub ? ( sub => $where ) : () };
+	my ($polys,$label) = sampleScope($scope);
+	if (!$polys)
+	{
+		_fail("sample: '$where' is not a region or subregion here");
+		return;
+	}
+
+	probeSetMode(1);
+	display(0,0,"sample $tsd over $label".
+		(defined $zmin ? " z$zmin-".($zmax // '?') : ''));
+
+	my $prog = newProgress(1,'');
+	$prog->{active} = 1;
+
+	# DEPTH IS ON, and the dialog agrees.  It was off because the measure
+	# behind it was unvalidated and would have filled a column with a
+	# confident wrong number; the measure is a different one now and it has
+	# a fixed point - a manufactured magnification reads 1.00.  What it
+	# costs is a second fetch per sample and about a tenth of a second of
+	# cpu, which is a price and not a doubt, so 'nodepth' turns it off.
+
+	threads->create(\&dm_sample::sampleWorker,$prog,[$tsd,$scope],{
+		report	=> 1,
+		depth	=> $depth,
+		defined $zmin ? ( zmin => $zmin ) : (),
+		defined $zmax ? ( zmax => $zmax ) : () })->detach();
 }
 
 
@@ -1615,6 +1734,10 @@ sub dispatchCommand
 	elsif ($lpart eq 'fetch')
 	{
 		_fetchCommand($rpart);
+	}
+	elsif ($lpart eq 'sample')
+	{
+		_sampleCommand($rpart);
 	}
 	elsif ($lpart eq 'config')
 	{

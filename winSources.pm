@@ -430,15 +430,15 @@ sub showProperties
 		scalar(@$hdrs), scalar(@$hdrs) == 1 ? '' : 's')
 		if @$fps || @$hdrs;
 
-	# REGISTRATION IS ADVISORY AND SAYS SO IN THE SAME BREATH.  The field
+	# DISPLACEMENT IS ADVISORY AND SAYS SO IN THE SAME BREATH.  The field
 	# is a statement that this imagery is knowingly displaced -- GCJ-02 is
 	# off by a few hundred metres -- and the application does not correct
 	# it.  Showing the name without showing that nothing acts on it would
 	# read as "handled", which is the one impression it must not give.
 
-	if (defined $src->{registration})
+	if (defined $src->{displacement})
 	{
-		$text .= "\n".sprintf("%-16s %s\n",'registration',$src->{registration});
+		$text .= "\n".sprintf("%-16s %s\n",'displacement',$src->{displacement});
 		$text .= sprintf("%-16s %s\n",'',
 			'this imagery is displaced and chartMaker does NOT correct it');
 	}

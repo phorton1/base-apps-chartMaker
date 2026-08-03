@@ -62,6 +62,9 @@ BEGIN
 		tileBounds
 		regionCoverage
 		regionCoverageNodes
+		coverageQuantise
+		coverageTileHits
+		coverageChildren
 		coverageHas
 		coverageCounts
 		coverageTotal
@@ -342,6 +345,61 @@ sub _childrenOf
 }
 
 
+sub coverageQuantise
+	# THE TILES AT ONE ZOOM THAT MEET THESE POLYGONS, and nothing about
+	# regions, bands or zauthor.
+	#
+	# Public for the probe, whose subject is a SERVICE rather than a build:
+	# it needs the geometry of an area and an explicit zoom range, and none
+	# of the region's own levels mean anything to it.  Everything else here
+	# goes through _walk, which exists to apply the band rule; this is the
+	# one caller that must not.
+{
+	my ($polys,$z) = @_;
+	return _quantise($polys,$z);
+}
+
+
+sub coverageTileHits
+	# Does one tile's rectangle meet any of these polygons?
+	#
+	# THE SAME TEST coverageQuantise APPLIES, exposed for the one caller
+	# that produces candidate tiles by ARITHMETIC rather than by
+	# quantising: a descendant of a covering cell may lie inside the cell
+	# and outside the area, and it has to be judged by the same geometry
+	# or the sample and the walk would disagree about what is inside.
+	#
+	# Not a point test.  A tile is in when its rectangle MEETS the polygon,
+	# which at coarse levels is the only answer that can be right - a tile
+	# larger than the whole area contains it without its centre being
+	# anywhere near it.
+{
+	my ($polys,$z,$x,$y) = @_;
+	my ($w,$s,$e,$n) = tileBounds($z,$x,$y);
+	for my $ring (@$polys)
+	{
+		next if scalar(@$ring) < 3;
+		return 1 if _ringHitsRect($ring,$w,$s,$e,$n);
+	}
+	return 0;
+}
+
+
+sub coverageChildren
+	# ONE LEVEL FINER, ARITHMETICALLY.  Below a node's quantised level
+	# coverage IS the complete children of that level, so descending is
+	# arithmetic and needs no polygon.  That is what lets the sampler reach
+	# z19 strata without ever enumerating z19: it walks in strata mode,
+	# which stops at the quantised level, and descends from there only as
+	# far as it needs to have enough cells to draw from.
+	#
+	# Public for that caller.  Nothing here decides how far to go.
+{
+	my ($set) = @_;
+	return _childrenOf($set);
+}
+
+
 #---------------------------------------------
 # the coverage of a whole region
 #---------------------------------------------
@@ -418,8 +476,17 @@ sub _walk
 
 	# finer: complete children to zmax, bounded by the cap.  A subregion
 	# has already quantised AT its zmax, so this loop is a region's alone.
+	#
+	# STRATA MODE STOPS HERE, and it is not the same thing as a cap.  A cap
+	# is a statement about the whole walk and SKIPS any node whose band lies
+	# above it, which would silently drop exactly the detail areas a survey
+	# is being run to judge.  Strata mode keeps every node and declines only
+	# the descent, because below the quantised level coverage is the
+	# complete children of it and the sampler can get there by arithmetic.
+	# Capping a region at z15 to avoid enumerating z19 loses the z17-18
+	# subregion; this does not.
 
-	if (!$depth)
+	if (!$depth && !$opts->{strata})
 	{
 		my $stop = $reg->{zmax};
 		$stop = $cap if defined($cap) && $cap < $stop;
@@ -442,8 +509,16 @@ sub _walk
 	# 'Bocas', 'Bocas/Popa00', 'Bocas/Popa00/Dock'.  '/' is safe as the
 	# joiner because an id is [A-Za-z0-9] and can never contain one.
 
+	# qz, floor and zmax say what BAND this node supplies, which the levels
+	# hash cannot say for itself in strata mode - it stops at qz, and a
+	# consumer would read that as "this node ends here".  They are the
+	# node's own numbers after the cap has been applied, so a caller never
+	# has to redo min(region,build) for itself.
+
 	push @$nodes,{ id => $reg->{id}, depth => $depth, path => $path,
-				   levels => $mine }
+				   levels => $mine, qz => $qz, floor => $floor,
+				   zmax => (defined($cap) && defined($reg->{zmax}) &&
+							$cap < $reg->{zmax} ? $cap : $reg->{zmax}) }
 		if $nodes;
 
 	# A subregion supplies only the band above this level's zmax.
@@ -495,8 +570,10 @@ sub regionCoverage
 	# region's own, because the region definition IS the specification of
 	# what to build -- there is no separate target object holding them.
 	#
-	# opts: zmax  a hard cap from the build     (default none)
-	#       zmin  override the region's floor   (default none)
+	# opts: zmax    a hard cap from the build     (default none)
+	#       zmin    override the region's floor   (default none)
+	#       strata  stop at each node's quantised level and do not fill
+	#               children below it - see _walk.  For the sampler.
 {
 	my ($reg,$opts) = @_;
 	$opts ||= {};
@@ -510,7 +587,7 @@ sub regionCoverage
 
 	my $want = $opts->{nodes} ? 1 : 0;
 	my $key = ($reg->{id} // '').'|'.($opts->{zmin} // '').'|'.
-			  ($opts->{zmax} // '').'|'.$want;
+			  ($opts->{zmax} // '').'|'.$want.'|'.($opts->{strata} ? 1 : 0);
 	my $sig = _regionSig($reg);
 
 	my $have = $cov_by_sig{$key};

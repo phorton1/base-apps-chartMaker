@@ -23,6 +23,17 @@
 # remote source at no cost, and what stops every rebuild from
 # re-requesting tiles already known to be missing.
 #
+# AND THE MARKER SAYS WHICH KIND OF NOTHING.  A refusal and a sentinel are
+# not the same finding: a 404 is a service SAYING it has nothing, and a 200
+# carrying a declared 'no data' body is a service declining to say so.  The
+# second is a worse property of a service and it is exactly what a probe
+# exists to surface, so it cannot be thrown away at the cache boundary and
+# reconstructed later - the bytes are gone by then.
+#
+# It rides in the BODY of the .none file, which was empty and had no other
+# job.  An existing empty marker reads as a plain absence, which is what it
+# always meant, so nothing on disk needs rewriting or clearing.
+#
 # THREADS.  The HTTP server answers on several threads and two of them
 # can be asked for the same tile at the same moment.  Every write goes to
 # a per-thread temporary name and is then renamed into place, so a reader
@@ -83,7 +94,7 @@ sub _stem
 sub cacheGet
 	# Returns one of:
 	#	{ status => 'ok',     format => 'jpeg', bytes => \$data }
-	#	{ status => 'absent' }
+	#	{ status => 'absent', sentinel => 0|1 }
 	#	undef                 -- nothing known about this tile
 	#
 	# The source's declared tile_format is tried first because it is
@@ -116,8 +127,24 @@ sub cacheGet
 
 	if (-f "$stem.none")
 	{
-		display($dbg_cache,0,"cache hit  $source->{cache_key} $z/$x/$y (known absent)");
-		return { status => 'absent' };
+		# WHICH KIND OF NOTHING, from the marker's own body.  Three syscalls
+		# on a file of at most a dozen bytes, and only on tiles already known
+		# to be missing - the tile path above is untouched.  An unreadable or
+		# empty marker is a plain absence, which is what every marker written
+		# before this meant.
+
+		my $why = '';
+		if (open(my $fh,'<',"$stem.none"))
+		{
+			local $/;
+			$why = <$fh> // '';
+			close $fh;
+		}
+		my $sent = $why =~ /sentinel/ ? 1 : 0;
+
+		display($dbg_cache,0,"cache hit  $source->{cache_key} $z/$x/$y ".
+			"(known absent".($sent ? ", sentinel" : '').")");
+		return { status => 'absent', sentinel => $sent };
 	}
 
 	display($dbg_cache,0,"cache miss $source->{cache_key} $z/$x/$y");
@@ -180,12 +207,32 @@ sub cachePutTile
 
 
 sub cachePutMiss
+	# $sentinel says the source answered 200 with its declared 'no data'
+	# body rather than refusing.  Written as a word rather than a flag byte
+	# because somebody looking at a cache folder with a text editor is the
+	# only other reader this file will ever have.
 {
-	my ($source,$z,$x,$y) = @_;
-	my $path = _stem($source,$z,$x,$y).".none";
-	display($dbg_cache,0,"cache put  $source->{cache_key} $z/$x/$y (absent)");
-	my $empty = '';
-	return _writeAtomic($path,\$empty);
+	my ($source,$z,$x,$y,$sentinel) = @_;
+	my $stem = _stem($source,$z,$x,$y);
+	display($dbg_cache,0,"cache put  $source->{cache_key} $z/$x/$y (absent".
+		($sentinel ? ", sentinel" : '').")");
+
+	# AND ANY IMAGE FOR THE SAME TILE GOES, because a tile cannot be both.
+	# cacheGet looks for an image before it looks for a marker - it has to,
+	# that is the common case - so a .none written beside a .jpeg is a file
+	# nothing will ever read, and the cache holds two answers with the wrong
+	# one winning.
+	#
+	# The only thing that reaches here with an image already on disk is a
+	# body the .tsd NAMES as the source's 'no data' tile, which is a
+	# person's assertion about that source, made by hand.  Honouring it is
+	# the point of declaring it; keeping the bytes anyway would mean the
+	# declaration silently did nothing to what was already cached.
+
+	unlink("$stem.$_") for @EXTS;
+
+	my $body = $sentinel ? "sentinel\n" : '';
+	return _writeAtomic("$stem.none",\$body);
 }
 
 

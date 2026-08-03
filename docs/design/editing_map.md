@@ -23,22 +23,32 @@ position is reached by pointing at it.
 ## The screen
 
 Nothing below is modal until you ask for it. With nothing being edited the map is a chart
-you can pan, with three pieces of furniture.
-
-**EVERYTHING YOU SET IS ON THE LEFT; EVERYTHING THE MAP REPORTS IS ON THE RIGHT.** A
-control that also answers a question has to be read in one place and operated in another,
-and the two get in each other's way - the grid's checkbox was wanted mid-edit while its
-level was wanted at a glance, and one badge could not be both.
+you can pan, with four pieces of furniture.
 
 - **left, under Leaflet's own zoom buttons** - the palette, one row each for the grid,
-  autozoom and the footprint: a checkbox, a label, and a value that is text on one row and a
-  control on another. The whole row is the switch.
+  autozoom, shading the selection, the footprint and preview: a checkbox, a label, and a value
+  that is text on one row and a control on another. The whole row is the switch.
 - **top right** - the info panel: the set and its total, then the selected region and the
   selected subregion, each naming its levels with a tile count and a size against every one.
   Nothing there is operable.
 - **bottom left** - the map zoom and the cursor position.
+- **bottom right, and only in probe mode** - the probe palette, one row per probed source.
+
+**A control that also answers a question is split across two places.** The grid's checkbox is
+wanted mid-edit while its level is wanted at a glance, and one badge could not be both, so the
+row carries the switch and the value separately. That is a fact about those rows and not a
+rule about which side of the screen anything belongs on.
 
 Regions draw yellow and subregions cyan, and whichever is selected draws white over both.
+
+**The selected object is also washed, and that can be switched off.** The white outline already
+outranks every other colour on the map and the info panel names the object in words, so the
+fill is a third signal - and what it adds is a haze over the imagery, on the one object you are
+looking hardest at. It is worst while drawing or editing, with the ground under a vertex being
+judged. So `shade selection` is a switch rather than a smaller number: it defaults on, it
+covers the object under edit as well as the selected one, and it is remembered in the browser
+like autozoom, because turning it off after every reload is the friction the switch exists to
+remove.
 
 The palette is a Leaflet control at `topleft` rather than a box positioned by hand, so it
 stacks under the zoom buttons by itself at any window size.
@@ -59,9 +69,25 @@ The menu titles itself with what it is about to act on, because being one polygo
 otherwise silent and destructive:
 
 Over open water it offers **Create Region** and nothing else. Over an object it names that
-object at the top - a subregion also naming the parent it belongs to - and then offers two
-groups: **Edit Polygon**, **Add Polygon**, **Add Subregion** and **Properties**, then
-**Delete Polygon** and **Delete** for the object itself.
+object at the top - a subregion also naming the parent it belongs to - and then offers three
+groups: **Edit Polygon**, **Add Polygon**, **Add Subregion** and **Properties**, then **Delete
+Polygon** and **Delete** for the object itself, then **Probe**.
+
+**Probe opens a dialog, and it asks which source.** The right-click says *where*; it does not
+say what to probe. Using whichever source happened to be displayed was wrong for the reason the
+feature exists: the source is the **subject**, and the point of a probe is to judge services you
+are not currently looking at. The dialog asks the two things the gesture did not - a source and
+a zoom range - and does not ask for an area, because that is what was pointed at.
+
+**Over a subregion there are two entries**, the detail area and the region containing it, and
+they are not the same question - probing a detail area alone is a far more intimate answer than
+probing the ground around it, which is exactly the judgement somebody siting one is making.
+Over a plain region there is only the one.
+
+**They stay available while a probe is showing**, because the mode holds results from several
+sources at once so they can be compared, so adding to what is on screen is ordinary rather than
+a special case. Two runs at the same time are refused, since they would publish into one result
+set.
 
 The menu over a region and the menu over a subregion are **identical in structure**, because
 a region and a subregion are the same object at different depths. A subregion can hold a
@@ -274,6 +300,181 @@ The rules are in [Editing](editing.md); the applet's part is to say so rather th
 silently ignore a click. While an object is dirty, selecting something else is refused, and
 the refusal names the object and points at Confirm and Cancel - both of which are on screen,
 in the bar, at that moment.
+
+## Probe mode
+
+A third mode beside source view and preview, showing what the probe found. The act itself is
+specified in [Build](build.md#the-probe); this is what the map does with it.
+
+**It holds accumulated results rather than being a run that finishes.** A run happens inside
+the mode, the results stay on screen, and the mode ends only when it is closed. That is a
+longer life than a build has, and it is the point: nobody chooses a `zmax` from a number that
+vanished.
+
+**Every run adds, and only Clear takes anything away.** Two services' marks sit on the same
+ground and can be compared - and running the *same* service again adds to itself rather than
+replacing itself, which is the case that used to be the exception.
+
+Selection draws different points every time, so a second run over the same ground is not a
+repeat of the first: it is more of the same sample. Running it again is how a scatter of a few
+dozen dots becomes dense enough to read a pattern off, and replacing the earlier run threw away
+exactly the accumulation that made running it twice worth doing. It also made the two cases
+behave differently with nothing on screen saying which was about to happen.
+
+**Triggered by the application and completed by the application.** The map picks no sample
+points, fetches nothing and counts nothing; it renders what it is handed. If the browser
+decided any of it the marks would illustrate the analysis rather than be it, which is the same
+reason preview does not work out coverage for itself.
+
+### The marks are small, and that is deliberate
+
+A mark is a dot at the **exact centre of the sampled tile**, and **its size says which level it
+came from** - larger for coarser. Reading a spread of marks means knowing which level each one
+is about, and a legend cannot carry that for a hundred dots at once.
+
+**The centre is exact and nothing may move it.** A tile centre at level z is `(2x+1)/2^(z+1)` of
+the world - an odd numerator over a power of two - so no two levels can ever produce the same
+point, and every one of them is a vertex of every finer grid. That is what lets one level's
+samples read as **its own lattice**, distinct from every other level's, once enough of them
+accumulate on the same ground. The mark was briefly clipped to the area's bounding box, on the
+argument that a z0 tile's true centre is a point in the Atlantic. True, and about levels nobody
+probes; what it actually did was move every edge tile at every level, which over a small polygon
+is most of them. A mark is a claim about a **tile**, and a tile that overlaps the region does
+extend into open water.
+
+Two versions of the *size* were wrong before it. Drawing each sample at the **true footprint** of
+its tile made size mean level exactly, and produced a quilt of opaque rectangles in which one
+coarse sample buried every finer one inside it and hid the imagery being judged. Correcting that
+to a **fixed-size dot** threw the level away entirely, so a green and a red mark in the same
+place said nothing about which depth had failed.
+
+**Two jobs, two separate numbers**, and conflating them was the third mistake:
+
+- **which level is this** - a fixed geometric ramp, about 12.5% a level, anchored so z10 is the
+  largest dot and z21 the smallest. Geometric because the eye judges size by *ratio*: equal
+  ratios give equal perceptual steps, while equal pixel steps are obvious at the small end and
+  invisible at the large one. Decided ahead of time and never from the marks currently on
+  screen - a scale computed from "what has been probed so far" is a running average, and
+  because the probe publishes levels in ascending order it made every dot visibly **grow** as
+  the run descended.
+- **can I see it at all** - one multiplier applied to every dot, from the map's own zoom,
+  doubling every four levels. Ratios between levels are untouched at every zoom, so nothing
+  becomes more or less distinguishable; what you gain is that zooming in to inspect makes the
+  small ones big enough to read a colour off.
+
+**Not proportional to the tile's own screen size**, which is the geometrically honest version.
+That doubles per level exactly, and the usable range for a dot is about 5 to 30 pixels - six to
+one. Two-to-one per level burns that in two and a half levels, so three levels would look right
+and the other ten would sit pinned at a floor or a ceiling. That is arithmetic, not tuning.
+
+**No outline.** The dot was ringed in a per-source hue so two services could be told apart at a
+glance, and on a small dot that ring is most of the dot - at radius 2 a one-pixel stroke is over
+half the area. The outcome colour, which is the whole point of the mark, was being reported by a
+few pixels in the middle while the source hue owned the edge; the fifth source's tint is a
+lavender that read as the purple `flat` outcome outright. **A dot has one colour and it says
+what came back.** Telling two sources apart is what the palette's checkboxes are for.
+
+**Coarsest drawn first**, so fine marks land on top of large ones. A coarse mark is also more
+transparent, because it covers more chart and is making a vaguer claim about where it applies -
+and that transparency comes from its **level**, not its drawn size, or a dot would fade as you
+zoomed into it.
+
+**Colour carries the outcome**, because a small dot has no room for a shape:
+
+| | |
+| --- | --- |
+| green | found |
+| red | absent - the service refused |
+| amber | no-data - it answered with its declared blank instead of refusing |
+| purple | a flat fill - something came back and there is nothing in it |
+
+A per-source hue rings the dot and fills the palette swatch, so two services are distinguishable
+before anybody reads a name.
+
+**No-data is amber and was a deep pink.** Putting it in the red family because it is also an
+absence was reasoning about meaning rather than about eyes: at these sizes it read as red, and a
+distinction nobody can see is not a distinction.
+
+**There is no "no detail" mark.** It was a per-tile verdict from a threshold, and measured against
+real ground it went wrong in both directions - firing on open water at z11, where a blow-up costs
+a handful of tiles and nobody would decide differently, and staying silent on a service enlarging
+its own imagery at z21 where the eye can see it. How much detail a **level** holds is not a
+property any single tile has. The number survives as a column in the report; the dot does not,
+and a tile that scored low is drawn as what it is, which is found.
+
+### The probe palette
+
+Bottom right, in the translucent grey box, titled **Probe**. One row per source probed: a
+swatch, its name, and a checkbox that hides its marks so another's can be seen underneath.
+Below them, one line per source saying what it found, then a colour key and one line naming the
+range the sizes span. **The size rule is said in words** because a legend can show four colours
+and cannot show twelve sizes, and a size that means something nobody was told means nothing.
+
+**The swatch is a row token and nothing on the map is coloured by source.** It was the hue that
+ringed each dot, and it stopped being that when the outlines came off; it is kept so a source
+can be found in a list of six. Isolating one source's marks is what its checkbox does.
+
+It **replaces** an earlier two-line overlay rather than sitting beside it. The pane owns the
+columns of numbers; what the map still needs to say is which source these marks belong to and
+what the marks mean, and that is what a palette is.
+
+It also carries **Halt run** and **Clear all**. Halt stops the run and leaves the marks, because
+they are the product and they become useful when they stop changing; Clear takes them away.
+Halt is dead when nothing is running, so it cannot read as an offer to undo a run that already
+finished. The pane carries the same two, and it can be on another monitor - a mode with no way
+out from the surface it is drawn on is not a mode, it is a trap.
+
+### The results are a pane
+
+The table lives in the application, as a **pane** beside the tree and the sources: docked, torn
+off, or shut, and every one of those the user's decision. It was a modeless frame first, and a
+floating window is wrong in the ordinary way - it comes up behind the application, and the only
+cure for that is "always on top", which is obnoxious. Docking is also the arrangement that was
+wanted: the whole reason to look at the table is to compare it with the map, and a pane docked
+on the left of a maximised application does that with nothing overlapping anything.
+
+**Closing the pane ends probe mode**, which is the only thing that does, so the mode always has
+an exit on a surface that shows it. **It is not restored at startup**, unlike every other pane:
+the others are views of things that are still there next time, and this one is the view of a
+mode that is not.
+
+**Everything describing the run as a whole sits above the scroll and the column heading does not
+move.** One source over twenty-three levels is twenty-three rows before a second source is
+added, so a heading carried as the first line of the scrolling control is off screen essentially
+always, and eight columns of unlabelled integers is not a table. For the same reason a total
+belongs with the other summary lines rather than at the bottom of a scroll where nobody arrives.
+
+**The rows are the report being written**, not a second rendering of it - the pane, the written
+report and the console print the same header and the same row, from the same two calls, so they
+cannot disagree about a number or label it differently.
+
+### The result set crosses threads as flat strings
+
+A nest of hashes cannot cross a thread boundary as a reference, and shipping a copy back would
+be a second representation free to drift from the first. [Build](build.md) already settles this
+for the build report and the same applies here.
+
+Two shared arrays do it: rendered table rows for the pane, and marks encoded
+`source z/x/y/outcome/lat/lon` for the browser. The source rides **inside the string** rather
+than in a parallel structure keyed the same way twice, which would be two things free to
+disagree.
+
+- The map **polls**, exactly as everything else here polls. Nothing calls into the browser.
+- **`/poll` carries the probe's own sequence**, beside the state version. A running probe
+  publishes while the state document is unchanged, so anything waiting on the state version
+  would never learn a mark had arrived - and `/poll` is where "has anything changed" is already
+  asked every cycle. Carrying it separately means the applet goes straight to the marks without
+  refetching a document that did not move.
+- Results publish per **source and level** - per tile is too chatty for a poll, per run too slow
+  to watch, and that pair is already the unit the table rows use.
+- **Marks outlive the run**, because completion is when they become useful.
+- They are **bounded**: a mode left open across many runs would otherwise grow without limit, so
+  at the cap the oldest go and the count is reported. Silent truncation is the only version of
+  this worth refusing.
+
+**Nothing placed outlives the mode.** There is no result file and no spatial index. What a run
+learns that is *placeless* - rate statistics, and candidate fingerprints for a human to judge -
+goes to the observation record, where facts about servers already live.
 
 ## The application owns the mode
 

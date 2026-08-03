@@ -71,6 +71,16 @@ my @view_menu = (
 # also refuses nothing, because it writes no card: a source that cannot
 # carry to an RCT can still legitimately have its tiles fetched.
 
+# PROBE IS NOT HERE, and was.  It is reached by right-clicking the node to
+# probe, in the tree or on the map, because the gesture is what says where
+# to look - a menu item would have to ask for an area it was never told,
+# and that answer could disagree with what the user was pointing at.
+#
+# NOR IS THE PROBE PANE IN THE VIEW MENU, for the reason the Regions pane is
+# not: it is the view of a MODE rather than a thing to be shown and hidden on
+# its own.  Opening it over a mode nobody entered would show an empty table
+# with a Halt button for a run that never started.
+
 my @build_menu = (
 	$COMMAND_FETCH,
 	$ID_SEPARATOR,
@@ -89,6 +99,7 @@ my $command_data = {
 	%{$resources->{command_data}},
 	$WIN_REGIONS		=> ['Regions',		'The regions of the open set'],
 	$WIN_SOURCES		=> ['Sources',		'Show the tile source definitions'],
+	$WIN_PROBE			=> ['Probe',		'What the probe found, level by level'],
 	$COMMAND_OPEN_MAP	=> ['Map',			'Open the Leaflet map in a browser'],
 	$COMMAND_SET_OPEN	=> ['Open Set...',	'Open a region set'],
 	$COMMAND_SET_NEW	=> ['New Set...',	'Create an empty region set and open it'],

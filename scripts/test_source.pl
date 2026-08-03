@@ -114,7 +114,7 @@ my $QUAD = <<'EOJ';
   "absent_headers": [
     { "name": "X-VE-Tile-Info", "value": "  no-tile  " }
   ],
-  "registration": "GCJ-02",
+  "displacement": "GCJ-02",
   "uses": ["display","overlay"]
 }
 EOJ
@@ -172,10 +172,10 @@ my %BAD = (
 		"url":"https://e.com/{z}/{x}/{y}.png", "zoom":{"max":10},
 		"uses":["display"], "attribution":"t",
 		"absent_headers":[{"name":"X: Tile Info","value":"no-tile"}] }',
-	'reg_not_a_name.tsd' => '{ "tsd_version":1, "id":"q", "name":"Q", "kind":"remote_xyz",
+	'disp_not_a_name.tsd' => '{ "tsd_version":1, "id":"q", "name":"Q", "kind":"remote_xyz",
 		"url":"https://e.com/{z}/{x}/{y}.png", "zoom":{"max":10},
 		"uses":["display"], "attribution":"t",
-		"registration":"shifted by about 500m, mostly north, see the notes" }',
+		"displacement":"shifted by about 500m, mostly north, see the notes" }',
 	'broken.tsd' => '{ this is not json',
 );
 
@@ -243,7 +243,7 @@ ok($q && $q->{absent_headers}[0]{name} eq 'x-ve-tile-info',
 ok($q && $q->{absent_headers}[0]{value} eq 'no-tile',
 	"absent_header value trimmed");
 
-ok($q && $q->{registration} eq 'GCJ-02',"registration read");
+ok($q && $q->{displacement} eq 'GCJ-02',"displacement read");
 
 ok($q && grep({ $_ eq 'overlay' } @{$q->{uses}}),
 	"'overlay' is a legal use");

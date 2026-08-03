@@ -47,7 +47,7 @@ sent you is a matter of putting the file in the folder.
     absent_fingerprints:
                       [ { bytes, md5 } ]   a 200 that means 404
     absent_headers:   [ { name, value } ]  the same absence, said in a header
-    registration:     a named coordinate transform - ADVISORY, never acted on
+    displacement:     a named coordinate transform - ADVISORY, never acted on
 ```
 
 | Field             | Notes                                                                      |
@@ -65,7 +65,7 @@ sent you is a matter of putting the file in the folder.
 | `uses`            | What the source is FOR. Not "what it uses" - see below.                    |
 | `absent_fingerprints` | The bytes a server sends INSTEAD of saying no. Read as absences.       |
 | `absent_headers`  | The same statement made in a header rather than in the bytes.              |
-| `registration`    | A known displacement of the imagery. Recorded and shown, never acted on.   |
+| `displacement`    | A known displacement of the imagery. Recorded and shown, never acted on.   |
 | `credentials`     | Names of secrets the source needs. Never the secrets themselves.           |
 | `policy`          | Requested limits. The application clamps regardless of what is asked for.  |
 
@@ -191,7 +191,20 @@ most of them - pays one integer comparison per tile, so the check costs the map 
 
 **Checked on the way out of the cache as well as the way in**, so declaring a fingerprint
 retroactively reclassifies tiles already on disk. Discovering one does not mean clearing the
-cache.
+cache. That check belongs to one place and every reader of the cache goes through it - a
+second reader looking at the file directly is a second opinion about what a hit means, and the
+one that got it wrong was the probe, on the surface whose whole job is to notice.
+
+**The reclassification is recorded, and the image goes.** A tile cannot be both present and
+absent, and the cache looks for an image before it looks for an absence marker - so a marker
+written beside a picture is a file nothing ever reads, with the wrong answer winning. Only a
+body this file *names* reaches that point, which is a person's assertion about the source, made
+by hand; honouring it is the point of declaring it.
+
+**A refusal and a sentinel stay distinguishable afterwards.** For anything that builds a card
+they are the same thing - there is no tile either way - but they are not the same finding about
+a service, and the finding is what a probe exists to make. The marker remembers which, because
+the bytes are gone by the time anybody could work it out again. See [Build](build.md#the-probe).
 
 **Declared, not detected.** It is a fact about a server, and this file is where facts about
 servers live. A probe can *discover* one - fetch over ground known to be empty and watch for
@@ -231,7 +244,7 @@ genuinely differ in what declaring them achieves.
 Both are declared and neither is detected, for the same reason: they are facts about a
 server, and this file is where facts about servers live.
 
-## Registration is recorded, never corrected
+## Displacement is recorded, never corrected
 
 Some services publish imagery that is deliberately displaced from WGS 84. The best known
 case is the transform Chinese regulation requires, which moves the pixels several hundred
@@ -239,22 +252,32 @@ metres and varies the offset with position. The tile grid is correct, the tiles 
 each other, and every structural check this format performs passes.
 
 ```
-    "registration": "GCJ-02"
+    "displacement": "GCJ-02"
 ```
 
+**The field is named for the oddity it describes.** `registration` is the neutral term for
+something every dataset has, so it reads as a field that ought to be filled in, and a blank
+one reads as an omission. `displacement` reads as what it is: a rare statement that this
+particular source is wrong on purpose. Almost no source declares it and none should feel
+obliged to.
+
 **The field is advisory and the application never acts on it.** It is not consulted when
-fetching, not consulted when building, and no tile is ever moved. Absent, or `wgs84`, means
-the imagery is where it says it is; any other value names a known transform.
+fetching, not consulted when building, and no tile is ever moved. Absent means the imagery
+is where it says it is; any value names a known transform.
 
 Two reasons it is recorded rather than enforced. Correcting it would be a reprojection, and
 this application does not resample or reproject anything. And the judgement is not the
 application's to make: a consumer may apply its own offset, and a purpose may not be
-navigation. So the value is shown where a source is chosen and where one is imported, and
-the decision belongs to whoever is looking at it.
+navigation.
+
+**It is said twice, and the second time is the one that matters.** The source list shows it
+wherever a source is inspected, which is passive and depends on somebody looking. The build
+preflight states it again as a cost of the build about to start, alongside what will be
+overwritten, because that is the last moment before hours of fetching produce a chartset
+that is quietly in the wrong place. Neither is a refusal.
 
 What it buys is that the one failure nothing else can catch stops being invisible. A user
-who would have discovered the displacement on the water can instead read it in the source
-list.
+who would have discovered the displacement on the water reads it before the build instead.
 
 ## Credentials
 
@@ -328,6 +351,13 @@ with resolution and license. The user judges with their eyes, because "is this i
 useful here" is a visual question that no metadata answers. It generalises TEST_FETCH, it
 is neutral about what it evaluates, and it is the honest answer to a catalog of hundreds of
 layers with no way to tell which one is worth anything in your bay.
+
+**It is the one-tile version of what the probe does over an area.** The
+[probe](build.md#the-probe) samples one source across a range of levels and reports whether it
+answers, whether what it returns is imagery, and whether depth buys anything; the evaluator asks
+the same of every source at one spot and one level, and shows the tiles rather than the counts.
+Both exist because the same question has two useful shapes: **which source**, answered by eye
+in a second, and **how deep**, answered by a survey that takes minutes.
 
 The per-source result it produces - answered, refused, absent, blank - is the same status a
 health pass over all sources writes, and it is shown in both the source list and the map's

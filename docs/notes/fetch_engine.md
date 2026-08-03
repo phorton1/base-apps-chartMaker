@@ -1,17 +1,26 @@
-# chartMaker - the sampler and coverage mode
+# chartMaker - SUPERSEDED, DO NOT BUILD FROM THIS
 
-Working design for two things that have not been built. It is not a specification and is not
-linked from any official document.
+> **THIS FILE IS WRONG AND IS KEPT ONLY AS HISTORY. Patrick's to delete.**
+>
+> It describes a sampler whose subject is a REGION - walking each node over that node's own
+> band, from that node's assigned source. **That framing was rejected.** Once a region names
+> its source and its levels the build already answers coverage exactly within them, so
+> sampling it re-derives something already known precisely. The probe's subject is a **TSD**,
+> and a region supplies polygons and nothing else.
+>
+> Everything below about point scope, per-node rows, magnification by byte length, and the
+> evaluator as a preset is superseded or was measured and found false.
+>
+> **The design that IS current:** `build.md#the-probe` and `editing_map.md#probe-mode`.
+> What is left to do is in the `wip-probe-handover` memory.
+
+Earlier working notes follow, unedited.
 
 **A-D of this file have landed and their content has moved into the official docs.** The
 engine, its composition rules, its failure classes and its backoff are in
 `build.md#the-fetch-engine`; the observation record is in `deployment.md#the-observation-record`;
 the metadata probe and the `maxScale` rule are in `tsd.md#asking-the-service-what-it-is`; and
-`absent_headers` and `registration` were already specified in `tsd.md`.
-
-**What remains here is E and F, which depend on the engine and not on each other.** When they
-become a design they belong in `build.md` and `editing_map.md`, and this file should be deleted
-rather than left to disagree with them.
+`absent_headers` and `displacement` were already specified in `tsd.md`.
 
 ## What exists to build on
 
@@ -193,11 +202,15 @@ declared, and it is the honest version of what an overnight run means.
   discipline: the worker renders text with the function the console prints, both surfaces
   read the one rendering, and the outcome is named before any detail.
 
-## Not yet decided
+- **A probe is a mode, and nothing placed outlives it.** Its dots and its rows live in
+  memory for as long as the mode does and die with it. There is no third persistence tier
+  and no spatial index: `deployment.md` already forbids placed findings in the observation
+  record, and re-running is cheap because the tiles a run fetched are in the cache. What a
+  probe learns that is **placeless** - whether a source upsamples past its real detail at
+  all - goes to the observation record, where facts about servers already live.
 
-- Whether the run record that survives a run is only the failed-tile list, which is what
-  makes "retry the last run's failures" possible, or something larger. Resume itself
-  should stay unspecified, since cache-first is already the checkpoint and that property
-  is worth not spending.
-- Whether `registration` is surfaced only in the source list, which is what it does now, or
-  also warned about at the moment a region names such a source.
+- **The failed-tile list is not a new artefact.** `dm_fill.pm` already names up to a
+  hundred failures with source, coordinate and reason, because an error is never cached and
+  after the walk there is nothing on disk to find that tile by. It is reported and then it
+  is gone, which is right: re-running is already correct and cache-first, so the cost of
+  not persisting it is a re-walk rather than a re-fetch.

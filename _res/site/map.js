@@ -187,6 +187,63 @@ const SELECTED_STYLE  = { color: '#ffffff', weight: 3, fillOpacity: 0.12 };
 
 let selectedId = '';
 
+
+// ============================================================================
+// SHADING THE SELECTION, and being able to turn it off
+// ============================================================================
+// The selected object is filled as well as outlined, at a heavier opacity
+// than anything else on the map. That was one signal too many: the white
+// outline already outranks every other colour here, and the info panel names
+// the object in words. What the fill adds is a wash over the imagery -
+// which is the thing being judged, on the one object you are judging it on.
+//
+// It is worst exactly when it matters most: while drawing or editing, when
+// you are looking hardest at the ground under the vertices.
+//
+// SO IT IS A SWITCH, not a smaller number. Anybody who wants the fill has it
+// and it defaults on, which is what the map has always done; anybody who
+// finds it in the way turns it off once. Tuning the opacity down would have
+// annoyed one of those two people without satisfying the other.
+//
+// REMEMBERED IN THE BROWSER, like autozoom, and for the same reason: it is a
+// property of how somebody looks at a map rather than anything about the
+// document, and having to turn it off after every reload is the friction the
+// switch exists to remove.
+
+const SHADE_KEY = 'chartMaker.shadeSelection';
+let shadeSelection = (localStorage.getItem(SHADE_KEY) !== 'off');   // defaults ON
+let shadeRow = null;
+
+function cmShadeSelection() { return shadeSelection; }
+window.cmShadeSelection = cmShadeSelection;
+
+// THE FILL IS DROPPED, THE OUTLINE IS NOT. What identifies the selection is
+// the white line and its weight, and neither is in question.
+function shadeStyle(style) {
+    return shadeSelection ? style : Object.assign({}, style, { fill: false });
+}
+
+function drawShadeRow() {
+    if (!shadeRow)
+        shadeRow = paletteRow('shade', 'shade selection',
+            { checked: shadeSelection, onToggle: toggleShade });
+    shadeRow.box.checked = shadeSelection;
+    shadeRow.row.title =
+        'wash the selected object - the white outline says so either way';
+}
+
+function toggleShade() {
+    shadeSelection = !shadeSelection;
+    localStorage.setItem(SHADE_KEY, shadeSelection ? 'on' : 'off');
+    drawShadeRow();
+
+    // BOTH SURFACES, because the object under EDIT is the selected one and
+    // cmEdit draws it from its own copy - leaving that half on would make
+    // the switch do nothing on the one screen it was asked for.
+    cmRedrawRegions();
+    if (window.cmRedrawWork) window.cmRedrawWork();
+}
+
 function drawRegion(reg, style, rootId) {
     // AN OBJECT UNDER EDIT LEAVES THIS LAYER.  cmEdit draws it from its own
     // copy while the user's hand is on it; drawing it from the model as well
@@ -205,7 +262,7 @@ function drawRegion(reg, style, rootId) {
             ? reg.name + '  (to z' + reg.zmax + ')'
             : reg.name + '  (z' + reg.zauthor + '-' + reg.zmax + ')';
         L.polygon(poly.map(p => [p[1], p[0]]),
-                  reg.id === selectedId ? SELECTED_STYLE : style)
+                  reg.id === selectedId ? shadeStyle(SELECTED_STYLE) : style)
             .bindTooltip(label, { sticky: true })
             .addTo(regionLayer);
     });
@@ -252,10 +309,7 @@ window.cmRedrawRegions = cmRedrawRegions;
 // ============================================================================
 // The palette
 // ============================================================================
-// EVERYTHING THE USER SETS IS ON THE LEFT; everything the map reports is on
-// the right.  A control that also answers a question has to be read in one
-// place and operated in another, and the two get in each other's way -- so
-// the switches live here and the numbers live in the info panel.
+// The switches.  The readouts are in the info panel at the top right.
 //
 // A Leaflet control at topleft rather than a box positioned by hand: the
 // zoom buttons are a control at the same corner, so the stack takes care of
@@ -264,7 +318,7 @@ window.cmRedrawRegions = cmRedrawRegions;
 // Rows are added by whichever file owns the thing being switched, and they
 // appear in the order named here rather than the order they were added.
 
-const PALETTE_ROWS = ['grid', 'autozoom', 'footprint', 'preview'];
+const PALETTE_ROWS = ['grid', 'autozoom', 'shade', 'footprint', 'preview'];
 
 const paletteBox = L.control({ position: 'topleft' });
 let paletteDiv = null;
@@ -330,9 +384,9 @@ window.cmPaletteRow = paletteRow;
 // ============================================================================
 // The info panel
 // ============================================================================
-// The other half of the split: what the map has to SAY.  The set the work
-// is in, the object selected, the zooms that object carries, and what the
-// footprint counted.  Nothing here is operable.
+// What the map has to say.  The set the work is in, the object selected, the
+// zooms that object carries, and what the footprint counted.  Nothing here is
+// operable.
 //
 // The selected object is drawn in bold blue because it is the one line that
 // answers "what am I working on" -- everything around it is context.
@@ -340,6 +394,15 @@ window.cmPaletteRow = paletteRow;
 const infoBox = L.control({ position: 'topright' });
 let infoDiv    = null;
 let infoState  = null;
+
+// WHICH SOURCE THE MAP IS SHOWING, for anything that wants to act on the
+// one the user is actually looking at.  The probe's right-click items use
+// it: the source is the subject of a probe, and the displayed one is the
+// source the user is pointing at when they ask.
+function cmActiveSourceId() {
+    return (infoState && infoState.active_source) || '';
+}
+window.cmActiveSourceId = cmActiveSourceId;
 let infoCount  = '';
 let counts     = null;
 let countsKey  = null;
@@ -617,7 +680,13 @@ function tileLat(y, n) {
     return 180 / Math.PI * Math.atan(0.5 * (Math.exp(t) - Math.exp(-t)));
 }
 
-// ---- the palette row ----
+// ---- the palette rows ----
+//
+// AFTER the control is on the map, because paletteRow inserts into a div that
+// paletteBox.onAdd creates.  The shade row is declared with the styles it
+// controls, up beside SELECTED_STYLE, and only built here.
+
+drawShadeRow();
 
 const coverageRow = paletteRow('footprint', 'tile footprint',
     { checked: false, onToggle: toggleCoverage });
@@ -815,6 +884,14 @@ async function pollVersion() {
         const poll = await fetchJson('/poll', POLL_TIMEOUT_MS);
         polledVersion = poll.version;
         onConnected();
+
+        // A RUNNING PROBE MOVES ITS OWN SEQUENCE AND NOTHING ELSE.  It
+        // publishes a unit per source and level while the state document
+        // is unchanged, so waiting for the state version to move meant the
+        // palette froze at whatever it read when the map opened and the
+        // marks never arrived.  Asked here because /poll is where "has
+        // anything changed" is already answered.
+        if (window.cmProbeOnPoll) cmProbeOnPoll(poll);
     } catch (e) {
         onDisconnected('poll', e);
     }
@@ -878,6 +955,11 @@ async function applyState() {
             setRegions(state.regions);
         } catch (e) {
             console.error('chartMaker: could not draw the regions', e);
+        }
+        try {
+            if (window.cmProbeOnState) cmProbeOnState(state);
+        } catch (e) {
+            console.error('chartMaker: cmProbe choked on the state', e);
         }
         drawInfo();
         refreshCounts(state);

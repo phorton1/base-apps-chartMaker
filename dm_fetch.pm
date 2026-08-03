@@ -49,6 +49,8 @@ BEGIN
 	use Exporter qw( import );
 	our @EXPORT = qw(
 		fetchTile
+		fetchStore
+		fetchCacheHit
 		fetchUrl
 		getTile
 	);
@@ -327,6 +329,41 @@ sub _isDeclaredAbsent
 }
 
 
+sub fetchCacheHit
+	# WHAT A CACHE HIT MEANS, IN ONE PLACE, because there is more than one
+	# reader of the cache and they must not disagree about the same file.
+	#
+	# getTile is the usual one.  The PROBE is the other: it checks the cache
+	# on its own thread before submitting anything, deliberately, so that a
+	# tile already on disk costs a file read rather than a queue handoff.
+	# That made it the one reader that never applied the rule below - a
+	# sentinel cached as imagery before anybody fingerprinted it was
+	# reported by the probe as FOUND, which is the exact opposite of the
+	# finding, and on the one surface whose whole job is to make it.
+	#
+	# A PLACEHOLDER MAY HAVE BEEN CACHED BEFORE ANYBODY KNEW IT WAS ONE.
+	# Checking on the way out as well as on the way in means declaring a
+	# fingerprint reclassifies what is already on disk, so a probe's
+	# findings take effect without clearing the cache.
+{
+	my ($source,$z,$x,$y,$cached) = @_;
+	return $cached if !$cached;
+
+	if ($cached->{status} eq 'ok' &&
+		_isDeclaredAbsent($source,$cached->{bytes}))
+	{
+		display($dbg_fetch,0,"declared-absent tile in cache ".
+			"$source->{cache_key} $z/$x/$y - recording the absence");
+		cachePutMiss($source,$z,$x,$y,1);
+		return { status => 'absent', cached => 1, sentinel => 1,
+				 reason => "the source's declared 'no data' tile" };
+	}
+
+	$cached->{cached} = 1;
+	return $cached;
+}
+
+
 sub getTile
 	# The tile, cache first.  This is what everything actually calls --
 	# the map, the preview, the evaluator and the build alike, which is
@@ -351,25 +388,7 @@ sub getTile
 	$opts ||= {};
 
 	my $cached = cacheGet($source,$z,$x,$y);
-	if ($cached)
-	{
-		# A PLACEHOLDER MAY HAVE BEEN CACHED BEFORE ANYBODY KNEW IT WAS
-		# ONE.  Checking on the way out as well as on the way in means
-		# declaring a fingerprint reclassifies what is already on disk,
-		# so a probe's findings take effect without clearing the cache.
-
-		if ($cached->{status} eq 'ok' &&
-			_isDeclaredAbsent($source,$cached->{bytes}))
-		{
-			display($dbg_fetch,0,"declared-absent tile in cache ".
-				"$source->{cache_key} $z/$x/$y - recording the absence");
-			cachePutMiss($source,$z,$x,$y);
-			return { status => 'absent', cached => 1 };
-		}
-
-		$cached->{cached} = 1;
-		return $cached;
-	}
+	return fetchCacheHit($source,$z,$x,$y,$cached) if $cached;
 
 	my $result = engineFetch($source,$z,$x,$y,
 		$opts->{priority},$opts->{advisory});
@@ -388,16 +407,57 @@ sub getTile
 	# the same argument that put the ENGINE below getTile's callers rather
 	# than above dm_fill.  See _doFetch in dm_engine.
 
-	# A 200 THAT MEANS 404.  Recorded as the absence it is, so it is
-	# never asked for again and never reaches a card.
+	# THE SENTINEL AND THE CACHE WRITE ARE THE ENGINE'S TOO, for exactly the
+	# reason above and by the same argument.  They used to be here, which
+	# was correct only while getTile was the sole route to the network.
+	#
+	# See fetchStore, and dm_engine::_doFetch which calls it.
+
+	return $result;
+}
+
+
+sub fetchStore
+	# WHAT A RESPONSE MEANS, AND WHAT TO KEEP OF IT.  Called at the ONE
+	# place a request actually lands - dm_engine::_doFetch - so that every
+	# route to the network gets it: the map proxy, a fill, a build's fill
+	# phase and a probe alike.
+	#
+	# IT WAS IN getTile AND THAT WAS A REAL BUG, not a tidiness question.
+	# When dm_fill stopped calling getTile and became a client of the engine
+	# it stopped caching ANYTHING it fetched and stopped recognising a
+	# sentinel - so Fetch Tiles wrote nothing, a build's fill phase handed
+	# the exporter an empty cache, and a source's 'no data' tile was counted
+	# as imagery. Measured: a fill of three tiles left zero files behind.
+	#
+	# The observation record was moved down here for precisely this reason
+	# and these two were left behind, which is the shape of the mistake:
+	# when the one-and-only route becomes one of several, everything hanging
+	# off it has to move, not just the part somebody was looking at.
+{
+	my ($source,$z,$x,$y,$result) = @_;
+	return $result if !$result;
+
+	# A 200 THAT MEANS 404.  Recorded as the absence it is, so it is never
+	# asked for again and never reaches a card.
+	#
+	# AND RECORDED AS THE KIND OF ABSENCE IT IS.  Everything downstream of a
+	# build treats this exactly as a 404 and should - there is no tile
+	# either way.  But it is NOT the same finding about the SERVICE, and a
+	# probe is a judgement of the service: a 404 is a server saying it has
+	# nothing, and this is a server declining to say so, which nobody would
+	# know at all had somebody not fingerprinted the body.  So the marker
+	# says which, here, while the bytes are still in hand.
 
 	if ($result->{status} eq 'ok' &&
 		_isDeclaredAbsent($source,$result->{bytes}))
 	{
 		display($dbg_fetch,0,"$source->{cache_key} $z/$x/$y is the source's ".
 			"'no data' tile - recording an absence");
-		cachePutMiss($source,$z,$x,$y);
-		return { status => 'absent', cached => 0, ms => $result->{ms} };
+		cachePutMiss($source,$z,$x,$y,1);
+		return { status => 'absent', cached => 0, ms => $result->{ms},
+				 sentinel => 1,
+				 reason => "the source's declared 'no data' tile" };
 	}
 
 	if ($result->{status} eq 'ok')
@@ -407,9 +467,9 @@ sub getTile
 	elsif ($result->{status} eq 'absent' && defined($result->{http}))
 	{
 		# Only an absence the SOURCE asserted is recorded.  An absence
-		# derived from the TSD's own declared zoom range has no http
-		# code, costs nothing to recompute, and would go stale the
-		# moment the TSD changed.
+		# derived from the TSD's own declared zoom range has no http code,
+		# costs nothing to recompute, and would go stale the moment the TSD
+		# changed.
 
 		cachePutMiss($source,$z,$x,$y);
 	}

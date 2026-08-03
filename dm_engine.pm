@@ -455,6 +455,22 @@ sub _doFetch
 		#
 		# It was in getTile until dm_fill stopped going through getTile.
 
+		# WHAT IT MEANS AND WHAT TO KEEP, at the one place a request lands.
+		#
+		# The sentinel check and the cache write live here for exactly the
+		# reason the observation record does: this is the ONLY route to the
+		# network, and anything hanging off "the only route" has to be here
+		# rather than in one of its callers.  They were in getTile, which
+		# stopped being the only route the moment dm_fill became a client of
+		# this engine - and a fill then cached nothing at all.
+		#
+		# BEFORE the observation record is written, because a body that
+		# turns out to be the source's 'no data' tile is an ABSENCE, and
+		# recording it as a successful fetch would teach the record that a
+		# service which answers every request with a sentinel is healthy.
+
+		$result = dm_fetch::fetchStore($source,$z,$x,$y,$result);
+
 		my $status = $result->{status} // 'error';
 		my $class  = $result->{class}  || '';
 
