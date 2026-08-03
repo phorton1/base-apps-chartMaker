@@ -66,7 +66,6 @@ sub putSource
   "tsd_version": 1,
   "id": "$id",
   "name": "engine stub $id",
-  "kind": "remote_xyz",
   "url": "$STUB/$path/{z}/{x}/{y}.jpg",
   "zoom": { "min": 0, "max": 20 },
   "attribution": "stub",

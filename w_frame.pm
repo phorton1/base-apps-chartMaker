@@ -76,6 +76,7 @@ sub new
 	EVT_MENU($this, $COMMAND_SET_REVERT,  \&onCommand);
 	EVT_MENU($this, $COMMAND_SET_CLOSE,   \&onCommand);
 	EVT_MENU($this, $COMMAND_NEW_REGION,  \&onCommand);
+	EVT_MENU($this, $COMMAND_NEW_SOURCE,  \&onCommand);
 	EVT_MENU($this, $COMMAND_PREFS,       \&onCommand);
 	EVT_MENU($this, $COMMAND_FETCH,       \&onCommand);
 	EVT_MENU($this, $COMMAND_BUILD_RCT,   \&onCommand);
@@ -584,6 +585,16 @@ sub onCommand
 	{
 		my $pane = $this->findPane($WIN_REGIONS);
 		$pane->newRegionDialog() if $pane;
+	}
+	elsif ($id == $COMMAND_NEW_SOURCE)
+	{
+		# THE PANE IS OPENED IF IT IS NOT ALREADY, because a new source has
+		# to appear somewhere the moment it is written, and a first run has
+		# no reason to have visited the Sources pane yet.
+
+		my $pane = $this->findPane($WIN_SOURCES);
+		$pane = $this->createPane($WIN_SOURCES) if !$pane;
+		$pane->newSource() if $pane;
 	}
 	elsif ($id == $COMMAND_FETCH || $id == $COMMAND_BUILD_RCT ||
 		   $id == $COMMAND_BUILD_MBTILES)

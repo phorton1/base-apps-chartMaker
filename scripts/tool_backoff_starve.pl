@@ -21,14 +21,19 @@
 # interactive tile returns in 0.01s.  With four, it did not return in
 # eight minutes and the run was killed.
 #
-# THE DESIGN ALREADY SAYS WHAT TO DO and it was not done.  The note in
-# docs/notes/fetch_engine.md reads "retries go to the back of the queue so
-# a slow tile does not hold a worker"; dm_engine retries in place instead.
-# Re-queueing alone is not quite the whole fix either - the re-queued job
-# would still wait at the gate when a worker picked it up - so the real
-# answer is probably for a worker to DEFER a job whose source is backed
-# off while other work is waiting, which needs a bound to avoid livelock.
-# That is a scheduling decision, not a patch.
+# WHAT THE ENGINE DOES.  A job is retried in place.  dm_engine claims the
+# source's permit FIRST and waits at the pacing gate SECOND, which is
+# deliberate and is explained where it happens: it keeps the reservation
+# the last thing before the request, so nothing can delay a request after
+# its instant has been booked.  The consequence is that the wait happens
+# inside a worker rather than before one is taken, and since nothing
+# re-queues a job and nothing defers one, a backed-off source's work holds
+# pool workers for the length of its backoff.
+#
+# Re-queueing alone would not be the whole answer, because the re-queued
+# job would still wait at the gate when a worker picked it up.  Deferring
+# a job whose source is backed off while other work is waiting would need
+# a bound to avoid livelock.  That is a scheduling decision, not a patch.
 #
 #   perl tool_backoff_starve.pl
 #
@@ -75,7 +80,7 @@ for my $s ( ['limited','429'], ['good','ok'] )
 {
 	open(my $fh,'>',"$ROOT/sources/$s->[0].tsd") or die $!;
 	print $fh qq({"tsd_version":1,"id":"$s->[0]","name":"$s->[0]",).
-		qq("kind":"remote_xyz","url":"$STUB/$s->[1]/{z}/{x}/{y}.jpg",).
+		qq("url":"$STUB/$s->[1]/{z}/{x}/{y}.jpg",).
 		qq("zoom":{"min":0,"max":22},"attribution":"stub",).
 		qq("uses":["display"]});
 	close $fh;

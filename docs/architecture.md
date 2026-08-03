@@ -97,9 +97,9 @@ This is a boundary, not a limitation, and it buys three concrete things:
 
 ### What a TSD contains
 
-A TSD is **JSON with a published JSON Schema** - chosen over a looser format precisely
-because these files will circulate between strangers, and a schema is both a validator and
-a machine-checkable statement of what the format is *able* to say. A `notes` field
+A TSD is **JSON**, validated on load against rules that are deliberately unforgiving -
+because these files will circulate between strangers, and those rules are both a validator
+and a machine-checkable statement of what the format is *able* to say. A `notes` field
 compensates for JSON's lack of comments.
 
 It describes a source's addressing - a URL template, the grid, the tile size - along with
@@ -117,7 +117,7 @@ over fifteen years of tiled maps. That convergence is a good sign the shape is r
 
 ### The organising principle: the TSD declares the PROTOCOL, the runtime discovers the DATA
 
-This is the rule that settles most schema arguments before they start.
+This is the rule that settles most format arguments before they start.
 
 A **protocol** fact is true everywhere the source is reachable: the URL shape, the
 addressing scheme, the tile size, the highest zoom the server will answer at all. These are
@@ -149,7 +149,7 @@ computed fields. The closed placeholder set is the entire vocabulary.
 
 This is a structural guarantee rather than a promise: the format is unable to express a
 signature computation or a session-token derivation, so no TSD can be authored that
-performs one. A schema enforces this; a README could only ask for it. A file that arrives
+performs one. The validator enforces this; a README could only ask for it. A file that arrives
 from a stranger is data being read, not code being run.
 
 ### Display versus build
@@ -231,7 +231,7 @@ for it, and comes back as a local source.
 are not asked. Coverage is discovered.
 
 **No executable content in a TSD.** The format structurally cannot compute a credential.
-Enforced by a schema rather than by trust.
+Enforced by the validator rather than by trust.
 
 **The editor never prefetches.** The line between displaying and building stays real.
 

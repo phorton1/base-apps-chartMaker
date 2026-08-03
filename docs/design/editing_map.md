@@ -6,6 +6,7 @@
 **Map Editing** --
 **[Tree Editing](editing_tree.md)** --
 **[TSD](tsd.md)** --
+**[TSD Editor](tsd_editor.md)** --
 **[Build](build.md)** --
 **[MBTiles](mbtiles.md)** --
 **[RCT](rct.md)**

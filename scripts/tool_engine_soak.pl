@@ -80,7 +80,6 @@ sub putSource
   "tsd_version": 1,
   "id": "$id",
   "name": "soak $id",
-  "kind": "remote_xyz",
   "url": "$STUB/$path/{z}/{x}/{y}.jpg",
   "zoom": { "min": 0, "max": 22 },
   "attribution": "stub",

@@ -142,7 +142,6 @@ sub stubTsd
   "tsd_version": 1,
   "id": "$id",
   "name": "stub $id",
-  "kind": "remote_xyz",
   "url": "$stub_url/$path/{z}/{x}/{y}.jpg",
   "zoom": { "min": 0, "max": 20 },
   "attribution": "stub",

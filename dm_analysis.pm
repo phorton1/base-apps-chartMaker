@@ -178,7 +178,7 @@ sub analyseFetch
 					interval => effectiveInterval($src,$cfg),
 
 					# BY cache_key, NOT BY SOURCE ID.  The observation
-					# record shares the cache's leaf name so that a user
+					# record shares the cache's key so that a user
 					# has one name per source rather than two, which means
 					# the source hash rather than the id is what identifies
 					# it here.

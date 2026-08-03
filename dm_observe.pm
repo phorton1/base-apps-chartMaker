@@ -42,11 +42,11 @@
 #
 #	$temp_dir/observations/<cache_key>.json
 #
-# KEYED BY cache_key, THE SAME LEAF NAME THE CACHE USES, so a user has one
-# name per source rather than two and can prune both together.  The honest
-# consequence is that renaming a .tsd orphans its observations exactly as
-# it orphans its cache, which is at least coherent and costs one run's
-# measurements rather than anything durable.
+# KEYED BY cache_key, THE SAME KEY THE CACHE USES, so a user has one name
+# per source rather than two and can prune both together.  The honest
+# consequence is that a source whose key changes leaves its observations
+# behind exactly as it leaves its cache, which is at least coherent and
+# costs one run's measurements rather than anything durable.
 #
 # THE IN MEMORY COPY IS THE LIVE ONE AND THE FILE IS A CHECKPOINT OF IT.
 # That is the opposite arrangement from the cache, and it is right here for

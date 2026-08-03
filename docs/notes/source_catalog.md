@@ -3,6 +3,11 @@
 Surveyed 2026-08-01. A working list of tile and imagery services that could plausibly
 be used with chartMaker, with what each operator's own published terms appear to say.
 
+**Every service listed publishes a tile pyramid.** chartMaker reads one shape of source:
+a remote XYZ tile service serving 256 pixel tiles in EPSG:3857. A service that renders an
+image per request, or that publishes its tiles on a national grid, cannot be addressed by
+a tile client at all, so it is not a candidate here whatever its licence or its imagery.
+
 **This is not legal advice and not a ruling.** The terms columns summarise what was
 found at the operator's own published terms on the date above, and the obligation to
 read them belongs to whoever uses a source. Services move, endpoints retire, and terms
@@ -43,9 +48,6 @@ services are national. The deep global services are commercial.
 | IGN France, overseas departments | Guadeloupe, Martinique, Guyane, Reunion, Mayotte, Saint Pierre et Miquelon | yes, French open licence with attribution | free, no key | z19, confirmed from the tile matrix set `PM_0_19` | The only open source found at chart depth over Caribbean cruising ground. |
 | IGN France, metropolitan | France | yes, French open licence with attribution | free, no key | z19, confirmed from the tile matrix set `PM_0_19` | The deepest open imagery found anywhere in this survey. |
 | Spain IGN PNOA | Spain | yes, CC BY 4.0; the WMTS `AccessConstraints` field states "CC BY 4.0 scne.es" and `Fees` states none | free, no key | **z0 to z20** in EPSG:3857, confirmed from the WMTS capabilities. 25 cm and 50 cm mosaics, updated several times a year | Layer `OI.OrthoimageCoverage`, jpeg and png, tile matrix sets for EPSG:3857 and GoogleMapsCompatible among others. Reachable today with no new request path. |
-| Netherlands PDOK luchtfoto | Netherlands | yes, CC BY; commercial use permitted | free | no tile pyramid exists; the service is WMS, so resolution is bounded by the source imagery rather than by a zoom ceiling | Good locally. Most PDOK data is CC0, but the aerial imagery specifically carries an attribution requirement. Needs a WMS request path, which chartMaker does not have. |
-| Portugal DGT orthophotos | Portugal | yes, CC BY 4.0; attribution "Informacao geografica cedida pela Direcao-Geral do Territorio" | free | no tile pyramid exists; WMS. Source imagery is 10 cm, 25 cm and 50 cm depending on coverage | Good locally, and 10 cm coastal coverage exists. Needs a WMS request path, which chartMaker does not have. |
-| Italy, Ministero dell'Ambiente | Italy | **no.** The national geoportal licenses its data CC BY-SA 3.0 IT and **expressly excludes the orthophotos** from that licence | free to view | no tile pyramid exists; WMS, with a mandatory `map=` parameter | The imagery is viewable but carries no reuse grant. Some regional portals publish the same orthophotos under IODL 2.0, which would be a separate source. |
 | EMODnet bathymetry | European seas | yes, attribution | free | coarse | Bathymetric context for European waters. |
 | Norway, Norge i bilder | Norway | no; access is reserved to Norge digitalt parties | token required | published in UTM grids rather than EPSG:3857 | Not reachable. Open access was withdrawn, and older recipes pointing at the previous endpoints are still circulating. |
 | Digital Earth Africa | Africa | yes | free | Sentinel derived at 10 m, so real detail ends around z14 | Continental context. No chart depth. |
@@ -68,14 +70,12 @@ services are national. The deep global services are commercial.
 | Esri World Imagery Wayback | global | **no**, on the same Esri Master License Agreement and general terms as the other Esri layers | Esri Master License Agreement | as World Imagery, per archived release | Over 150 archived releases back to February 2014, each addressable by release id and each pinned permanently. The available answer to cloud, sun glint, turbidity and tide state, none of which depth fixes. |
 | MapTiler | global, with deep coverage over USA, Europe and Japan | the Cloud terms forbid storing or redistributing tiles from a cache; the Engine and on-prem data products permit generated tiles to form part of the customer's own products | Cloud from about USD 29 per month; on-prem quoted | 8 cm over USA, Europe and Japan; 10 m cloudless elsewhere | The only commercial source found that offers a licensed path to offline chart building rather than only a prohibition. |
 | Maxar, Planet, Airbus | global | contract dependent | quotation and subscription; no free tier | 30 cm global for Maxar Vivid | The paid answer to tropical depth. |
+| Google | global | **no.** The published Google Maps and Map Tiles policies forbid pre-fetching, caching for offline use and bulk downloading of tiles, which is a direct description of building a chartset. Viewing is the ordinary use and is what every public tile client does | the undocumented `mt{0-3}.google.com/vt` path is free and needs no key; the documented Map Tiles API is keyed and billed per request | answers to about z21. It never returns 404 and never returns a fixed no-data image, so it magnifies past real detail indefinitely and **no absence can be detected at all**; byte means per level measured 12843, 9212 and 6957 across z20 to z22 over one area, which is magnification rather than absence | The deepest and most widely available global imagery. The `lyrs` code selects the layer: `s` satellite, `y` hybrid, `m` map, `p` terrain. The `/vt` path is undocumented, so it has no published terms of its own and no deprecation notice either: it will fail one day as a 403, a redirect or a placeholder rather than as an announcement. |
 
 ---
 
 ## Excluded, and why
 
-- **Google**, both the `maps/vt` endpoint and the documented Map Tiles API. The
-  published policies forbid pre-fetching, bulk downloading of tiles, and offline use,
-  which is a direct description of building a chartset.
 - **Bing / Microsoft.** Left out because it cannot be expressed as a chartMaker source
   at all: the documented route requires a metadata call that returns the real URL
   template and valid subdomains, and a TSD has no way to make a request in order to
@@ -112,12 +112,10 @@ the operator selected rather than the clearest one. Esri World Imagery Wayback i
 only service found that makes an alternative pass addressable, by publishing every
 archived release separately.
 
-**Three of the four southern European services are blocked on a request path, not a
-licence.** Netherlands and Portugal publish national orthophotography as WMS only, and
-chartMaker has no WMS request path. Spain publishes both, and its WMTS endpoint at
-`https://www.ign.es/wmts/pnoa-ma` is reachable today. Italy is the different case: the
-obstacle there is that the national geoportal's open licence expressly excludes the
-orthophotos, so no request path would help.
+**A national service is only listed here if it publishes a tile pyramid.** Spain's WMTS at
+`https://www.ign.es/wmts/pnoa-ma` is the southern European entry that qualifies, and it is
+reachable today. Several neighbouring countries publish orthophotography that no tile client
+can address, so it is not a candidate and does not appear.
 
 **Two entries carry statements a licence field cannot hold, and they are different in
 kind.** GEBCO's terms of use say the grid must not be used for navigation or any

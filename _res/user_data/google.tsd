@@ -1,0 +1,19 @@
+{
+  "tsd_version": 1,
+  "id": "google_satellite",
+  "cache_key": "google",
+  "name": "Google - satellite imagery",
+  "url": "https://mt{s}.google.com/vt/lyrs=s&x={x}&y={y}&z={z}",
+  "subdomains": ["0","1","2","3"],
+  "tile_format": "jpeg",
+  "tile_size": 256,
+  "crs": "EPSG:3857",
+  "zoom": { "min": 0, "max": 21 },
+  "notes": "AN UNDOCUMENTED ENDPOINT. Google publishes no documentation for this path and no terms that cover it, which is why this file ships for display only and declares redistributable 'no'. The published Google Maps and Map Tiles policies prohibit prefetching, bulk downloading and offline use, and building a chartset is all three; viewing is a different act, and it is the act that thousands of public tile clients perform against this endpoint. The 'lyrs' code selects the layer: s is satellite, y hybrid, m map, p terrain. Being undocumented, it carries no deprecation notice either, so when it changes it will fail as a 403, a redirect or a placeholder rather than as an announcement. NOTHING HERE CAN BE FINGERPRINTED: it never answers 404 and never returns a fixed 'no data' image, so it magnifies its own imagery indefinitely past where real detail ends and every tile is distinct. Byte means per level measured 12843, 9212 and 6957 across z20 to z22 over one area, which is magnification rather than absence. The zoom max above is therefore a chosen limit and not a discovered one.",
+  "attribution": "Imagery (c) Google",
+  "terms_url": "https://www.google.com/help/terms_maps/",
+  "license": "No licence is granted by this file. Google's published terms govern whoever operates the client, they prohibit prefetching, bulk downloading, caching for offline use and redistribution of tiles, and this endpoint is not covered by any published terms at all. Shipped here for display only; read the terms before changing 'uses'.",
+  "redistributable": "no",
+  "uses": ["display"],
+  "policy": { "max_concurrency": 2, "min_interval_ms": 0 }
+}

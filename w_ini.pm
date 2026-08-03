@@ -8,6 +8,7 @@
 #	default_source		the TSD used for ordinary rendering
 #	unchecked_<set>		which regions of a set are hidden on the map
 #	last_browse			the folder the last Browse landed in
+#	source_editor_rect	where the source editor was last left, and how big
 #
 # WHY THE INI AND NOT THE PREFS FILE.  A PREFERENCE IS A DECISION; THE INI
 # IS WHERE YOU LEFT THINGS.  Which folder a Browse button should open in
@@ -58,6 +59,8 @@ BEGIN
 		writeIniSelections
 		getLastBrowseDir
 		setLastBrowseDir
+		getSourceEditorRect
+		setSourceEditorRect
 	);
 }
 
@@ -69,6 +72,31 @@ my $KEY_ACTIVE_SET		= 'active_set';
 my $KEY_DEFAULT_SOURCE	= 'default_source';
 my $KEY_UNCHECKED		= 'unchecked_';
 my $KEY_LAST_BROWSE		= 'last_browse';
+my $KEY_SOURCE_RECT		= 'source_editor_rect';
+
+
+my $source_rect = '';
+	# WHERE THE SOURCE EDITOR WAS LEFT, as "x,y,w,h".  A dialog that a user
+	# has moved and resized has been told something, and reopening it in the
+	# middle of the screen at the default size says that was not heard.
+	#
+	# HELD AS A STRING, unparsed, because nothing here has an opinion about
+	# it: the editor writes what it measured and reads back what it wrote,
+	# and this module's job is only that it survives the session.
+
+
+sub getSourceEditorRect
+{
+	return $source_rect;
+}
+
+
+sub setSourceEditorRect
+{
+	my ($rect) = @_;
+	$source_rect = (defined($rect) && $rect =~ /^-?\d+,-?\d+,\d+,\d+$/) ?
+		$rect : '';
+}
 
 
 my $last_browse = '';
@@ -105,6 +133,7 @@ sub readIniSelections
 	# is gone is worse than opening it at nothing.
 
 	setLastBrowseDir(readConfig($KEY_LAST_BROWSE) || '');
+	setSourceEditorRect(readConfig($KEY_SOURCE_RECT) || '');
 
 	setActiveSet($set)		if $set;
 	setDefaultSource($src)	if $src;
@@ -142,6 +171,7 @@ sub writeIniSelections
 	writeConfig($KEY_ACTIVE_SET,$set);
 	writeConfig($KEY_DEFAULT_SOURCE,$src);
 	writeConfig($KEY_LAST_BROWSE,getLastBrowseDir());
+	writeConfig($KEY_SOURCE_RECT,getSourceEditorRect());
 
 	if ($set)
 	{

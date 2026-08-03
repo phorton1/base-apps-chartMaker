@@ -117,10 +117,17 @@ source's image - producing a build that looks complete, contains the wrong image
 gives no indication that anything went wrong. Keying the cache by source makes that failure
 structurally impossible rather than merely unlikely.
 
-The key is the **leaf name of the `.tsd` file** - the file name, not the `id` field inside
-it. That choice makes the mapping legible in a file browser: a user can look at the cache,
-see one folder per source they have used, and delete exactly one of them. The cost is that
-renaming a TSD orphans its cache directory, which costs a refetch and nothing else.
+The key is the TSD's **`cache_key` field**, which defaults to the **leaf name of the `.tsd`
+file** when the file does not declare one - the file name, not the `id` inside it. The
+default makes the mapping legible in a file browser: a user can look at the cache, see one
+folder per source they have used, and delete exactly one of them.
+
+**Declaring it is what makes a `.tsd` file movable.** Tiles are the expensive and persistent
+thing in this application, and a file is a container: renameable, copyable, and about to
+become editable. A key that is only ever a shadow of the container strands gigabytes on a
+rename and starts a fresh cache for every saved variant of one source. A declared key also
+lets several files - an edit in progress, a backup, a variant differing only in `uses` -
+address the same tiles deliberately.
 
 Two properties of `$temp_dir` are worth stating because they are inherited rather than
 chosen: it is **never cleaned up automatically**, and it is **not process-specific**.
@@ -136,12 +143,13 @@ rate limited us, whether its declared ceiling is honest - which is what both the
 and the probe need.
 
 ```
-    $temp_dir/observations/<tsd_leaf_name>.json
+    $temp_dir/observations/<cache_key>.json
 ```
 
-**Keyed by the same leaf name the cache uses**, so a user has one name per source rather than
-two and can prune both together. Renaming a `.tsd` orphans its observations exactly as it
-orphans its cache, which is at least coherent and costs one run's measurements.
+**Keyed by the same `cache_key` the cache uses**, so a user has one name per source rather
+than two and can prune both together. The two move together in every case: whatever reaches
+one reaches the other, and a source whose key changes leaves both behind at once, which is
+at least coherent and costs one run's measurements.
 
 **In `$temp_dir` because losing it is cheap.** It is a fact about this computer's connection to
 that server at this time of day, not about the user's material; carried to another machine it

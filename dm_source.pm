@@ -4,10 +4,11 @@
 #---------------------------------------------
 # Tile Source Definitions -- reading, validating, and addressing.
 #
-# A TSD is a small JSON file describing exactly one imagery source.  See
-# docs/design/tsd.md.  This module is the only thing in the application
-# that knows the format; everything else asks for a source by id and gets
-# back a validated hash.
+# A TSD is a small JSON file describing exactly one imagery source: a
+# REMOTE XYZ TILE SERVICE serving 256 pixel tiles in EPSG:3857, which is
+# the only shape of source this application reads.  See docs/design/tsd.md.
+# This module is the only thing in the application that knows the format;
+# everything else asks for a source by id and gets back a validated hash.
 #
 # ONLY $data_dir/sources IS SCANNED.  Sources that ship with the
 # application are copied into the user's data dir by the installer under
@@ -20,10 +21,10 @@
 # no longer name anything; see the note there for why the fallback is
 # what it is.
 #
-# VALIDATION IS IN CODE.  The format is specified as JSON with a published
-# schema, but no JSON Schema validator is present in this Perl and adding
-# one is not worth a dependency for a dozen rules.  The rules below ARE
-# the schema until the format stops moving.
+# VALIDATION IS IN CODE.  _validate below is the whole of it -- one
+# statement of what a TSD may be, with nothing maintained alongside it
+# that could drift out of agreement with it.  docs/design/tsd.md
+# describes the same rules in prose.
 #
 # THREADS.  The HTTP server answers on several threads, and each thread
 # receives its own copy of this module's data when it is spawned.  Rather
@@ -57,6 +58,15 @@ BEGIN
 		sourceTileUrl
 		getDefaultSource
 		setDefaultSource
+
+		getSourceFiles
+		getRefused
+		sourceFields
+		checkSourceField
+		checkSource
+		readSourceFile
+		writeSourceFile
+		deleteSourceFile
 	);
 }
 
@@ -69,8 +79,6 @@ our $dbg_source:shared = 0;
 
 my $TSD_VERSION = 1;
 
-my @KINDS			= qw( remote_xyz local_mbtiles local_dir wms );
-my @IMPLEMENTED		= qw( remote_xyz );
 my @USES			= qw( display build overlay );
 	# OVERLAY is a third PURPOSE, not a third kind of thing.  A source
 	# that declares it is drawn over a base layer rather than instead of
@@ -82,7 +90,7 @@ my @REDISTRIBUTABLE	= qw( yes no unknown );
 my @FORMATS			= qw( jpeg png );
 
 my @FIELDS = qw(
-	tsd_version id name notes kind url subdomains tile_format tile_size
+	tsd_version id name notes cache_key url subdomains tile_format tile_size
 	crs zoom attribution terms_url license redistributable uses
 	credentials policy absent_fingerprints absent_headers displacement );
 
@@ -97,6 +105,17 @@ my @PLACEHOLDERS = qw( z x y -y s q );
 my $scan_seq:shared	= 1;	# bumped by rescanSources()
 my $my_seq			= 0;	# the generation this thread has loaded
 my %sources;				# id => validated source hash
+my %refused;				# leaf => why it is not a source
+
+# WHAT THE FOLDER HOLDS IS NOT WHAT LOADED, and both are needed.
+#
+# %sources is the set of things that can be SHOWN, FETCHED and BUILT, and
+# keeping it pure is what makes a bad file structurally unable to reach a
+# cache.  But a file that fails is exactly the file somebody has to open
+# and repair, and it used to vanish from the only window that could do it.
+# So the reason is kept beside the name and the source list shows FILES.
+#
+# Nothing in the data model reads %refused.  It exists for the editor.
 
 my $default_source:shared = '';
 	# The REMEMBERED id from the ini, not the resolved one.  Shared,
@@ -109,12 +128,21 @@ my $subdomain_seq	= 0;	# round robin for {s}
 # validation
 #---------------------------------------------
 
+my $quiet      = 0;		# checkSource() asks without reporting
+my $last_error = '';	# the reason the most recent _err gave
+
 sub _err
 	# Every rule failure comes through here so that a rejected file
 	# reports its own name and one specific reason.
+	#
+	# THE REASON IS KEPT, NOT ONLY LOGGED.  The editor asks whether a file
+	# would load and has to say why it would not, next to the field that is
+	# wrong, and a message that only ever reached the log could not be shown
+	# to the person who could fix it.
 {
 	my ($file,$msg) = @_;
-	error("$file: $msg");
+	$last_error = $msg;
+	error("$file: $msg") if !$quiet;
 	return undef;
 }
 
@@ -180,19 +208,37 @@ sub _validate
 	return _err($file,"name is required and may not be empty")
 		if !defined($tsd->{name}) || $tsd->{name} !~ /\S/;
 
+	# THREE NAMES, THREE JOBS.  The id is what a REGION points at.  The
+	# leaf filename is the CONTAINER, and a container should be free to
+	# rename, copy and back up.  cache_key names the TILES, which are the
+	# expensive and persistent thing either of the other two refers to,
+	# and until it could be declared it was only a shadow of the filename
+	# - so renaming a file stranded gigabytes and every SaveAs variant
+	# started a fresh cache.
+	#
+	# DECLARING ONE IS AN ASSERTION that these files address the same
+	# service, the same species of statement as 'uses' and
+	# 'redistributable'.  It is not checked against the url, because two
+	# templates can differ in ways that do not change which tiles come
+	# back, and the application does not get to overrule the person who
+	# wrote the file.
+	#
+	# It becomes a FOLDER NAME, so it is held to the same characters as
+	# the id: lower case, which also means two keys cannot differ only in
+	# case and collide on a Windows filesystem.
+
+	return _err($file,"cache_key must be [a-z0-9_-]")
+		if defined($tsd->{cache_key}) &&
+		   (ref($tsd->{cache_key}) || $tsd->{cache_key} !~ /^[a-z0-9_-]+$/);
+
 	# attribution is mandatory.  One rule, and every package chartMaker
 	# emits can carry its provenance.
 
 	return _err($file,"attribution is required and may not be empty")
 		if !defined($tsd->{attribution}) || $tsd->{attribution} !~ /\S/;
 
-	my $kind = $tsd->{kind} // '';
-	return _err($file,"kind must be one of ".join('|',@KINDS))
-		if !grep { $_ eq $kind } @KINDS;
-	return _err($file,"kind '$kind' is not implemented yet")
-		if !grep { $_ eq $kind } @IMPLEMENTED;
-
-	# Web Mercator at 256 pixels, or rejected at import.  Tiles pass
+	# ONE SHAPE OF SOURCE AND ONLY ONE: a remote XYZ tile service serving
+	# 256 pixel tiles in Web Mercator, or rejected at import.  Tiles pass
 	# through byte for byte, which is what keeps an image processing
 	# stack out of the installer.
 
@@ -371,7 +417,7 @@ sub _validate
 
 	# the url and its closed placeholder set
 
-	return _err($file,"url is required for kind '$kind'")
+	return _err($file,"url is required")
 		if !defined($tsd->{url}) || $tsd->{url} !~ /\S/;
 
 	my %allowed = map { $_ => 1 } (@PLACEHOLDERS, keys %slots);
@@ -433,26 +479,83 @@ sub _loadFile
 	{
 		my $why = $@;
 		$why =~ s/\s+at\s+.*//s;
+		$why =~ s/\s+$//;
 		error("$leaf: not valid JSON - $why");
+		$refused{$leaf} = "not valid JSON - $why";
 		return;
 	}
 
 	$tsd = _validate($leaf,$tsd);
-	return if !$tsd;
+	if (!$tsd)
+	{
+		$refused{$leaf} = $last_error;
+		return;
+	}
 
-	# The cache is keyed by the LEAF NAME of the file rather than the id
-	# inside it, so that a user looking at the cache in a file browser
-	# sees one folder per source they have used.  Renaming a TSD orphans
-	# its cache directory, which costs a refetch and nothing else.
+	# THE CACHE KEY DEFAULTS TO THE LEAF NAME, and a file that declares one
+	# keeps it.  The default is what makes a cache folder recognisable to
+	# somebody looking at it in a file browser; declaring one is what lets a
+	# file be renamed, copied or edited into a variant without stranding the
+	# tiles, which are the expensive thing here.  See _validate.
 
 	$tsd->{file} = $leaf;
-	$tsd->{cache_key} = $leaf;
-	$tsd->{cache_key} =~ s/\.tsd$//i;
-
-	if ($sources{$tsd->{id}})
+	if (!defined $tsd->{cache_key})
 	{
-		error("$leaf: id '$tsd->{id}' is already defined by ".
-			$sources{$tsd->{id}}{file}." - ignoring $leaf");
+		$tsd->{cache_key} = $leaf;
+		$tsd->{cache_key} =~ s/\.tsd$//i;
+	}
+
+	# A COLLISION REFUSES BOTH SIDES, and that is a change from keeping
+	# whichever file sorted first.  Picking a winner by lexical accident
+	# says one of two indistinguishable files is the real one, and it hid
+	# the collision behind a source that still worked - so the map went on
+	# rendering from a file the user might not have meant while the other
+	# was invisible.  Refusing both makes the collision the visible thing,
+	# which is the only state from which it can be repaired.
+
+	if (my $prev = $sources{$tsd->{id}})
+	{
+		my $why = "id '$tsd->{id}' is declared by both $prev->{file} ".
+			"and $leaf - an id names one source";
+		error("$leaf: $why");
+		$refused{$leaf}        = $why;
+		$refused{$prev->{file}} = $why;
+		delete $sources{$tsd->{id}};
+		return;
+	}
+
+	# A SHARED KEY WITH A DIFFERENT URL IS REFUSED, NOT REPORTED.
+	#
+	# Sharing a key is an assertion that two files address the same
+	# service, which is the whole point of the field: an edit in progress,
+	# a backup, or a variant differing only in 'uses' should reach the same
+	# tiles.  If the urls differ then one of those files is wrong, and the
+	# consequence is precisely the failure the cache's source dimension
+	# exists to prevent -- tiles fetched through one file handed out as
+	# though they came from the other, producing a build that looks
+	# complete and contains the wrong imagery.  A warning would leave that
+	# possible; refusing the file makes it structurally impossible.
+	#
+	# BOTH SIDES ARE REFUSED, for the reason the duplicate id above gives:
+	# the two files disagree and nothing here can say which one is right.
+	#
+	# The comparison is exact and therefore strict: two spellings of one
+	# service - with and without {s}, or a different subdomain host - are
+	# refused even though they would have agreed.  That direction is
+	# deliberate.  A refusal costs one edit and says why; the other error
+	# silently poisons a cache that nothing afterwards can tell is wrong.
+
+	for my $other (values %sources)
+	{
+		next if $other->{cache_key} ne $tsd->{cache_key};
+		next if $other->{url} eq $tsd->{url};
+		my $why = "cache_key '$tsd->{cache_key}' is shared by $other->{file} ".
+			"and $leaf, which have different urls - sharing a key means ".
+			"sharing tiles, so one of the two is wrong";
+		error("$leaf: $why");
+		$refused{$leaf}         = $why;
+		$refused{$other->{file}} = $why;
+		delete $sources{$other->{id}};
 		return;
 	}
 
@@ -463,11 +566,242 @@ sub _loadFile
 }
 
 
+#---------------------------------------------
+# what the editor reads and writes
+#---------------------------------------------
+# THE FORMAT STAYS IN ONE MODULE.  The editor colours one field at a time
+# and therefore needs a rule per field, but putting those rules in a wx
+# file would be a second rulebook that could drift from the one that
+# decides whether a file loads.  So both live here: checkSourceField says
+# whether one value is well formed, and checkSource is still the whole
+# file's verdict and still the authority.
+
+my @EDIT_FIELDS = (
+	# name              kind        label
+	[ 'id',             'text',     'Id' ],
+	[ 'cache_key',      'text',     'Cache key' ],
+	[ 'name',           'text',     'Name' ],
+	[ 'url',            'big',      'Url' ],
+	[ 'subdomains',     'text',     'Subdomains' ],
+	[ 'tile_format',    'choice',   'Tile format' ],
+	[ 'zoom.min',       'int',      'Zoom min' ],
+	[ 'zoom.max',       'int',      'Zoom max' ],
+	[ 'uses',           'uses',     'Uses' ],
+	[ 'redistributable','choice',   'Redistributable' ],
+	[ 'displacement',   'text',     'Displacement' ],
+	[ 'attribution',    'big',      'Attribution' ],
+	[ 'terms_url',      'text',     'Terms url' ],
+	[ 'license',        'big',      'License' ],
+	[ 'policy.max_concurrency','int','Max concurrent' ],
+	[ 'policy.min_interval_ms','int','Min interval ms' ],
+	[ 'notes',          'big',      'Notes' ],
+);
+
+sub sourceFields
+	# The fields the editor offers, in the order it offers them.  tile_size
+	# and crs are not here: they have exactly one legal value each, so an
+	# editable control could only ever be used to make the file invalid.
+{
+	return @EDIT_FIELDS;
+}
+
+
+sub checkSourceField
+	# ('') if the value is fine, or one reason it is not.  SYNTAX ONLY -
+	# whether a url ANSWERS, and whether its row order is right, is not a
+	# question a text box can settle.  That is the verification phase, and
+	# it reports separately.
+{
+	my ($name,$val) = @_;
+	$val = '' if !defined $val;
+
+	# ASCII, ALWAYS.  These files are read by people, transported between
+	# them, and their attribution reaches an RCT card as 7-bit bytes for a
+	# firmware font renderer.  A character that cannot survive that trip
+	# should be refused where it is typed, not silently mangled later.
+
+	return "contains a character that is not plain ASCII"
+		if $val =~ /[^\x20-\x7E\r\n\t]/;
+
+	return "required, and may not be empty"
+		if $val !~ /\S/ && grep { $_ eq $name }
+			qw( id name url attribution uses zoom.min zoom.max );
+
+	return "must be lower case letters, digits, '_' or '-'"
+		if $name =~ /^(id|cache_key)$/ && $val =~ /\S/ && $val !~ /^[a-z0-9_-]+$/;
+	return "'$SOURCE_INHERITED' is reserved - it is what a region says when ".
+			"it has not chosen a source"
+		if $name eq 'id' && $val eq $SOURCE_INHERITED;
+
+	if ($name =~ /^(zoom\.min|zoom\.max|policy\.)/)
+	{
+		return "must be a whole number" if $val =~ /\S/ && $val !~ /^\d+$/;
+		return "must be 0 to 24"
+			if $name =~ /^zoom\./ && $val =~ /^\d+$/ && $val > 24;
+	}
+
+	return "must be jpeg or png"
+		if $name eq 'tile_format' && $val =~ /\S/ && $val !~ /^(jpeg|png)$/;
+	return "must be yes, no or unknown"
+		if $name eq 'redistributable' && $val =~ /\S/ &&
+		   $val !~ /^(yes|no|unknown)$/;
+	return "must be a short name like 'GCJ-02'"
+		if $name eq 'displacement' && $val =~ /\S/ &&
+		   $val !~ /^[A-Za-z0-9][A-Za-z0-9 ._-]{0,31}$/;
+
+	if ($name eq 'url' && $val =~ /\S/)
+	{
+		my @used = _placeholdersOf($val);
+		my %ok   = map { $_ => 1 } @PLACEHOLDERS;
+		for my $ph (@used)
+		{
+			return "{$ph} is not a placeholder this format defines"
+				if !$ok{$ph};
+		}
+		my %used = map { $_ => 1 } @used;
+		return "must address a tile: {z}, {x} and {y} or {-y}, or else {q}"
+			if !($used{q} || ($used{z} && $used{x} &&
+				 ($used{y} || $used{'-y'})));
+	}
+
+	return '';
+}
+
+
+sub checkSource
+	# Would this hash load?  Returns '' or the one reason it would not.
+	# Asked WITHOUT reporting, because the editor shows the answer itself
+	# and a log line per keystroke would be noise.
+{
+	my ($leaf,$tsd) = @_;
+	my $copy = eval { JSON::PP->new->decode(JSON::PP->new->encode($tsd)) };
+	return "could not be encoded as JSON" if $@ || !$copy;
+
+	my $was = $quiet;
+	$quiet      = 1;
+	$last_error = '';
+	my $ok = _validate($leaf,$copy);
+	$quiet = $was;
+	return $ok ? '' : ($last_error || 'refused, with no reason given');
+}
+
+
+sub getSourceFiles
+	# Every .tsd in the folder, loaded or not, in tree order.  The editor
+	# lists FILES; a refused one is exactly the one somebody has to open.
+{
+	_current();
+	my $dir = sourcesDir();
+	my $dh;
+	return () if !opendir($dh,$dir);
+	my @leaves = sort grep { /\.tsd$/i && -f "$dir/$_" } readdir($dh);
+	closedir $dh;
+	return @leaves;
+}
+
+
+sub getRefused
+	# leaf => why.  A copy, so nothing outside can edit the reason.
+{
+	_current();
+	return { %refused };
+}
+
+
+sub readSourceFile
+	# The raw hash as it is on disk, unvalidated and with no defaults
+	# filled in.  The editor shows what the FILE says, which for a refused
+	# file is the only thing that could be shown at all.
+{
+	my ($leaf) = @_;
+	my $text = _readFile(sourcesDir()."/$leaf");
+	return undef if !defined $text;
+	my $tsd = eval { JSON::PP->new->decode($text) };
+	return $@ ? undef : $tsd;
+}
+
+
+sub writeSourceFile
+	# Write one TSD.  Returns '' or the reason it did not.
+	#
+	# CANONICAL ORDER AND PRETTY PRINTED, because these files are read by
+	# people and a hash's own order is whatever perl felt like.  The cost
+	# is that saving a hand-written file reflows it, which is the honest
+	# price of the application owning the format.
+{
+	my ($leaf,$tsd) = @_;
+
+	my @order = qw( tsd_version id cache_key name url subdomains
+		tile_format tile_size crs zoom uses redistributable displacement
+		attribution terms_url license credentials policy
+		absent_fingerprints absent_headers notes );
+
+	# ONE VALUE AT A TIME, which is what keeps the field order canonical -
+	# a whole-hash encode would emit perl's order or an alphabetical one,
+	# and neither is the order a person reads a TSD in.  allow_nonref is
+	# needed because most of the values ARE simple scalars.
+
+	my $json = JSON::PP->new->allow_nonref->canonical->space_before(0);
+	my $out = "{\n";
+	my @lines;
+	for my $key (@order)
+	{
+		next if !defined $tsd->{$key};
+
+		# ZOOM IS WRITTEN MIN THEN MAX, against the canonical order, because
+		# that is the order it is read in and the pair is meaningless
+		# reversed.  It is the one place where being alphabetical is worse
+		# than being right.
+
+		my $val = $key eq 'zoom' ?
+			sprintf('{ "min": %d, "max": %d }',
+				$tsd->{zoom}{min} || 0,$tsd->{zoom}{max} || 0) :
+			$json->encode($tsd->{$key});
+
+		$val =~ s/\s+$//;
+		if (ref($tsd->{$key}) && $key ne 'zoom')
+		{
+			$val =~ s/\n\s*/ /g;
+			$val =~ s/","/", "/g;
+			$val =~ s/":/": /g;
+			$val =~ s/,"/, "/g;
+		}
+		push @lines,'  "'.$key.'": '.$val;
+	}
+	$out .= join(",\n",@lines)."\n}\n";
+
+	my $path = sourcesDir()."/$leaf";
+	my $fh;
+	return "could not write $path: $!" if !open($fh,'>',$path);
+	binmode $fh;
+	print $fh $out;
+	close $fh;
+	display($dbg_source,0,"writeSourceFile($leaf) ".length($out)." bytes");
+	return '';
+}
+
+
+sub deleteSourceFile
+	# THE FILE AND NOTHING ELSE.  The cache is not touched: it is the
+	# expensive thing, it is keyed by cache_key rather than by this file,
+	# and another file may address it deliberately.  Deleting a definition
+	# is not a statement about tiles.
+{
+	my ($leaf) = @_;
+	my $path = sourcesDir()."/$leaf";
+	return "no such file: $leaf" if !-f $path;
+	return "could not delete $leaf: $!" if !unlink($path);
+	display($dbg_source,0,"deleteSourceFile($leaf)");
+	return '';
+}
+
+
 sub loadSources
 	# Scan $data_dir/sources for .tsd files.  Called at startup, and again
 	# by any thread that finds itself behind the shared generation counter.
 {
 	%sources = ();
+	%refused = ();
 
 	my $dir = sourcesDir();
 	my $dh;

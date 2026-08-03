@@ -299,7 +299,7 @@ sub _sourceCommand
 	}
 
 	display(0,0,"source $id");
-	for my $key (qw( name file cache_key kind url subdomains tile_format
+	for my $key (qw( name file cache_key url subdomains tile_format
 					 tile_size crs redistributable license terms_url notes ))
 	{
 		my $val = $src->{$key};

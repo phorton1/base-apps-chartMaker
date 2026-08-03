@@ -6,6 +6,7 @@
 **[Map Editing](editing_map.md)** --
 **[Tree Editing](editing_tree.md)** --
 **TSD** --
+**[TSD Editor](tsd_editor.md)** --
 **[Build](build.md)** --
 **[MBTiles](mbtiles.md)** --
 **[RCT](rct.md)**
@@ -17,8 +18,9 @@ folders: **[Home](../readme.md)** --
 **[Deployment](../deployment.md)**
 
 A **TSD** (*Tile Source Definition*, extension `.tsd`) describes exactly one imagery
-source. [Architecture](../architecture.md#tile-source-definition-tsd) says why the format
-exists and what it refuses to be; this document is the field reference.
+source: a **remote XYZ tile service serving 256 pixel tiles in EPSG:3857**, which is the one
+shape of source chartMaker reads. [Architecture](../architecture.md#tile-source-definition-tsd)
+says why the format exists and what it refuses to be; this document is the field reference.
 
 TSD files live in `$data_dir` and are found by scanning it, so installing a source somebody
 sent you is a matter of putting the file in the folder.
@@ -30,8 +32,8 @@ sent you is a matter of putting the file in the folder.
     id:               a stable identifier, referenced by regions
     name:             what a person calls it
     notes:            free text
-    kind:             remote_xyz | local_mbtiles | local_dir | wms
-    url:              template, for the remote kinds
+    cache_key:        which tiles this file addresses  (default: the file name)
+    url:              the tile url template
     subdomains:       values substituted for {s}
     tile_format:      jpeg | png        (an expectation, not a guarantee)
     tile_size:        256
@@ -54,7 +56,7 @@ sent you is a matter of putting the file in the folder.
 | ----------------- | -------------------------------------------------------------------------- |
 | `tsd_version`     | Format version.                                                            |
 | `id`              | Stable. Regions reference it; renaming the file does not change it.        |
-| `kind`            | Determines which of the remaining fields apply.                            |
+| `cache_key`       | Which cached tiles this file addresses. Defaults to the file name.        |
 | `url`             | Template. Substitutes only from the closed placeholder set below.          |
 | `tile_format`     | What the source is expected to return. The actual format is detected.      |
 | `tile_size`       | Must be 256. Anything else is rejected at import.                          |
@@ -91,15 +93,17 @@ different row origin. `{q}` is there for the same reason.
 
 **Nothing else substitutes, and nothing is computed.** The format has no expressions, no
 scripting, and no derived fields, so it is structurally unable to express a request
-signature or a session-token derivation. That is a guarantee enforced by the schema rather
-than a promise made in a document, and it is what makes a file received from a stranger
-data being read rather than code being run.
+signature or a session-token derivation. That is a guarantee enforced by the validator
+rather than a promise made in a document, and it is what makes a file received from a
+stranger data being read rather than code being run.
 
 ## Validation
 
-A TSD is **JSON with a published JSON Schema**, chosen over a looser format precisely
-because these files circulate between people who do not know each other. The schema is both
-a validator and a machine-checkable statement of what the format is *able* to say.
+A TSD is **JSON**, and the rules below are the whole of validation. `dm_source` enforces
+them, reading a file and either returning a source or reporting why it would not. They are
+deliberately unforgiving, because these files circulate between people who do not know each
+other and a file that is almost right is worse than one that is refused. They are also a
+machine-checkable statement of what the format is *able* to say.
 
 Rules that cause a file to be rejected:
 
@@ -107,13 +111,13 @@ Rules that cause a file to be rejected:
 - `tile_size` other than 256, or `crs` other than `EPSG:3857`.
 - A placeholder in `url` that is not in the closed set, or a credential placeholder for a
   slot the file does not declare.
-- Any field the schema does not define.
+- Any field the format does not define.
 
 `notes` exists because JSON has no comments and these files are read by people.
 
 ## Protocol is declared, data is discovered
 
-The rule that settles most schema arguments before they start. A **protocol** fact is true
+The rule that settles most format arguments before they start. A **protocol** fact is true
 everywhere the source is reachable and belongs in the file. A **data** fact is local to a
 place and is found out at runtime.
 
@@ -335,6 +339,10 @@ wrong about coverage.
 Sources rot. Endpoints move, terms change, and services retire, so the ability to find out
 *which* source broke matters as much as the ability to add one.
 
+**Authoring itself is [the editor](tsd_editor.md)**, which writes these fields and enforces
+the validation rules above. What follows is what a source can be asked about a live service,
+which is a separate act and is not a precondition of writing one.
+
 **TEST_FETCH.** Paste a template, fetch one tile at the current view, look at it. This
 turns "did I get the URL right" from a twenty-minute debugging session into two seconds.
 Behind it: format detected from magic bytes, tile size read from the image header, and
@@ -368,19 +376,41 @@ layer palette.
 A tile coordinate means something different in every source, so the cache carries a source
 dimension and the layout is specified in
 [Deployment](../deployment.md#the-tile-cache-is-not-temporary). It is keyed by
-the **leaf name of the `.tsd` file** rather than the `id` inside it, so that a user looking
-at the cache in a file browser sees one folder per source they have used and can delete
-exactly one of them.
+**`cache_key`**, which defaults to the leaf name of the `.tsd` file rather than the `id`
+inside it, so that a user looking at the cache in a file browser sees one folder per source
+they have used and can delete exactly one of them.
 
-## The schema is the code
+**Three names, three jobs.** The `id` is what a region points at. The **filename** is the
+container, and a container should be free to rename, copy and back up. `cache_key` names the
+**tiles**, which are the expensive and persistent thing either of the other two refers to.
+Until it could be declared it was only a shadow of the container, so renaming a file stranded
+its tiles and every saved variant of one source began a fresh cache.
 
-**There is no published JSON Schema artefact.** The validation rules in this document are
-the schema, enforced by `dm_source`, and nothing is maintained alongside them that could
-disagree with them.
+**Declaring one is an assertion** that these files address the same service - the same
+species of statement as `uses` and `redistributable`. An edit in progress, a backup, or a
+variant differing only in `uses` should all reach the same tiles.
+
+**Two files sharing a key with different urls are refused at load**, and the later one
+alphabetically does not become a source. This is the one assertion in the format that is
+guarded rather than trusted, because getting it wrong produces exactly the failure the
+cache's source dimension exists to prevent: tiles fetched through one file handed out as
+though they came from the other, in a build that looks complete and contains the wrong
+imagery. A warning would leave that possible.
+
+The comparison is exact, so two spellings of one service - with and without `{s}`, or naming
+a different subdomain host - are refused even though they would have agreed. That direction
+is deliberate. A refusal costs one edit and states its reason; the other error silently
+poisons a cache that nothing afterwards can tell is wrong.
+
+## The rules live in one place
+
+The validation rules in this document are enforced by `dm_source` and by nothing else. One
+statement of what a TSD may be, in code, described here, so there is nothing maintained
+alongside it that could drift out of agreement with it.
 
 ## What chartMaker ships
 
-Three sources, with **`gibs_weld_annual` as the official default** - it is the imagery a new
+Four sources, with **`gibs_weld_annual` as the official default** - it is the imagery a new
 region is born naming, and the source the tutorial and the demonstrations are built on.
 
 | id | reaches | `uses` |
@@ -388,17 +418,26 @@ region is born naming, and the source the tutorial and the demonstrations are bu
 | `gibs_bluemarble`   | z8                                    | display, build   |
 | `gibs_weld_annual`  | z12                                   | display, build   |
 | `esri_world_imagery`| answers to z23, real detail varies    | display          |
+| `google_satellite`  | answers to z21, real detail varies    | display          |
 
 The two GIBS sources satisfy the rule that chartMaker ships no source it is not entitled to
 ship: both are US Government works, and their URL templates are verified by a test rather
 than assumed. `gibs_weld_annual` is the default rather than Blue Marble because it reaches
 z12 against z8, and depth is the whole point of a chartset.
 
-**The third ships for display only, and the split is the whole reason it can ship at all.**
-Esri's terms grant anyone the right to view, download and copy their published services for
-internal or noncommercial purposes, and separately govern bulk export into a product through
-a different, authenticated service. Those are two distinct permissions and a source file can
-sit squarely inside the first.
+**The other two ship for display only, and that split is the whole reason they can ship at
+all.** Esri's terms grant anyone the right to view, download and copy their published
+services for internal or noncommercial purposes, and separately govern bulk export into a
+product through a different, authenticated service. Those are two distinct permissions and a
+source file can sit squarely inside the first.
+
+**Google's `/vt` occupies a different position, and its file says so rather than leaving it
+to be assumed.** It is an undocumented endpoint that no published terms cover, and the
+policies Google does publish for its map products forbid pre-fetching, bulk downloading and
+offline use - a description of building a chartset rather than of drawing a map. So it ships
+as `display` with `redistributable: no`, and its `notes` record what it is. Being
+undocumented it carries no deprecation notice either, so one day it will fail as a 403, a
+redirect or a placeholder rather than as an announcement.
 
 **Shipping a TSD is not shipping imagery.** It is a URL and a set of field values describing
 a public endpoint, and it conveys no right to anything to anybody. The terms bind whoever
@@ -417,6 +456,11 @@ still has to be authored well below the zooms the region editor offers by defaul
 service stops upsampling and returns a fixed grey "no data" image rather than a 404, so
 without the fingerprint that picture would be cached as imagery and baked onto a card.
 
+`google_satellite` is the opposite case and carries none, because none is possible. It
+never answers 404 and never sends a fixed image, so it magnifies its own imagery
+indefinitely and every tile is distinct. Nothing declared in a file can catch that, which
+is why depth there is a matter for the eye and for [Build](build.md).
+
 ---
 
-**Next:** [Build](build.md)
+**Next:** [TSD Editor](tsd_editor.md)

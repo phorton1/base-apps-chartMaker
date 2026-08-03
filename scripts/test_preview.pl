@@ -83,7 +83,6 @@ sub tsd
   "tsd_version": 1,
   "id": "$id",
   "name": "test source $id",
-  "kind": "remote_xyz",
   "url": "https://$id.example.com/{z}/{x}/{y}.jpg",
   "tile_format": "jpeg",
   "tile_size": 256,

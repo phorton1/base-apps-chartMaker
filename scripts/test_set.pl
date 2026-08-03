@@ -259,7 +259,6 @@ my $TSD = <<'EOJ';
   "tsd_version": 1,
   "id": "ID_HERE",
   "name": "a test source",
-  "kind": "remote_xyz",
   "url": "https://example.com/{z}/{x}/{y}.jpeg",
   "tile_format": "jpeg",
   "tile_size": 256,

@@ -37,6 +37,7 @@ BEGIN
 		$COMMAND_SET_CLOSE
 		$COMMAND_SET_NEW
 		$COMMAND_NEW_REGION
+		$COMMAND_NEW_SOURCE
 		$COMMAND_PREFS
 		$COMMAND_BUILD_RCT
 		$COMMAND_BUILD_MBTILES
@@ -134,6 +135,13 @@ our $COMMAND_SET_CLOSE	= 10025;
 our $COMMAND_SET_NEW	= 10026;
 
 our $COMMAND_NEW_REGION	= 10031;
+
+# A SOURCE IS NOT PART OF THE DOCUMENT, so this is not beside the set
+# commands above and does not care whether a set is open.  A TSD is the
+# user's own material, independent of any region set, and a first run has
+# to be able to write one before there is anything to point it at.
+
+our $COMMAND_NEW_SOURCE	= 10033;
 
 # Preferences is a VIEW menu item rather than a File one, because nothing
 # it changes is part of the document.
