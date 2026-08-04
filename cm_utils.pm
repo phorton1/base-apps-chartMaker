@@ -25,6 +25,7 @@ BEGIN
 		openMapBrowser
 		newProgress
 		progressCancelled
+		wrapText
 	);
 }
 
@@ -40,6 +41,49 @@ setStandardResourceDir("$app_dir/_res");
 # gets this from Pub::Ray::NET::a_utils, which chartMaker does not use.
 
 enableOutputRing(2000);
+
+
+#---------------------------------------------
+# text
+#---------------------------------------------
+
+sub wrapText
+	# Break prose at a column, and NEVER inside a word.
+	#
+	# THE SECOND HALF OF THAT IS THE USEFUL HALF.  Everything these panels
+	# show is a mixture of sentences and unbreakable tokens - urls, digests,
+	# identifiers - and a wrapper that split on the column would cut a url
+	# in half and make it uncopyable.  A word longer than the width simply
+	# overflows on a line of its own, which is the correct answer: there is
+	# no place to break it that does not damage it.
+	#
+	# IT RETURNS BARE LINES and applies no indent of its own, because the
+	# callers differ on what a continuation line should start with and none
+	# of them agrees with a default.
+
+{
+	my ($text,$width) = @_;
+	return () if !defined $text || $text !~ /\S/;
+	$width = 72 if !$width || $width < 8;
+
+	my @out;
+	my $line = '';
+	for my $word (split(/\s+/,$text))
+	{
+		next if !length $word;
+		if (length($line) && length($line) + length($word) + 1 > $width)
+		{
+			push @out,$line;
+			$line = $word;
+		}
+		else
+		{
+			$line = length($line) ? "$line $word" : $word;
+		}
+	}
+	push @out,$line if length $line;
+	return @out;
+}
 
 
 #---------------------------------------------

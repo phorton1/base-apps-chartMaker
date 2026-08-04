@@ -409,8 +409,24 @@ ok(checkSourceField('attribution','Imagery (c) Nobody') eq '',
 	"and its downmapped spelling passes");
 
 ok(checkSourceField('url','https://e.com/{z}/{x}/{y}.png') eq '',"a good url passes");
+# A DECLARED SLOT IS A LEGAL PLACEHOLDER, and this field check has to be
+# told what the file declares or it refuses a url the LOADER accepts.  That
+# is not a cosmetic disagreement: the editor paints red and disables Save
+# from this answer, so a keyed source could be created and then never
+# saved again.
+{
+	my $keyed = 'https://e.com/{z}/{x}/{y}.png?api={my_key}';
+	my $creds = [ { slot => 'my_key' } ];
+	ok(checkSourceField('url',$keyed,$creds) eq '',
+		"a url naming a DECLARED credential slot passes");
+	ok(checkSourceField('url',$keyed),
+		"the same url with nothing declared fails");
+	ok(checkSourceField('url',$keyed,[ { slot => 'other_key' } ]),
+		"and declaring a DIFFERENT slot does not excuse it");
+}
+
 ok(checkSourceField('url','https://e.com/{z}/{x}/{apikey}.png'),
-	"a url with an undeclared placeholder fails");
+"a url with an undeclared placeholder fails");
 ok(checkSourceField('url','https://e.com/static.png'),
 	"a url that addresses no tile fails");
 ok(checkSourceField('url','https://e.com/tile/{q}.png') eq '',"quadkey alone passes");

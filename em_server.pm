@@ -96,7 +96,7 @@ sub new
 	my $params = {
 		HTTP_PORT				=> getPref($PREF_HTTP_PORT),
 		HTTP_DOCUMENT_ROOT		=> "$resource_dir/site",
-		HTTP_GET_EXT_RE			=> 'html|js|css|png',
+		HTTP_GET_EXT_RE			=> 'html|js|css|png|jpg|jpeg',
 		HTTP_DEFAULT_LOCATION	=> '/map.html',
 		HTTP_MAX_THREADS		=> 4,
 		HTTP_KEEP_ALIVE			=> 0,

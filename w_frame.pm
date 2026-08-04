@@ -77,6 +77,7 @@ sub new
 	EVT_MENU($this, $COMMAND_SET_CLOSE,   \&onCommand);
 	EVT_MENU($this, $COMMAND_NEW_REGION,  \&onCommand);
 	EVT_MENU($this, $COMMAND_NEW_SOURCE,  \&onCommand);
+	EVT_MENU($this, $COMMAND_CATALOG,     \&onCommand);
 	EVT_MENU($this, $COMMAND_PREFS,       \&onCommand);
 	EVT_MENU($this, $COMMAND_FETCH,       \&onCommand);
 	EVT_MENU($this, $COMMAND_BUILD_RCT,   \&onCommand);
@@ -595,6 +596,16 @@ sub onCommand
 		my $pane = $this->findPane($WIN_SOURCES);
 		$pane = $this->createPane($WIN_SOURCES) if !$pane;
 		$pane->newSource() if $pane;
+	}
+	elsif ($id == $COMMAND_CATALOG)
+	{
+		# THROUGH THE PANE, for the reason New Source goes through it:
+		# whatever the catalog writes has to appear somewhere the moment
+		# it exists, and the pane is what refreshes itself around it.
+
+		my $pane = $this->findPane($WIN_SOURCES);
+		$pane = $this->createPane($WIN_SOURCES) if !$pane;
+		$pane->catalogDialog() if $pane;
 	}
 	elsif ($id == $COMMAND_FETCH || $id == $COMMAND_BUILD_RCT ||
 		   $id == $COMMAND_BUILD_MBTILES)

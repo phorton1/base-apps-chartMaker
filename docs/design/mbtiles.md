@@ -7,6 +7,7 @@
 **[Tree Editing](editing_tree.md)** --
 **[TSD](tsd.md)** --
 **[TSD Editor](tsd_editor.md)** --
+**[Catalog](catalog.md)** --
 **[Build](build.md)** --
 **MBTiles** --
 **[RCT](rct.md)**

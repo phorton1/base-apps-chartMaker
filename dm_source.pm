@@ -611,8 +611,21 @@ sub checkSourceField
 	# whether a url ANSWERS, and whether its row order is right, is not a
 	# question a text box can settle.  That is the verification phase, and
 	# it reports separately.
+	#
+	# $creds IS THE FILE'S credentials ARRAY, and the url check is the one
+	# rule here that cannot be answered by looking at one value.  A DECLARED
+	# SLOT IS A LEGAL PLACEHOLDER -- _validate has always allowed it -- so
+	# without being told what the file declares, this refused a url the
+	# LOADER accepts.  The editor then painted it red and disabled Save on a
+	# file that would have loaded perfectly, which is the two grains of one
+	# rulebook disagreeing: exactly what keeping both of them in this module
+	# was supposed to prevent.
+	#
+	# It is optional because most callers are asking about a field that has
+	# no opinion about credentials, and a required argument would make every
+	# one of them state something it does not know.
 {
-	my ($name,$val) = @_;
+	my ($name,$val,$creds) = @_;
 	$val = '' if !defined $val;
 
 	# ASCII, ALWAYS.  These files are read by people, transported between
@@ -651,11 +664,16 @@ sub checkSourceField
 
 	if ($name eq 'url' && $val =~ /\S/)
 	{
+		my @slots = map { $_->{slot} }
+			grep { ref($_) eq 'HASH' && defined $_->{slot} }
+			@{ (ref($creds) eq 'ARRAY') ? $creds : [] };
+
 		my @used = _placeholdersOf($val);
-		my %ok   = map { $_ => 1 } @PLACEHOLDERS;
+		my %ok   = map { $_ => 1 } (@PLACEHOLDERS,@slots);
 		for my $ph (@used)
 		{
-			return "{$ph} is not a placeholder this format defines"
+			return "{$ph} is not a placeholder this format defines, ".
+					"and no credential slot of that name is declared"
 				if !$ok{$ph};
 		}
 		my %used = map { $_ => 1 } @used;

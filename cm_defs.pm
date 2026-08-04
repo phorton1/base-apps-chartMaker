@@ -38,6 +38,7 @@ BEGIN
 		$COMMAND_SET_NEW
 		$COMMAND_NEW_REGION
 		$COMMAND_NEW_SOURCE
+		$COMMAND_CATALOG
 		$COMMAND_PREFS
 		$COMMAND_BUILD_RCT
 		$COMMAND_BUILD_MBTILES
@@ -142,6 +143,14 @@ our $COMMAND_NEW_REGION	= 10031;
 # to be able to write one before there is anything to point it at.
 
 our $COMMAND_NEW_SOURCE	= 10033;
+
+# THE CATALOG SITS BESIDE New Source AND NOT IN THE FILE MENU, because it
+# is the other way of arriving at the same act.  One writes a definition
+# from nothing and the other writes it from something already known, and
+# separating them by a whole menu would hide the second from anybody who
+# had found the first.
+
+our $COMMAND_CATALOG	= 10034;
 
 # Preferences is a VIEW menu item rather than a File one, because nothing
 # it changes is part of the document.

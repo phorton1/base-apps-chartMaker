@@ -63,6 +63,13 @@ application:
 the embedded HTTP server. It bundles wholesale, and `$resource_dir` is what the application
 resolves it through in both environments.
 
+Two other things live there and are reached the same way. `_res/user_data` holds the `.tsd`
+files copied into the user's sources folder under an existence guard, which is what makes a
+shipped source an ordinary editable file. `_res/catalog.json` is the
+[tile source catalog](design/catalog.md) and is **not** copied anywhere: it is read where it
+lies, because it is application material that has to stay coherent with the code rather than
+user data that may be edited.
+
 **The source is packed as plain text rather than masked.** It is public on GitHub, so
 masking would obscure nothing and would only make the shipped copy harder to compare against
 the published one.

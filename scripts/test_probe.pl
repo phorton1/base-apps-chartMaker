@@ -384,4 +384,134 @@ if ($up)
 }
 
 
+#---------------------------------------------
+# what a service publishes
+#---------------------------------------------
+# AGAINST THE LIVE SERVICE, for the reason the rest of this file is: a
+# fixture would keep passing after GIBS changed its document, and a reader
+# of somebody else's XML failing quietly when they revise it is exactly
+# the failure this exists to catch.
+#
+# THE ASSERTIONS ARE SHAPE, NOT CONTENT.  How many layers GIBS publishes
+# is not this application's business and will be a different number next
+# month; that the answer is large, that the urls are addressable, and that
+# the ceilings come back as numbers, are properties of the READER.
+
+print "\n=== serviceLayers - live GIBS ===\n";
+
+{
+	my $r = serviceLayers('wmts',
+		'https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/1.0.0/'.
+		'WMTSCapabilities.xml');
+
+	ok($r->{ok},"GIBS answered: ".($r->{reason} // 'ok'));
+
+	if ($r->{ok})
+	{
+		my $kept = scalar(@{$r->{layers}});
+		ok($r->{total} > 100,
+			"the document describes many layers (got $r->{total})");
+		ok($kept > 50,"and $kept of them are readable by this application");
+		ok($kept < $r->{total},
+			"while some are not - ".($r->{total} - $kept)." hidden, ".
+			"with a reason for each");
+
+		# EVERY URL IS THE SERVICE'S OWN.  This is the whole point of
+		# reading the document rather than typing an entry: no part of the
+		# address below was guessed.
+
+		my $bad_url = 0;
+		my $bad_zoom = 0;
+		my $bad_fmt = 0;
+		my $left_over = 0;
+		for my $l (@{$r->{layers}})
+		{
+			$bad_url++  if $l->{url} !~ /\{z\}/ || $l->{url} !~ /\{x\}/ ||
+						   $l->{url} !~ /\{y\}/;
+			$left_over++ if $l->{url} =~ /\{(?!z\}|x\}|y\})/;
+			$bad_zoom++ if $l->{zmax} !~ /^\d+$/ || $l->{zmax} < 1 ||
+						   $l->{zmax} > 24;
+			$bad_fmt++  if ($l->{tile_format} // '') !~ /^(jpeg|png)$/;
+		}
+		ok(!$bad_url,"every url addresses a tile with {z} {x} {y}");
+		ok(!$left_over,
+			"and none carries a placeholder this reader did not resolve");
+		ok(!$bad_zoom,"every ceiling is a whole number in 1..24");
+		ok(!$bad_fmt,"every format is jpeg or png");
+
+		# DEEPEST FIRST.  Guidance and not a verdict: the shallow layers
+		# are all still there, at the bottom.
+
+		my $desc = 1;
+		for my $i (1 .. $#{$r->{layers}})
+		{
+			$desc = 0 if $r->{layers}[$i]{zmax} > $r->{layers}[$i-1]{zmax};
+		}
+		ok($desc,"the list is ordered deepest first");
+
+		# WHERE DEPTH TIES THE SERVICE'S ORDER STANDS, and the case that
+		# proves it is a service whose layers ALL tie.  Esri Wayback
+		# publishes 195 releases at one depth, newest first; any sort with
+		# a name tiebreak silently reverses that.
+
+		my $wb = serviceLayers('wmts',
+			'https://wayback.maptiles.arcgis.com/arcgis/rest/services/'.
+			'World_Imagery/WMTS/1.0.0/WMTSCapabilities.xml');
+		ok($wb->{ok},"Esri Wayback answered: ".($wb->{reason} // 'ok'));
+		if ($wb->{ok})
+		{
+			my $n = scalar(@{$wb->{layers}});
+			ok($n > 100,"it publishes $n archived releases");
+			ok($n == $wb->{total},
+				"and every one of them is readable - none hidden");
+
+			# ITS MATRIX SET IS NAMED WITHOUT A LEVEL, and its definition
+			# opens with a Title rather than an Identifier, which is the
+			# shape that used to void all 195 at once.
+
+			ok($wb->{layers}[0]{tms} eq 'GoogleMapsCompatible',
+				"on a matrix set naming no level: $wb->{layers}[0]{tms}");
+			ok($wb->{layers}[0]{zmax} > 0,
+				"whose range was still counted: z$wb->{layers}[0]{zmin}".
+				"-$wb->{layers}[0]{zmax}");
+
+			my $first = $wb->{layers}[0]{name};
+			my $last  = $wb->{layers}[-1]{name};
+			my ($fy) = $first =~ /(\d{4})-\d{2}-\d{2}/;
+			my ($ly) = $last  =~ /(\d{4})-\d{2}-\d{2}/;
+			ok($fy && $ly && $fy > $ly,
+				"newest first, as the service published them ".
+				"($fy then ... then $ly)");
+
+			# EACH RELEASE CARRIES ITS OWN RELEASE NUMBER, which is the
+			# identifier no catalog entry could have invented.
+			my %rel;
+			for my $l (@{$wb->{layers}})
+			{
+				$rel{$1}++ if $l->{url} =~ m{/MapServer/tile/(\d+)/};
+			}
+			ok(scalar(keys %rel) == $n,
+				"each release addresses its own pinned id (".
+				scalar(keys %rel)." distinct)");
+		}
+
+		# AND WHAT COMES BACK MUST BE WRITABLE AS A SOURCE.  A reader that
+		# produced layers no TSD could hold would be a reader that produced
+		# nothing.
+
+		my $deepest = $r->{layers}[0];
+		my $tsd = {
+			tsd_version => 1, tile_size => 256, crs => 'EPSG:3857',
+			id => 'live_probe_check', name => $deepest->{name},
+			url => $deepest->{url}, tile_format => $deepest->{tile_format},
+			zoom => { min => $deepest->{zmin}, max => $deepest->{zmax} },
+			uses => ['display'], attribution => 'NASA GIBS',
+		};
+		my $why = checkSource('live.tsd',$tsd);
+		ok(!$why,"the deepest layer is a source dm_source would load".
+			($why ? " : $why" : " ($deepest->{id}, z$deepest->{zmax})"));
+	}
+}
+
+
 print "\n".($fails ? "$fails FAILURE(S)\n" : "ALL PASSED\n");

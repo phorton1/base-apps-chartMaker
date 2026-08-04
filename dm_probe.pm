@@ -42,6 +42,7 @@ use threads::shared;
 use JSON;
 use Pub::Utils;
 use cm_defs;
+use cm_utils;
 use dm_source;
 use dm_fetch;
 use dm_observe;
@@ -54,6 +55,7 @@ BEGIN
 		probeSource
 		probeTilemap
 		probeLines
+		serviceLayers
 	);
 }
 
@@ -653,24 +655,13 @@ sub probeLines
 
 
 sub _wrap
+	# MOVED TO cm_utils, because the catalog panel needed the same thing
+	# and a second copy would be a second set of answers to "what happens
+	# to a url that is longer than the column".  Kept as a name here so the
+	# call site above still reads the way it did.
 {
 	my ($text,$width) = @_;
-	my @out;
-	my $line = '';
-	for my $word (split(/\s+/,$text))
-	{
-		if (length($line) + length($word) + 1 > $width)
-		{
-			push @out,$line;
-			$line = $word;
-		}
-		else
-		{
-			$line = length($line) ? "$line $word" : $word;
-		}
-	}
-	push @out,$line if length $line;
-	return @out;
+	return wrapText($text,$width);
 }
 
 
@@ -682,5 +673,379 @@ sub _bytes
 	return "$n bytes";
 }
 
+
+
+
+#---------------------------------------------
+# WHAT DOES THIS SERVICE PUBLISH
+#---------------------------------------------
+# THE SAME DOCUMENTS, THE OTHER QUESTION.  Everything above finds the ONE
+# layer a TSD names and reports on it.  This lists them ALL, so the
+# catalog can offer what a service actually publishes today rather than
+# the two or three that were surveyed.
+#
+# IT LIVES HERE AND NOT IN dm_catalog, which reads a shipped file and
+# knows no protocols, and not in a module of its own, which would be a
+# second set of rules for reading one XML document -- free to disagree
+# with the set above about what a ceiling is or where a row order is
+# declared.
+#
+# THE SERVICE'S OWN TEMPLATE IS THE POINT.  A WMTS publishes a ResourceURL
+# per layer, so the url this produces is not a guess about how the service
+# is addressed: it is what the service says. That is the whole difference
+# between an entry somebody typed and an entry that came from the horse.
+#
+# ONLY WHAT chartMaker CAN READ IS RETURNED.  A service like GIBS
+# publishes around a thousand layers, most of them science products and
+# many of them on a grid this application structurally cannot address.
+# Handing all of them to somebody to judge would waste the judgement the
+# catalog exists to support -- so the rest are counted, and the count is
+# reported WITH ITS REASON.  Silently dropping them would be the same lie
+# as a truncated list.
+
+my @GOOD_FORMATS = ( 'image/jpeg', 'image/jpg', 'image/png' );
+
+
+sub _formatOf
+{
+	my ($mime) = @_;
+	return 'jpeg' if $mime =~ m{jpe?g}i;
+	return 'png'  if $mime =~ m{png}i;
+	return '';
+}
+
+
+sub _tagIn
+	# One simple element's text out of a block.  There is no general XML
+	# here on purpose: see the note above _probeWMTS about five megabytes
+	# and four fields.
+{
+	my ($block,$tag) = @_;
+	return $block =~ m{<\Q$tag\E[^>]*>(.*?)</\Q$tag\E>}s ? $1 : undef;
+}
+
+
+sub _kvpGetTile
+	# The KVP GetTile endpoint a capabilities document advertises.  A
+	# RESTful service (GIBS) publishes a ResourceURL per layer and needs
+	# none of this; a KVP-only service (IGN France, Spain IGN) publishes
+	# no ResourceURL at all and has to be addressed through its operations
+	# metadata instead.  Two shapes, both real, and a reader that knew
+	# only the first would report the second as having nothing to offer.
+{
+	my ($xml) = @_;
+	return undef if $xml !~ m{<ows:Operation\s+name=["']GetTile["'](.*?)</ows:Operation>}s;
+	my $op = $1;
+	return undef if $op !~ m{<ows:Get\s+xlink:href=["']([^"']+)["'](.*?)</ows:Get>}s;
+	my ($href,$rest) = ($1,$2);
+	return undef if $rest !~ m{<ows:Value>KVP</ows:Value>}s;
+	$href =~ s/\?$//;
+	return $href;
+}
+
+
+sub _restUrl
+	# A layer's ResourceURL template, turned into a TSD url.
+{
+	my ($tpl,$tms,$time,$style) = @_;
+
+	$tpl =~ s/\{TileMatrixSet\}/$tms/g;
+	$tpl =~ s/\{Time\}/$time/g               if defined $time;
+	$tpl =~ s/\{style\}/$style/gi            if defined $style;
+	$tpl =~ s/\{TileMatrix\}/\{z\}/g;
+	$tpl =~ s/\{TileRow\}/\{y\}/g;
+	$tpl =~ s/\{TileCol\}/\{x\}/g;
+
+	# ANY PLACEHOLDER LEFT IS ONE THIS READER DID NOT UNDERSTAND, and a url
+	# carrying it would be refused by the TSD validator anyway.  Better to
+	# hide the layer with a reason than to offer a template that cannot be
+	# saved.
+
+	return undef if $tpl =~ /\{(?!z\}|x\}|y\})/;
+	return $tpl;
+}
+
+
+sub _kvpUrl
+{
+	my ($base,$layer,$tms,$mime,$style,$time) = @_;
+	my $sep = ($base =~ /\?/) ? '&' : '?';
+	my $url = $base.$sep.
+		"SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0".
+		"&LAYER=$layer".
+		"&STYLE=".(defined $style ? $style : '').
+		"&TILEMATRIXSET=$tms".
+		"&FORMAT=$mime";
+	$url .= "&TIME=$time" if defined $time && $time =~ /\S/;
+	$url .= "&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}";
+	return $url;
+}
+
+
+my $UNDECLARED_ZMAX = 23;
+	# WHERE A SERVICE STATES NO CEILING.  The TSD format's zoom is a
+	# PROTOCOL limit - where the server starts refusing - and 23 is what
+	# the ArcGIS family declares when it is declaring nothing.  Where real
+	# detail ends is a data fact and is the probe's question either way.
+
+
+sub _ceilingOf
+	# The zoom range a named tile matrix set covers, and whether the
+	# service actually said so.  Returns (zmin,zmax,declared).
+	#
+	# THE IDENTIFIER SAYS IT OUTRIGHT for the GoogleMapsCompatible_LevelN
+	# family.  Otherwise the set is DEFINED somewhere in the document with
+	# one TileMatrix per level, and the range is counted from it.
+	#
+	# FINDING THAT DEFINITION IS THE WHOLE DIFFICULTY, because
+	# <TileMatrixSet> is two elements with one name: inside a
+	# TileMatrixSetLink it is a bare reference holding a name, and at the
+	# top level it is the definition.  Scanning every block and keeping the
+	# one that both names this set AND contains TileMatrix children tells
+	# them apart by shape, which is the only thing that reliably does.
+	#
+	# An earlier version required the ows:Identifier to be the first
+	# element with content, which held for GIBS and broke on Esri Wayback -
+	# whose definition opens with a Title and an Abstract.  It then cached
+	# the failure, so one unmatched document voided all 195 of its layers.
+{
+	my ($xml,$tms,$cache) = @_;
+	return @{$cache->{$tms}} if $cache->{$tms};
+
+	my @range = (0,$UNDECLARED_ZMAX,0);
+	if ($tms =~ /Level(\d+)\s*$/)
+	{
+		@range = (0,$1 + 0,1);
+	}
+	else
+	{
+		while ($xml =~ m{<TileMatrixSet>(.*?)</TileMatrixSet>}gs)
+		{
+			my $set = $1;
+			next if index($set,"<ows:Identifier>$tms</ows:Identifier>") < 0;
+			next if index($set,'<TileMatrix>') < 0;
+
+			my @lv = sort { $a <=> $b } grep { /^\d+$/ }
+				($set =~ m{<ows:Identifier>(\d+)</ows:Identifier>}gs);
+			@range = ($lv[0],$lv[-1],1) if @lv;
+			last;
+		}
+	}
+	$cache->{$tms} = \@range;
+	return @range;
+}
+
+
+sub serviceLayers
+	# ($kind,$url,$prog) -> a hash of what the service publishes.
+	#
+	#	ok      1, or 0 with a reason
+	#	layers  [ { id, name, url, zmin, zmax, tile_format, tms, notes } ]
+	#	hidden  { reason => count }
+	#
+	# $prog is optional and is the shared progress record; this is the one
+	# thing here that knows it is being watched, and it only ever writes
+	# counters and reads {cancelled}.
+{
+	my ($kind,$url,$prog) = @_;
+
+	return { ok => 0, reason => "this reader does not know '$kind'" }
+		if ($kind || '') ne 'wmts';
+
+	if ($prog)
+	{
+		$prog->{phase}     = 'Asking the service what it publishes';
+		$prog->{sub_label} = $url;
+		$prog->{sub_total} = 0;
+	}
+
+	my $got = fetchUrl($url,$PROBE_TIMEOUT);
+	return { ok => 0, reason => "GetCapabilities did not answer - $got->{reason}" }
+		if !$got->{ok};
+
+	# CANCEL MEANS ABANDON THE ANSWER, NOT STOP THE DOWNLOAD.  Nothing can
+	# interrupt an LWP get once it is in flight, so the honest thing is to
+	# check here, say nothing was kept, and not pretend the request was
+	# called off.
+
+	return { ok => 0, reason => 'cancelled' } if progressCancelled($prog);
+
+	my $xml = $got->{content};
+	my $kvp = _kvpGetTile($xml);
+
+	my @blocks = ($xml =~ m{<Layer>(.*?)</Layer>}gs);
+	display($dbg_probe,0,"serviceLayers($kind) ".scalar(@blocks).
+		" layers in "._bytes(length $xml));
+
+	if ($prog)
+	{
+		$prog->{phase}     = 'Reading the layers';
+		$prog->{sub_total} = scalar(@blocks);
+		$prog->{sub_done}  = 0;
+		$prog->{done}      = 1;
+	}
+
+	my (@layers,%hidden,%tms_cache);
+	for my $block (@blocks)
+	{
+		$prog->{sub_done}++ if $prog;
+		return { ok => 0, reason => 'cancelled' } if progressCancelled($prog);
+
+		my $id = _tagIn($block,'ows:Identifier');
+		next if !defined $id || $id !~ /\S/;
+
+		# WEB MERCATOR AT 256 PIXELS OR NOTHING, and for a WMTS that is a
+		# statement about the tile matrix set rather than about the layer.
+		# The GoogleMapsCompatible family IS that grid, by definition, and
+		# a layer offering no such set cannot be addressed by this
+		# application whatever else is true of it.
+
+		my @sets = ($block =~ m{<TileMatrixSet>(.*?)</TileMatrixSet>}gs);
+		my ($tms) = grep { /GoogleMapsCompatible/i } @sets;
+		if (!$tms)
+		{
+			$hidden{'published on a grid this application cannot read'}++;
+			next;
+		}
+
+		my @formats = ($block =~ m{<Format>(.*?)</Format>}gs);
+		my ($mime)  = grep { my $f = lc $_;
+							 grep { $f eq $_ } @GOOD_FORMATS } @formats;
+		if (!$mime)
+		{
+			$hidden{'serves no jpeg or png'}++;
+			next;
+		}
+
+		my $style = _tagIn($block,'ows:Identifier');
+		if ($block =~ m{<Style[^>]*>(.*?)</Style>}s)
+		{
+			my $s = _tagIn($1,'ows:Identifier');
+			$style = $s if defined $s;
+		}
+
+		my $time;
+		if ($block =~ m{<Dimension>(.*?)</Dimension>}s)
+		{
+			$time = _tagIn($1,'Default');
+		}
+
+		my $tile_url;
+		if ($block =~ m{<ResourceURL[^>]*template=["']([^"']*\{TileMatrix\}[^"']*)["']}s)
+		{
+			$tile_url = _restUrl($1,$tms,$time,$style);
+		}
+		elsif ($kvp)
+		{
+			$tile_url = _kvpUrl($kvp,$id,$tms,$mime,$style,$time);
+		}
+
+		if (!$tile_url)
+		{
+			$hidden{'publishes no template this reader can address'}++;
+			next;
+		}
+
+		# AN UNDECLARED CEILING IS NOT A REASON TO HIDE A LAYER.  A service
+		# that says nothing about its depth is the ORDINARY case - most of
+		# the ArcGIS family says nothing - and hiding those would drop
+		# exactly the sources whose depth has to be found by looking.  So a
+		# default stands in, and the layer says that is what it is.
+
+		my ($zmin,$zmax,$declared) = _ceilingOf($xml,$tms,\%tms_cache);
+
+		my $title = _tagIn($block,'ows:Title');
+		$title = $id if !defined $title || $title !~ /\S/;
+
+		# ASCII, BECAUSE A TSD MUST BE.  A title carrying anything else
+		# would be refused where it was saved rather than where it was
+		# read, which is a long way from the cause.
+
+		$title =~ s/[^\x20-\x7E]/ /g;
+		$title =~ s/\s+/ /g;
+		$title =~ s/^\s+|\s+$//g;
+
+		my $notes = "Read from the service's own GetCapabilities. ".
+			"Tile matrix set $tms.";
+		$notes .= " THE SERVICE DECLARED NO ZOOM RANGE for that matrix set, ".
+			"so the ceiling of z$zmax above is a default and not a ".
+			"statement - probe it before trusting it."
+			if !$declared;
+		$notes .= " The url pins the '$time' value of this layer's time ".
+			"dimension, which is the default the service published when ".
+			"this was read." if defined $time && $time =~ /\S/;
+
+		push @layers,{
+			id          => $id,
+			name        => $title,
+			url         => $tile_url,
+			zmin        => $zmin,
+			zmax        => $zmax,
+			tile_format => _formatOf($mime),
+			tms         => $tms,
+			notes       => $notes,
+		};
+	}
+
+	display($dbg_probe,0,"serviceLayers kept ".scalar(@layers)." of ".
+		scalar(@blocks));
+
+	# DEEPEST FIRST, AND THAT IS GUIDANCE RATHER THAN A VERDICT.
+	#
+	# The structural filter above is necessary and it is nothing like
+	# sufficient: GIBS publishes 1268 layers and 1132 of them are readable,
+	# because nearly every science product it holds is served as PNG on
+	# GoogleMapsCompatible.  Aerosol angstrom exponent is addressable by
+	# this application and is of no use whatever under a boat.
+	#
+	# NOTHING HERE DECIDES THAT.  A usefulness filter would be this module
+	# forming an opinion it is not entitled to, and the same reasoning that
+	# keeps depth a human judgement everywhere else applies with more force
+	# to a list somebody is reading in order to judge.  So the deepest are
+	# put first, where a chart author looks, and the filter box does the
+	# rest.  A z6 climate product sorts to the bottom without being hidden.
+
+	# WHERE DEPTH TIES, THE SERVICE'S OWN ORDER STANDS.  Sorting those by
+	# name imposes an order nobody chose, and it is wrong in the case that
+	# made it visible: Esri Wayback publishes 195 releases at one depth,
+	# newest first, and alphabetical put February 2014 at the top of a list
+	# whose whole purpose is picking a date.
+
+	my $i = 0;
+	$_->{_ord} = $i++ for @layers;
+	@layers = sort { $b->{zmax} <=> $a->{zmax} || $a->{_ord} <=> $b->{_ord} }
+		@layers;
+	delete $_->{_ord} for @layers;
+
+	return {
+		ok       => 1,
+		layers   => \@layers,
+		hidden   => \%hidden,
+		total    => scalar(@blocks),
+		bytes    => length($xml),
+	};
+}
+
+
+sub layersWorker
+	# THE WORKER SIDE, and the whole of what crosses the thread boundary.
+	#
+	# THE RESULT COMES BACK AS TEXT, for the reason the build's report
+	# does: a nest of hashes and arrays cannot cross as a reference, and
+	# shared_clone'ing it would make a second representation free to drift
+	# from the first.  So it is encoded once here and decoded once there,
+	# and there is exactly one shape of layer list in the application.
+{
+	my ($prog,$args) = @_;
+	my ($kind,$url) = @$args;
+
+	my $rslt = eval { serviceLayers($kind,$url,$prog) };
+	$rslt = { ok => 0, reason => "the reader failed: $@" } if !$rslt;
+
+	$prog->{json} = eval { encode_json($rslt) } || '';
+	$prog->{ok}   = $rslt->{ok} ? 1 : 0;
+	push @{$prog->{lines}},($rslt->{reason} // '') if !$rslt->{ok};
+	$prog->{finished} = 1;
+}
 
 1;

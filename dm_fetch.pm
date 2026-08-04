@@ -36,6 +36,7 @@ use threads;
 use threads::shared;
 use Time::HiRes qw( time );
 use Digest::MD5 qw( md5_hex );
+use HTTP::Message;
 use Pub::Utils;
 use Pub::UA;
 use cm_defs;
@@ -108,19 +109,44 @@ sub fetchUrl
 	my $was = $ua->timeout();
 	$ua->timeout($timeout) if $timeout;
 
+	# ASK FOR IT COMPRESSED, WHICH IS ONLY EVER WORTH IT HERE.  A tile is
+	# already a compressed image and gzipping one gains nothing; a
+	# capabilities document is XML and gains enormously.  NASA GIBS was
+	# measured at 5,592,197 bytes plain and 199,393 gzipped, twenty-eight
+	# to one, and the header was in its response all along - LWP simply
+	# does not ask unless told to.
+	#
+	# HTTP::Message::decodable() NAMES WHAT THIS PERL CAN ACTUALLY UNDO
+	# rather than what the protocol defines, so a machine without a codec
+	# asks for nothing it cannot read and the request still works.
+
 	my $started  = time();
-	my $response = $ua->get($url);
+	my $response = $ua->get($url,
+		'Accept-Encoding' => HTTP::Message::decodable());
 	my $ms       = int((time() - $started) * 1000);
 
 	$ua->timeout($was) if $timeout;
 
+	# charset => 'none' UNDOES THE TRANSFER ENCODING AND NOTHING ELSE.
+	# The plain decoded_content would also decode the charset and hand back
+	# wide characters, which is a different kind of string from the bytes
+	# every caller here already parses - and JSON::decode_json in
+	# particular expects bytes.
+
+	my $body = $response->decoded_content(charset => 'none',
+		raise_error => 0);
+	$body = $response->content() if !defined $body;
+
 	my $code = $response->code();
+	my $enc  = $response->header('Content-Encoding') || '';
 	display($dbg_fetch,0,"fetchUrl -> $code (${ms}ms, ".
-		length($response->content() // '')." bytes) $url");
+		length($body // '')." bytes".
+		($enc ? ", $enc ".length($response->content() // '')." on the wire"
+			  : '').") $url");
 
 	if (($response->header('Client-Warning') || '') eq 'Internal response')
 	{
-		my $why = $response->content() || $response->message();
+		my $why = $body || $response->message();
 		$why =~ s/\s+/ /g;
 		return { ok => 0, ms => $ms, reason => substr($why,0,160) };
 	}
@@ -129,7 +155,7 @@ sub fetchUrl
 		if $code != 200;
 
 	return { ok => 1, code => $code, ms => $ms,
-		content => $response->content(),
+		content => $body,
 		type    => $response->header('Content-Type') || '' };
 }
 

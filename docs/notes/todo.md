@@ -33,16 +33,33 @@ prioritization or other axes that Patrick determines.  This document and the
 structure of it may be changed at anytime by Patrick, and only by Patrick.
 
 
-## Mainline Functionality
 
-### SOURCE probing and testing
+## initial implementation Phase N - VERIFY-SOURCE
 
 The program shall include the ability to ascertain whether a given source is valid, working,
 workable, and to potentially ascertain things like the formats and resolutions it supports,
 absent fingerprints it may utilize, the syntax (addressing-order), rate limitations, or other
 characteristics.
 
-### Post-Build Analysis / Commands
+This already has a hook to a Test button in the source editor and a feedback mechanism there
+to notify the user of fields that are invalid and show them in various colors.  I was thinking
+that in the process of doing that, it should present a modal summary dialog box, with a clear
+OK!!! or buletted list of the problems found if any.
+
+Then that same Test button could be added to the Catalog dialog that would "pre-test" a tsd
+without necessarily creating it on disk and merly report the dialog summary.
+
+What do you think.
+
+
+
+## CREDENTIALS
+
+The linking of sources to private credentials maintained in the $data_dir or other
+folder(s) will be implemented and tested with at least one such source.
+
+
+## POST-BUILD
 
 - overzoom detector (downsample/upsample residual)
 - identification of, remembering, and noticing sentinel "missing tile" images
@@ -51,7 +68,9 @@ characteristics.
   scripts/tool_prune_absent.pl, or writing new user-facing operation.
 
 
-### Format conversion at the exporter seam
+## PNGS
+
+Format conversion at the exporter seam
 
 Decoding and re-encoding one tile, which is an encoder and not the image-processing stack this application refuses.
 No resampling, no reprojection, no compositing. It carries a quality preference, and that preference is a legitimate
@@ -59,56 +78,40 @@ user-level setting precisely because it changes the bytes without changing what 
 the same zooms, the same source. Anything that changed those would belong to the region, not to a preference.
 
 
-### Credentials
+## USER MANUAL
 
-The linking of sources to private credentials maintained in the $data_dir or other
-folder(s) will be implemented and tested with at least one such source.
-
-
-
-## SOURCES
-
-### SOURCE Creation, Editing, and Validation
-
-The program shall have the ability for the user to Create, Modify, and Delete Sources (TSD files)
-
-The program shall ship with one or more existing TSDs that are usable for viewing in the leaflet
-and, at a minimum, for building example outputs in a tutorial or user manual.
-
-The program and/or documentation will include a catalog of known tile sources (i.e. GIBS) that
-may be used for viewing and/or building and a way for users to generate TSDs from that catalog.
-This list may include known paid services that require credentials in order to be used under their
-respective TOS.
-
-
-
-
-
-## User-Manual Tutorial
+Tutorial
 
 The repo will include a User Manual of a tutorial nature that will onboaand rd users through
 the entire process of creating region sets and doing builds within the constraints of the
 shipped TSDs.
 
 
-## Installable Application and Release Cycle
+## INSTALLABLE
+
+Installable Application and Release Cycle
 
 This application will have a sister repo in /base_dist that is used to build a release
 Windows EXE installation program.  There will be a defined release mechanism and versioning
 scheme ala the way that navMate is currently released.
 
 
-## Overlay TSD's
+
+## OTHER
+
+
+### Overlay TSD's
 
 Other kinds of things can be served that are of interest including, but not limited to
 - vector or rasterized region or political/administrative boundaries
 - placenames, bathyrimic data, points of interest, etc
 ok,
 
-## OTHER
 
 ### raster_chart_format.md
 
 Potential addition of RCT "Build notes in the card" -
 the RCT format can carry source, zoom range, encoding and date, etc.
+
+### navMate use vt, esri and esri clarity layer boxes
 

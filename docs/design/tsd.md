@@ -7,6 +7,7 @@
 **[Tree Editing](editing_tree.md)** --
 **TSD** --
 **[TSD Editor](tsd_editor.md)** --
+**[Catalog](catalog.md)** --
 **[Build](build.md)** --
 **[MBTiles](mbtiles.md)** --
 **[RCT](rct.md)**
@@ -340,8 +341,13 @@ Sources rot. Endpoints move, terms change, and services retire, so the ability t
 *which* source broke matters as much as the ability to add one.
 
 **Authoring itself is [the editor](tsd_editor.md)**, which writes these fields and enforces
-the validation rules above. What follows is what a source can be asked about a live service,
-which is a separate act and is not a precondition of writing one.
+the validation rules above. A source can also begin from [the catalog](catalog.md), either
+written straight to disk or handed to that same editor to be finished - and a service that
+publishes a capabilities document can be asked for its own layer list rather than having one
+transcribed. Both routes end at the editor's rules; neither is a second way to write a file.
+
+What follows is what a source can be asked about a live service, which is a separate act and
+is not a precondition of writing one.
 
 **TEST_FETCH.** Paste a template, fetch one tile at the current view, look at it. This
 turns "did I get the URL right" from a twenty-minute debugging session into two seconds.

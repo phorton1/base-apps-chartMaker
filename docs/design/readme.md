@@ -7,6 +7,7 @@
 **[Tree Editing](editing_tree.md)** --
 **[TSD](tsd.md)** --
 **[TSD Editor](tsd_editor.md)** --
+**[Catalog](catalog.md)** --
 **[Build](build.md)** --
 **[MBTiles](mbtiles.md)** --
 **[RCT](rct.md)**
@@ -24,9 +25,10 @@ check.
 
 Two of them describe things a user can hold in their hand and hand to somebody else - a
 **region** and a **source**. Two describe things chartMaker writes - an **mbtiles** file and
-an **RCT card**. One describes what happens in between. The remaining four are about
+an **RCT card**. One describes what happens in between. The remaining five are about
 changing the model: the rules both coverage-authoring surfaces obey, then each of those
-surfaces, and then the editor for a source.
+surfaces, then the editor for a source, and then the shipped list a source can be created
+from without writing one.
 
 ## The documents
 
@@ -58,6 +60,13 @@ surfaces, and then the editor for a source.
   Writing and changing a source from inside the application: why it is a dialog, why it
   lists files rather than loaded sources, what the three field colours mean, and what Save
   requires before it will write anything.
+
+- **[Catalog](catalog.md)** -
+  The tile services the application ships knowing about: why the list is application
+  material rather than user data, what a catalog entry says that a TSD cannot, the two ways
+  out of it, how creating twenty sources at once keeps the editor's rules without asking
+  twenty questions, and what asking a service for its own layer list does and does not
+  settle.
 
 - **[Build](build.md)** -
   The build as one act: the two preflight dialogs, what it refuses before it starts, the

@@ -7,6 +7,7 @@
 **[Tree Editing](editing_tree.md)** --
 **[TSD](tsd.md)** --
 **[TSD Editor](tsd_editor.md)** --
+**[Catalog](catalog.md)** --
 **[Build](build.md)** --
 **[MBTiles](mbtiles.md)** --
 **[RCT](rct.md)**
@@ -53,6 +54,29 @@ remove.
 
 The palette is a Leaflet control at `topleft` rather than a box positioned by hand, so it
 stacks under the zoom buttons by itself at any window size.
+
+### A tile that is not there says so
+
+Leaving a failed tile transparent turns the map white where a service stops answering, which
+reads as the application having broken rather than as the imagery having run out. So the
+layer carries an `errorTileUrl` and the gap is drawn instead.
+
+**Every "nothing here" looks the same, whatever the service did to say it.** Esri answers a
+grey placeholder, Japan GSI answers an honest 404, and [the tile proxy](build.md#present-absent-and-failed)
+turns both into a 404 before the applet sees either. One picture therefore covers a refusal
+and a declared sentinel alike, which is the right answer at a map. Telling those two apart is
+[the probe's](build.md#the-probe) job, and it still does.
+
+**The tile carries the application's name**, and that is the load-bearing part of it. It is
+the same pale grey a service's own no-data tile tends to be, so without a word on it nobody
+could tell chartMaker saying "there is nothing here" from a *new, unrecognised* sentinel that
+the fetcher is quietly baking into a card as though it were imagery. Finding one of those by
+eye is exactly how the Esri fingerprint was found.
+
+One case is folded in that strictly is not the same: a fetch that FAILED returns 502, and an
+image element does not expose a status to JavaScript, so `errorTileUrl` cannot distinguish it.
+"No data" overstates that one - the source may have it and we could not ask. The distinction
+survives where it matters, in the network log and in the observation record.
 
 ## Right-click is the whole of the interface
 

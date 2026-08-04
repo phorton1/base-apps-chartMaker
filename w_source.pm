@@ -445,7 +445,14 @@ sub repaint
 	for my $r (@{$this->{rows}})
 	{
 		my $now = $this->_valueOf($r->{kind},$r->{ctl});
-		my $bad = checkSourceField($r->{name},$now);
+
+		# THE CARRIED credentials ARE PART OF THE QUESTION.  This dialog has
+		# no control for them and passes them through untouched, but a url
+		# may legally name a slot the file declares - so the field check has
+		# to be told what is carried or it refuses what the loader accepts.
+
+		my $bad = checkSourceField($r->{name},$now,
+			$this->{carry}{credentials});
 		my $col = $BLACK;
 		$url_bad = $bad ? 1 : 0 if $r->{name} eq 'url';
 

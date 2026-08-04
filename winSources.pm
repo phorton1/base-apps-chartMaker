@@ -34,6 +34,7 @@ use dm_source;
 use dm_cache;
 use dm_probe;
 use w_source;
+use w_catalog;
 use base qw(Wx::SplitterWindow Pub::WX::Window);
 
 
@@ -47,6 +48,7 @@ my $TIMER_MS = 500;
 my $MENU_NEW	= 10521;
 my $MENU_EDIT	= 10522;
 my $MENU_DELETE	= 10523;
+my $MENU_CATALOG = 10524;
 
 my $RED = Wx::Colour->new(200,0,0);
 
@@ -119,6 +121,15 @@ sub new
 		'Edit this source definition - also on the right-click menu');
 	$this->{ctl_edit}->Enable(0);
 
+	# THE CATALOG IS ALWAYS AVAILABLE, unlike everything else on this row.
+	# The other four act on a selection and a first run has none - which is
+	# exactly the moment somebody most needs a list of what exists.
+
+	$this->{ctl_catalog} = Wx::Button->new($right,-1,'Catalog',
+		wxDefaultPosition,[$LBL,-1]);
+	$this->{ctl_catalog}->SetToolTip(
+		'The tile services chartMaker knows about - create sources from them');
+
 	$this->{ctl_what} = Wx::StaticText->new($right,-1,'');
 
 	# WHY A FILE IS NOT A SOURCE, IN RED, AND UP HERE.  The properties
@@ -137,6 +148,8 @@ sub new
 	$row->Add($this->{ctl_probe},0,$CV,0);
 	$row->AddSpacer(10);
 	$row->Add($this->{ctl_edit},0,$CV,0);
+	$row->AddSpacer(10);
+	$row->Add($this->{ctl_catalog},0,$CV,0);
 	$row->AddSpacer(16);
 	$row->Add($this->{ctl_what},0,$CV,0);
 
@@ -162,11 +175,12 @@ sub new
 	EVT_LEFT_DOWN($this->{tree},sub { $this->onTreeLeftDown($_[1]) });
 	EVT_RIGHT_DOWN($this->{tree},sub { $this->onTreeRightDown($_[1]) });
 	EVT_MENU($this,$_,\&onTreeMenu)
-		for ($MENU_NEW, $MENU_EDIT, $MENU_DELETE);
+		for ($MENU_NEW, $MENU_CATALOG, $MENU_EDIT, $MENU_DELETE);
 	EVT_BUTTON($this,$this->{ctl_use},\&onUse);
 	EVT_BUTTON($this,$this->{ctl_rescan},\&onRescan);
 	EVT_BUTTON($this,$this->{ctl_probe},\&onProbe);
 	EVT_BUTTON($this,$this->{ctl_edit},sub { $this->editSelected() });
+	EVT_BUTTON($this,$this->{ctl_catalog},sub { $this->catalogDialog() });
 
 	$this->{seen_seq} = -1;
 	$this->{timer} = Wx::Timer->new($this,-1);
@@ -215,6 +229,26 @@ sub populate
 	my $tree = $this->{tree};
 	my $was  = $this->selectedLeaf();
 
+	# FROZEN FOR THE WHOLE REBUILD, exactly as winRegions::populate is and
+	# for the same reason: nothing is drawn until the item list is
+	# finished, so the control lays itself out once from a structure that
+	# has stopped changing.
+	#
+	# THE CASE IT LOSES IS A REBUILD UNDER AN OVERLAPPING WINDOW.  onTimer
+	# repopulates whenever the state counter has moved, and the counter is
+	# bumped from everywhere - a region selection, the map, the browser
+	# polling - so a rebuild can land at any moment, including while a
+	# modal dialog is sitting over this pane.  An unfrozen tree repainting
+	# in pieces underneath one leaves rows on screen that no longer exist,
+	# which is what a 'ghost' source is.
+	#
+	# That was always possible and was rare.  Creating sources from the
+	# catalog now bumps the state deliberately, so the rebuild-under-a-
+	# modal path is no longer occasional but certain, and these two changes
+	# belong together.
+
+	$tree->Freeze();
+
 	$tree->DeleteAllItems();
 	my $root   = $tree->AddRoot('sources');
 	my $active = _activeId();
@@ -262,6 +296,9 @@ sub populate
 	# showing.  An empty properties panel on open is a wasted pane.
 
 	$tree->SelectItem($sel) if $sel && $sel->IsOk();
+
+	$tree->Thaw();
+
 	$this->{seen_seq} = getStateSeq();
 	$this->showProperties();
 	$this->{populating} = 0;
@@ -398,6 +435,7 @@ sub onTreeRightDown
 
 	my $menu = Wx::Menu->new();
 	$menu->Append($MENU_NEW,'New source...');
+	$menu->Append($MENU_CATALOG,'Tile source catalog...');
 	if ($node)
 	{
 		$menu->AppendSeparator();
@@ -413,6 +451,7 @@ sub onTreeMenu
 	my ($this,$event) = @_;
 	my $id = $event->GetId();
 	return $this->newSource()    if $id == $MENU_NEW;
+	return $this->catalogDialog() if $id == $MENU_CATALOG;
 	return $this->editSelected() if $id == $MENU_EDIT;
 	return $this->deleteSelected() if $id == $MENU_DELETE;
 }
@@ -497,6 +536,29 @@ sub editSelected
 	my $leaf = $dlg->savedAs();
 	$dlg->Destroy();
 	$this->_afterWrite($leaf) if $rslt == wxID_OK;
+}
+
+
+sub catalogDialog
+	# THE CATALOG, AND WHATEVER IT WROTE.
+	#
+	# The dialog rescans as it goes, because it shows what is installed and
+	# has to be right about that while it is still open.  What is left for
+	# here is this pane's own view of the folder, and _afterWrite is asked
+	# for it only if something was actually written - a browse that created
+	# nothing should not move the selection.
+{
+	my ($this) = @_;
+	my $dlg = w_catalog->new($this);
+	$dlg->ShowModal();
+	my $made = $dlg->created();
+	$dlg->Destroy();
+
+	# LAND ON THE LAST ONE WRITTEN.  With one file that is the file, and
+	# with twenty it is the end of the list, which is where somebody
+	# looking at what just happened would start.
+
+	$this->_afterWrite($made->[-1]) if @$made;
 }
 
 

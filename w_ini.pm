@@ -9,6 +9,7 @@
 #	unchecked_<set>		which regions of a set are hidden on the map
 #	last_browse			the folder the last Browse landed in
 #	source_editor_rect	where the source editor was last left, and how big
+#	catalog_rect		the same, for the catalog dialog
 #
 # WHY THE INI AND NOT THE PREFS FILE.  A PREFERENCE IS A DECISION; THE INI
 # IS WHERE YOU LEFT THINGS.  Which folder a Browse button should open in
@@ -61,6 +62,8 @@ BEGIN
 		setLastBrowseDir
 		getSourceEditorRect
 		setSourceEditorRect
+		getCatalogRect
+		setCatalogRect
 	);
 }
 
@@ -73,6 +76,17 @@ my $KEY_DEFAULT_SOURCE	= 'default_source';
 my $KEY_UNCHECKED		= 'unchecked_';
 my $KEY_LAST_BROWSE		= 'last_browse';
 my $KEY_SOURCE_RECT		= 'source_editor_rect';
+my $KEY_CATALOG_RECT	= 'catalog_rect';
+
+
+sub _rect
+	# ONE VALIDATOR FOR ALL OF THEM.  There are two remembered rectangles
+	# and there will be more; a second copy of this pattern is how the
+	# third one comes to accept something the first would not.
+{
+	my ($rect) = @_;
+	return (defined($rect) && $rect =~ /^-?\d+,-?\d+,\d+,\d+$/) ? $rect : '';
+}
 
 
 my $source_rect = '';
@@ -94,8 +108,27 @@ sub getSourceEditorRect
 sub setSourceEditorRect
 {
 	my ($rect) = @_;
-	$source_rect = (defined($rect) && $rect =~ /^-?\d+,-?\d+,\d+,\d+$/) ?
-		$rect : '';
+	$source_rect = _rect($rect);
+}
+
+
+my $catalog_rect = '';
+	# WHERE THE CATALOG DIALOG WAS LEFT.  It is a browsing window rather
+	# than a form, so how wide somebody made it says something about how
+	# they read it - and reopening it at the default size would throw that
+	# away every time.
+
+
+sub getCatalogRect
+{
+	return $catalog_rect;
+}
+
+
+sub setCatalogRect
+{
+	my ($rect) = @_;
+	$catalog_rect = _rect($rect);
 }
 
 
@@ -134,6 +167,7 @@ sub readIniSelections
 
 	setLastBrowseDir(readConfig($KEY_LAST_BROWSE) || '');
 	setSourceEditorRect(readConfig($KEY_SOURCE_RECT) || '');
+	setCatalogRect(readConfig($KEY_CATALOG_RECT) || '');
 
 	setActiveSet($set)		if $set;
 	setDefaultSource($src)	if $src;
@@ -172,6 +206,7 @@ sub writeIniSelections
 	writeConfig($KEY_DEFAULT_SOURCE,$src);
 	writeConfig($KEY_LAST_BROWSE,getLastBrowseDir());
 	writeConfig($KEY_SOURCE_RECT,getSourceEditorRect());
+	writeConfig($KEY_CATALOG_RECT,getCatalogRect());
 
 	if ($set)
 	{

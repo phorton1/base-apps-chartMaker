@@ -133,6 +133,20 @@ function setImagerySource(src) {
         maxNativeZoom: src.zoom_max,
         maxZoom:       MAP_MAX_ZOOM,
         tileSize:      src.tile_size,
+
+        // NOTHING THERE LOOKS LIKE SOMETHING, rather than like a hole in
+        // the page. Leaflet leaves a failed tile transparent, so a service
+        // that stops answering deep in its range turns the map white and
+        // says nothing about why - which reads as the application having
+        // broken rather than as the imagery having run out.
+        //
+        // EVERY 'NOTHING HERE' NOW LOOKS THE SAME, whatever the service
+        // did to say it. Esri answers a grey placeholder, Japan GSI
+        // answers an honest 404, and the tile proxy turns both into a 404
+        // before this ever sees them - so one picture covers a refusal and
+        // a declared sentinel alike, which is the right answer at a map.
+        // Telling those two apart is the probe's job and it still does.
+        errorTileUrl:  '/images/no_data.jpg',
     });
     imageryLayer.addTo(map);
     applyContextDim();

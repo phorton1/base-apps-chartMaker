@@ -1,0 +1,507 @@
+{
+  "catalog_version": 1,
+  "surveyed": "2026-08-01",
+  "notes": "THE SHIPPED TILE SOURCE CATALOG. Read only, and read from the application's resource folder rather than from the user's data folder, because it is application material that must stay coherent with the code and with docs/notes/source_catalog.md. It is never copied anywhere and never edited in place. Every row is a STARTING POINT FOR CHECKING and not a current fact: services move, endpoints retire, and terms change without the endpoint changing. What each entry carries is what was found at the operator's own published terms on the surveyed date. Creating a source from an entry writes an UNTESTED file - the probe is the instrument that says whether it works.",
+  "nodes": [
+    {
+      "id": "gibs",
+      "name": "NASA GIBS",
+      "region": "global",
+      "cost": "free, no key",
+      "buildable": "yes, US Government work",
+      "expander": {
+        "kind": "wmts",
+        "url": "https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/1.0.0/WMTSCapabilities.xml"
+      },
+      "tsd": {
+        "tile_format": "jpeg",
+        "attribution": "Imagery courtesy of NASA/GSFC Earth Science Data and Information System (GIBS)",
+        "terms_url": "https://www.earthdata.nasa.gov/engage/open-data-services-software/data-information-policy",
+        "license": "US Government work - not subject to copyright (17 USC 105)",
+        "redistributable": "yes",
+        "uses": ["display", "build"],
+        "policy": { "max_concurrency": 4, "min_interval_ms": 0 }
+      },
+      "nodes": [
+        {
+          "id": "gibs_bluemarble",
+          "name": "Blue Marble shaded relief and bathymetry",
+          "brief": "z8   global   free",
+          "depth": "z8",
+          "value": "A backdrop. Far below chart depth, and complete everywhere, which makes it the sane thing to open on before a region has been chosen.",
+          "tsd": {
+            "name": "NASA GIBS - Blue Marble shaded relief and bathymetry",
+            "cache_key": "bluemarble",
+            "url": "https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/BlueMarble_ShadedRelief_Bathymetry/default/default/GoogleMapsCompatible_Level8/{z}/{y}/{x}.jpeg",
+            "zoom": { "min": 0, "max": 8 },
+            "notes": "A static global basemap - no acquisition date, no clouds, no gaps. Coarse (Level8) but complete everywhere."
+          }
+        },
+        {
+          "id": "gibs_weld_annual",
+          "name": "Landsat WELD True Colour, global annual",
+          "brief": "z12   global   free",
+          "depth": "z12",
+          "value": "Ocean scale, and it covers coastlines - where WELD has nothing is the open ocean, which is the only place aerial charting means nothing.",
+          "tsd": {
+            "name": "NASA GIBS - Landsat WELD True Colour (global annual)",
+            "cache_key": "weld_annual",
+            "url": "https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/Landsat_WELD_CorrectedReflectance_TrueColor_Global_Annual/default/2000-12-01/GoogleMapsCompatible_Level12/{z}/{y}/{x}.jpeg",
+            "zoom": { "min": 0, "max": 12 },
+            "notes": "The date in the path selects the annual mosaic and is part of the address rather than a parameter. GIBS publishes many more layers than the two catalogued here; enumerating them is a WMTS capabilities read this catalog does not yet do."
+          }
+        }
+      ]
+    },
+
+    {
+      "id": "esri",
+      "name": "Esri ArcGIS",
+      "region": "global",
+      "cost": "Esri Master License Agreement; free noncommercial use is at Esri's determination",
+      "buildable": "no - the item's own licenseInfo states the layer is not intended to be used to export tiles for offline, and Esri's general terms prohibit systematically harvesting a service. Viewing is a different matter and is expressly granted.",
+      "requires": "nothing, but read the terms before changing 'uses' - these entries ship as display only",
+      "tsd": {
+        "tile_format": "jpeg",
+        "attribution": "Source: Esri, Vantor, Earthstar Geographics, and the GIS User Community",
+        "terms_url": "https://www.esri.com/en-us/legal/terms/web-site-service",
+        "license": "Esri Master License Agreement. Esri's service terms permit download, view, copy and print for internal or noncommercial external purposes, and prohibit systematically harvesting a service. The World Imagery item states the layer is not intended to be used to export tiles for offline. Shipped here for display only; read the terms before changing 'uses'.",
+        "redistributable": "no",
+        "uses": ["display"],
+        "policy": { "max_concurrency": 6, "min_interval_ms": 0 }
+      },
+      "nodes": [
+        {
+          "id": "esri_world_imagery",
+          "name": "World Imagery",
+          "brief": "z17-19 real   global   display only",
+          "depth": "declares LODs 0 to 23 and answers everywhere; real cached detail measured z17-18 over Panama, z19 over Miami and New York",
+          "value": "The deep global source. Sourced from Vantor products at 15 cm to 1.2 m plus community aerial down to 3 cm, and 15 m TerraColor worldwide.",
+          "tsd": {
+            "name": "Esri - ArcGIS World Imagery",
+            "cache_key": "esri",
+            "url": "https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+            "zoom": { "min": 0, "max": 23 },
+            "absent_fingerprints": [
+              { "bytes": 2521, "md5": "f27d9de7f80c13501f470595e327aa6d" }
+            ],
+            "notes": "Note the {z}/{y}/{x} order - row before column - which is Esri's REST tile convention, not slippy z/x/y. The service serves a tile at every level to 23, but only UPSAMPLES where it has no real imagery: it never 404s, so a blurry tile is indistinguishable from a sharp one to any automatic check. Real depth is published per area as MaxMapLevel on layer 0 of the MapServer. The eye decides. BEYOND that depth it stops upsampling and serves a fixed grey 'Map data not yet available' image instead - measured over Bocas as 2521 bytes, one md5, on 100 percent of z20-22 tiles and 62 percent of z19. That image is the absent_fingerprint, so those tiles are recorded as absences rather than baked into a card."
+          }
+        },
+        {
+          "id": "esri_world_imagery_clarity",
+          "name": "World Imagery (Clarity)",
+          "brief": "z19 stated   global   display only",
+          "depth": "declares LODs 0 to 23, maxScale at level 23, so no stated ceiling",
+          "value": "An alternative view onto the Living Atlas archive that is often clearer than the default, at the cost of being older.",
+          "tsd": {
+            "name": "Esri - ArcGIS World Imagery (Clarity)",
+            "cache_key": "esri_clarity",
+            "url": "https://clarity.maptiles.arcgis.com/arcgis/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+            "zoom": { "min": 0, "max": 23 },
+            "notes": "Same {z}/{y}/{x} row-before-column order and the same upsampling behaviour as World Imagery. In mature support since January 2022 and scheduled to retire in March 2028, so this entry has a known end date. No absent fingerprint has been measured for this layer; one taken from World Imagery must NOT be assumed to apply."
+          }
+        },
+        {
+          "id": "esri_wayback",
+          "name": "World Imagery Wayback",
+          "region": "global",
+          "depth": "as World Imagery, per archived release",
+          "value": "Over 150 archived releases back to February 2014, each pinned permanently. The available answer to cloud, sun glint, turbidity and tide state - none of which depth fixes, and all of which vary between passes.",
+          "expander": {
+            "kind": "wmts",
+            "url": "https://wayback.maptiles.arcgis.com/arcgis/rest/services/World_Imagery/WMTS/1.0.0/WMTSCapabilities.xml"
+          },
+          "tsd": {
+            "tile_format": "jpeg",
+            "uses": ["display"],
+            "redistributable": "no",
+            "policy": { "max_concurrency": 4, "min_interval_ms": 0 }
+          },
+          "nodes": []
+        }
+      ]
+    },
+
+    {
+      "id": "usgs_imagery_only",
+      "name": "USGS Imagery Only",
+      "brief": "z16   United States   free",
+      "region": "United States",
+      "cost": "free, no key",
+      "buildable": "yes, US Government work",
+      "depth": "z16, confirmed from the service metadata",
+      "value": "The best free option in US waters.",
+      "tsd": {
+        "name": "USGS - Imagery Only (The National Map)",
+        "cache_key": "usgs_imagery",
+        "url": "https://basemap.nationalmap.gov/arcgis/rest/services/USGSImageryOnly/MapServer/tile/{z}/{y}/{x}",
+        "tile_format": "jpeg",
+        "zoom": { "min": 0, "max": 16 },
+        "attribution": "Imagery courtesy of the U.S. Geological Survey, The National Map",
+        "terms_url": "https://www.usgs.gov/information-policies-and-instructions/copyrights-and-credits",
+        "license": "US Government work - not subject to copyright (17 USC 105)",
+        "redistributable": "yes",
+        "uses": ["display", "build"],
+        "policy": { "max_concurrency": 4, "min_interval_ms": 0 },
+        "notes": "An ArcGIS MapServer, so {z}/{y}/{x} - row before column. The service declares format MIXED, so PNG tiles can appear where JPEG is expected; tile_format is an expectation and the real format is read from the magic bytes, so this is stated rather than corrected."
+      }
+    },
+
+    {
+      "id": "gsi_seamlessphoto",
+      "name": "Japan GSI seamlessphoto",
+      "brief": "z18   Japan   free",
+      "region": "Japan",
+      "cost": "free, no key",
+      "buildable": "yes, subject to the conditions in the GSI tile terms",
+      "depth": "z18, confirmed from the layer specification",
+      "value": "Excellent in Japan. Returns 404 outside the country, so an absence is unambiguous - which is the easiest class of service to probe.",
+      "tsd": {
+        "name": "Japan GSI - seamlessphoto",
+        "cache_key": "gsi_seamlessphoto",
+        "url": "https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/{z}/{x}/{y}.jpg",
+        "tile_format": "jpeg",
+        "zoom": { "min": 2, "max": 18 },
+        "attribution": "Geospatial Information Authority of Japan (GSI)",
+        "terms_url": "https://maps.gsi.go.jp/development/ichiran.html",
+        "license": "GSI tile terms of use. Reuse is permitted subject to the conditions published by the GSI; read them before changing 'uses'.",
+        "redistributable": "unknown",
+        "uses": ["display", "build"],
+        "policy": { "max_concurrency": 2, "min_interval_ms": 0 },
+        "notes": "Ordinary slippy {z}/{x}/{y} order. Honest 404 outside Japan."
+      }
+    },
+
+    {
+      "id": "ign_fr",
+      "name": "IGN France",
+      "region": "France, metropolitan and the overseas departments",
+      "cost": "free, no key",
+      "buildable": "yes, French open licence with attribution",
+      "expander": {
+        "kind": "wmts",
+        "url": "https://data.geopf.fr/wmts?SERVICE=WMTS&REQUEST=GetCapabilities&VERSION=1.0.0"
+      },
+      "tsd": {
+        "tile_format": "jpeg",
+        "attribution": "IGN France",
+        "terms_url": "https://geoservices.ign.fr/cgu-licences",
+        "license": "Etalab open licence. Attribution required.",
+        "redistributable": "yes",
+        "uses": ["display", "build"],
+        "policy": { "max_concurrency": 2, "min_interval_ms": 0 }
+      },
+      "nodes": [
+        {
+          "id": "ign_fr_ortho",
+          "name": "Orthophotos",
+          "brief": "z19   France and the DOM   free",
+          "depth": "z19, confirmed from the tile matrix set PM_0_19",
+          "value": "The deepest open imagery found anywhere in the survey, and over the overseas departments the only open source at chart depth on Caribbean cruising ground.",
+          "tsd": {
+            "name": "IGN France - ORTHOIMAGERY.ORTHOPHOTOS",
+            "cache_key": "ign_fr_ortho",
+            "url": "https://data.geopf.fr/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=ORTHOIMAGERY.ORTHOPHOTOS&STYLE=normal&TILEMATRIXSET=PM&FORMAT=image/jpeg&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}",
+            "attribution": "IGN France - ORTHOIMAGERY.ORTHOPHOTOS",
+            "zoom": { "min": 0, "max": 19 },
+            "notes": "A WMTS KVP endpoint rather than a REST tile path, so the whole request is in the query string and {z}/{y}/{x} appear as TILEMATRIX, TILEROW and TILECOL. The service moved to data.geopf.fr and dropped its key requirement; recipes pointing at wxs.ign.fr are still widely published and no longer work. This entry names the PM tile matrix set, which is IGN's own; expanding the provider reports what it publishes on GoogleMapsCompatible instead."
+          }
+        }
+      ]
+    },
+
+    {
+      "id": "ign_es",
+      "name": "Spain IGN",
+      "region": "Spain",
+      "cost": "free, no key",
+      "buildable": "yes, CC BY 4.0 - the WMTS AccessConstraints field states 'CC BY 4.0 scne.es' and Fees states none",
+      "expander": {
+        "kind": "wmts",
+        "url": "https://www.ign.es/wmts/pnoa-ma?service=WMTS&request=GetCapabilities&version=1.0.0"
+      },
+      "tsd": {
+        "tile_format": "jpeg",
+        "attribution": "PNOA cedido por (c) Instituto Geografico Nacional de Espana",
+        "terms_url": "https://www.ign.es/web/ign/portal/olicencia-cc-by",
+        "license": "CC BY 4.0 scne.es, as declared in the service's own WMTS AccessConstraints.",
+        "redistributable": "yes",
+        "uses": ["display", "build"],
+        "policy": { "max_concurrency": 2, "min_interval_ms": 0 }
+      },
+      "nodes": [
+        {
+          "id": "ign_es_pnoa",
+          "name": "PNOA orthoimagery",
+          "brief": "z20   Spain   free",
+          "depth": "z0 to z20 in EPSG:3857, confirmed from the WMTS capabilities. 25 cm and 50 cm mosaics, updated several times a year",
+          "value": "Chart depth over Spanish waters, reachable today with no registration.",
+          "tsd": {
+            "name": "Spain IGN - PNOA orthoimagery",
+            "cache_key": "ign_es_pnoa",
+            "url": "https://www.ign.es/wmts/pnoa-ma?service=WMTS&request=GetTile&version=1.0.0&layer=OI.OrthoimageCoverage&style=default&tilematrixset=GoogleMapsCompatible&format=image/jpeg&TileMatrix={z}&TileRow={y}&TileCol={x}",
+            "zoom": { "min": 0, "max": 20 },
+            "notes": "A WMTS KVP endpoint, so the address is in the query string. The service publishes several tile matrix sets; GoogleMapsCompatible is the one this application can read."
+          }
+        }
+      ]
+    },
+
+    {
+      "id": "nsw_imagery",
+      "name": "NSW Spatial Services imagery",
+      "brief": "z21   New South Wales   free",
+      "region": "New South Wales, Australia",
+      "cost": "free, no key",
+      "buildable": "yes, CC BY 4.0, with an added term asserting DCS Spatial Services as author of the original material",
+      "depth": "declares LODs 0 to 23 with maxScale also at level 23, so the service states no real ceiling; 10 cm over towns above 500 people, 50 cm regional",
+      "value": "Excellent on that coast. Newer and higher-resolution coverage supersedes older below 1:150,000, so depth varies by place.",
+      "tsd": {
+        "name": "NSW Spatial Services - NSW Imagery",
+        "cache_key": "nsw_imagery",
+        "url": "https://maps.six.nsw.gov.au/arcgis/rest/services/public/NSW_Imagery/MapServer/tile/{z}/{y}/{x}",
+        "tile_format": "jpeg",
+        "zoom": { "min": 0, "max": 21 },
+        "attribution": "(c) State of New South Wales (Department of Customer Service, Spatial Services)",
+        "terms_url": "https://www.spatial.nsw.gov.au/copyright",
+        "license": "CC BY 4.0, with an added term asserting DCS Spatial Services as author of the original material.",
+        "redistributable": "yes",
+        "uses": ["display", "build"],
+        "policy": { "max_concurrency": 4, "min_interval_ms": 0 },
+        "notes": "An ArcGIS MapServer, so {z}/{y}/{x} - row before column. format MIXED, so PNG can appear where JPEG is expected. The declared zoom max here is 21 rather than the 23 the service states, because a service that answers past its own imagery is a service whose ceiling is a data fact to be discovered rather than a protocol limit to be believed."
+      }
+    },
+
+    {
+      "id": "linz_aerial",
+      "name": "LINZ Basemaps aerial",
+      "brief": "z22   New Zealand   NEEDS A KEY",
+      "region": "New Zealand",
+      "cost": "free API key; standard access is capped at 1,000 tile requests per minute",
+      "buildable": "yes, CC BY 4.0",
+      "requires": "an API key, pasted into the credential slot 'linz_api_key'. Only DEVELOPER access issues a static key; standard access uses a rotating dynamic one and cannot live in a credential slot.",
+      "depth": "z0 to z22 in EPSG:3857 per LINZ documentation. 5 cm over urban areas down to 10 m satellite elsewhere",
+      "value": "Excellent New Zealand coverage including the Chathams and the offshore islands.",
+      "tsd": {
+        "name": "LINZ Basemaps - aerial",
+        "cache_key": "linz_aerial",
+        "url": "https://basemaps.linz.govt.nz/v1/tiles/aerial/EPSG:3857/{z}/{x}/{y}.jpeg?api={linz_api_key}",
+        "tile_format": "jpeg",
+        "zoom": { "min": 0, "max": 22 },
+        "attribution": "Sourced from the LINZ Data Service and licensed for reuse under CC BY 4.0",
+        "terms_url": "https://www.linz.govt.nz/linz-copyright",
+        "license": "CC BY 4.0. Attribution required.",
+        "redistributable": "yes",
+        "uses": ["display", "build"],
+        "credentials": [
+          { "slot": "linz_api_key" }
+        ],
+        "policy": { "max_concurrency": 4, "min_interval_ms": 0 },
+        "notes": "THE KEY IS A SLOT AND NOT A VALUE. This file declares where a key goes and never carries one, which is what makes it safe to hand to somebody. The credential store is not implemented yet, so a source written from this entry will load and will NOT fetch until it is. The service also serves WebP and Avif, which this application does not read."
+      }
+    },
+
+    {
+      "id": "openseamap_seamarks",
+      "name": "OpenSeaMap seamarks",
+      "brief": "overlay   global   free",
+      "region": "global",
+      "cost": "free",
+      "buildable": "yes, ODbL, which carries share-alike obligations",
+      "depth": "transparent overlay - most tiles are empty",
+      "value": "A seamark overlay rather than imagery. Nothing this application builds today consumes an overlay, so it is catalogued for display.",
+      "tsd": {
+        "name": "OpenSeaMap - seamarks",
+        "cache_key": "openseamap_seamarks",
+        "url": "https://tiles.openseamap.org/seamark/{z}/{x}/{y}.png",
+        "tile_format": "png",
+        "zoom": { "min": 9, "max": 18 },
+        "attribution": "(c) OpenSeaMap contributors, ODbL",
+        "terms_url": "https://www.openseamap.org/index.php?id=imprint&L=1",
+        "license": "ODbL. Share-alike obligations attach to anything derived from it.",
+        "redistributable": "unknown",
+        "uses": ["display", "overlay"],
+        "policy": { "max_concurrency": 2, "min_interval_ms": 0 },
+        "notes": "A transparent PNG overlay drawn over imagery, not a base layer. Most tiles are empty, which means byte size says nothing about whether a tile is present."
+      }
+    },
+
+    {
+      "id": "noaa_enc",
+      "name": "NOAA Chart Display Service",
+      "brief": "chart rendering   US waters   free",
+      "region": "United States waters",
+      "cost": "free, no key",
+      "buildable": "yes, US Government work",
+      "depth": "chart rendering rather than imagery, so depth is a symbology question and not a resolution one",
+      "value": "NOAA ENC data drawn with paper-chart symbology. Not imagery, and the only entry here that renders a chart rather than a photograph.",
+      "tsd": {
+        "name": "NOAA - ENC Chart Display Service",
+        "cache_key": "noaa_enc",
+        "url": "https://gis.charttools.noaa.gov/arcgis/rest/services/MCS/ENCOnline/MapServer/exts/MaritimeChartService/WMTS/tile/1.0.0/NOAACharts/default/GoogleMapsCompatible/{z}/{y}/{x}.png",
+        "tile_format": "png",
+        "zoom": { "min": 0, "max": 17 },
+        "attribution": "NOAA Office of Coast Survey",
+        "terms_url": "https://www.charts.noaa.gov/InteractiveCatalog/nrnc.shtml",
+        "license": "US Government work - not subject to copyright (17 USC 105). NOAA states that its ENC products are for reference and that official navigation requires the official product used as intended.",
+        "redistributable": "yes",
+        "uses": ["display", "build"],
+        "policy": { "max_concurrency": 2, "min_interval_ms": 0 },
+        "notes": "A WMTS served through an ArcGIS MaritimeChartService extension, so the path is REST rather than a query string. Also distributed as MBTiles for offline use, which is a different and often better route than tiling it here."
+      }
+    },
+
+    {
+      "id": "eox_s2cloudless",
+      "name": "EOX Sentinel-2 cloudless",
+      "brief": "z13   global   free tier",
+      "region": "global",
+      "cost": "free under fair use; production use is a paid tier",
+      "buildable": "the 2016 mosaic is CC BY 4.0; the 2018 to 2024 mosaics are CC BY-NC-SA 4.0, so non-commercial and share-alike",
+      "depth": "z13 - Sentinel-2 is 10 m native, so real detail ends well above chart depth",
+      "value": "Shallow for a chart, and cloud free everywhere, which makes it a better global backdrop than anything else here that is free.",
+      "requires": "nothing, but check WHICH mosaic you are addressing - the licence differs by year and the later ones restrict reuse",
+      "tsd": {
+        "name": "EOX - Sentinel-2 cloudless 2016",
+        "cache_key": "eox_s2cloudless_2016",
+        "url": "https://tiles.maps.eox.at/wmts/1.0.0/s2cloudless_3857/default/GoogleMapsCompatible/{z}/{y}/{x}.jpg",
+        "tile_format": "jpeg",
+        "zoom": { "min": 0, "max": 13 },
+        "attribution": "Sentinel-2 cloudless - https://s2maps.eu by EOX IT Services GmbH (Contains modified Copernicus Sentinel data)",
+        "terms_url": "https://s2maps.eu/",
+        "license": "The 2016 mosaic addressed here is CC BY 4.0. The 2018 to 2024 mosaics are CC BY-NC-SA 4.0 and are addressed by a different layer name; changing the layer changes the licence.",
+        "redistributable": "yes",
+        "uses": ["display", "build"],
+        "policy": { "max_concurrency": 2, "min_interval_ms": 0 },
+        "notes": "This entry pins the 2016 mosaic deliberately, because it is the one carrying a licence without a non-commercial or share-alike condition. The later mosaics are reached by changing 's2cloudless' to 's2cloudless-2020' and so on, and doing so changes what you may do with the result."
+      }
+    },
+
+    {
+      "id": "emodnet_bathymetry",
+      "name": "EMODnet bathymetry",
+      "brief": "coarse   European seas   free",
+      "region": "European seas",
+      "cost": "free",
+      "buildable": "yes, attribution",
+      "depth": "coarse - a bathymetric product rather than imagery",
+      "value": "Bathymetric context for European waters.",
+      "tsd": {
+        "name": "EMODnet - bathymetry",
+        "cache_key": "emodnet_bathymetry",
+        "url": "https://tiles.emodnet-bathymetry.eu/2020/baselayer/inspire_quad/{z}/{x}/{y}.png",
+        "tile_format": "png",
+        "zoom": { "min": 0, "max": 12 },
+        "attribution": "EMODnet Bathymetry Consortium",
+        "terms_url": "https://emodnet.ec.europa.eu/en/use-emodnet-data",
+        "license": "Free to use with attribution to the EMODnet Bathymetry Consortium.",
+        "redistributable": "yes",
+        "uses": ["display"],
+        "policy": { "max_concurrency": 2, "min_interval_ms": 0 },
+        "notes": "Ordinary slippy {z}/{x}/{y} order. A depth product and not a photograph, so nothing about it is judged by looking for detail."
+      }
+    },
+
+    {
+      "id": "gebco",
+      "name": "GEBCO bathymetry",
+      "brief": "coarse   global   free",
+      "region": "global",
+      "cost": "free",
+      "buildable": "yes, public domain, attribution required",
+      "depth": "coarse - a global bathymetric grid rendered as a basemap",
+      "value": "Bathymetric context worldwide. Commercial exploitation is expressly permitted.",
+      "tsd": {
+        "name": "GEBCO - global bathymetry",
+        "cache_key": "gebco",
+        "url": "https://tiles.arcgis.com/tiles/C8EMgrsFcRFL6LrL/arcgis/rest/services/GEBCO_basemap_NCEI/MapServer/tile/{z}/{y}/{x}",
+        "tile_format": "png",
+        "zoom": { "min": 0, "max": 9 },
+        "attribution": "GEBCO Compilation Group, rendered and served by NOAA NCEI",
+        "terms_url": "https://www.gebco.net/data-products-gridded-bathymetry-data",
+        "license": "Public domain, attribution required. GEBCO's terms of use state that the grid should not be used for navigation or for any purpose involving safety at sea, and that users must not imply IHO or IOC endorsement.",
+        "redistributable": "yes",
+        "uses": ["display"],
+        "policy": { "max_concurrency": 4, "min_interval_ms": 0 },
+        "notes": "An ArcGIS MapServer, so {z}/{y}/{x} - row before column."
+      }
+    },
+
+    {
+      "id": "coral_atlas",
+      "name": "Allen Coral Atlas",
+      "brief": "benthic   global reefs   free",
+      "region": "global reefs",
+      "cost": "free",
+      "buildable": "yes, CC BY 4.0",
+      "depth": "benthic mapping under about 10 m of water, geomorphic under about 15 m",
+      "value": "A classification product rather than imagery, and genuinely relevant to reef navigation - it maps what the bottom IS rather than what it looks like.",
+      "tsd": {
+        "name": "Allen Coral Atlas - benthic map",
+        "cache_key": "coral_atlas_benthic",
+        "url": "https://allencoralatlas.org/tiles/benthic/{z}/{x}/{y}.png",
+        "tile_format": "png",
+        "zoom": { "min": 0, "max": 17 },
+        "attribution": "Allen Coral Atlas (2022). Imagery, maps and monitoring of the world's tropical coral reefs.",
+        "terms_url": "https://allencoralatlas.org/terms/",
+        "license": "CC BY 4.0. Attribution required.",
+        "redistributable": "yes",
+        "uses": ["display"],
+        "policy": { "max_concurrency": 2, "min_interval_ms": 0 },
+        "notes": "A CLASSIFICATION and not a photograph: flat areas of colour standing for bottom type. Nothing that judges imagery by detail or by variance says anything useful about it, and a flat tile here is data rather than an absence."
+      }
+    },
+
+    {
+      "id": "qld_imagery",
+      "name": "Queensland Government imagery",
+      "brief": "z19   Queensland   free",
+      "region": "Queensland, Australia",
+      "cost": "free, no key",
+      "buildable": "the licence varies per image between CC BY, CC BY-SA and public domain, so it must be checked per dataset rather than once",
+      "depth": "tile cache built to 1:1129, which is level 19",
+      "value": "Excellent on that coast. The whole-of-state satellite mosaic derives from Planet and is CC BY-SA, which imposes share-alike on anything built from it.",
+      "requires": "checking the licence of the particular dataset you are addressing, because it is not one licence",
+      "tsd": {
+        "name": "Queensland - latest state imagery program",
+        "cache_key": "qld_imagery",
+        "url": "https://spatial-gis.information.qld.gov.au/arcgis/rest/services/Basemaps/LatestStateProgram_AllUsers/ImageServer/tile/{z}/{y}/{x}",
+        "tile_format": "jpeg",
+        "zoom": { "min": 0, "max": 19 },
+        "attribution": "(c) State of Queensland (Department of Resources)",
+        "terms_url": "https://www.qld.gov.au/legal/copyright",
+        "license": "Varies per image between CC BY 4.0, CC BY-SA 4.0 and public domain. The whole-of-state satellite mosaic derives from Planet and is CC BY-SA, whose share-alike condition attaches to anything built from it.",
+        "redistributable": "unknown",
+        "uses": ["display"],
+        "policy": { "max_concurrency": 4, "min_interval_ms": 0 },
+        "notes": "An ArcGIS ImageServer rather than a MapServer, and the tile path is the same shape: {z}/{y}/{x}, row before column."
+      }
+    },
+
+    {
+      "id": "de_africa",
+      "name": "Digital Earth Africa",
+      "brief": "z14   Africa   free",
+      "region": "Africa",
+      "cost": "free",
+      "buildable": "yes",
+      "depth": "Sentinel derived at 10 m, so real detail ends around z14",
+      "value": "Continental context. No chart depth, and the only free option found covering that coastline at all.",
+      "tsd": {
+        "name": "Digital Earth Africa - Sentinel-2 geomedian",
+        "cache_key": "de_africa_s2",
+        "url": "https://ows.digitalearth.africa/wmts/1.0.0/gm_s2_annual/default/GoogleMapsCompatible/{z}/{y}/{x}.png",
+        "tile_format": "png",
+        "zoom": { "min": 0, "max": 14 },
+        "attribution": "Digital Earth Africa (contains modified Copernicus Sentinel data)",
+        "terms_url": "https://www.digitalearthafrica.org/",
+        "license": "Open data. Contains modified Copernicus Sentinel data under the EU open data policy.",
+        "redistributable": "yes",
+        "uses": ["display", "build"],
+        "policy": { "max_concurrency": 2, "min_interval_ms": 0 },
+        "notes": "A WMTS on a RESTful path. The annual geomedian is a composite rather than a single pass, so it has no acquisition date and no clouds."
+      }
+    }
+  ]
+}

@@ -7,6 +7,7 @@
 **[Tree Editing](editing_tree.md)** --
 **[TSD](tsd.md)** --
 **TSD Editor** --
+**[Catalog](catalog.md)** --
 **[Build](build.md)** --
 **[MBTiles](mbtiles.md)** --
 **[RCT](rct.md)**
@@ -138,4 +139,4 @@ modal dialog must never be the thing that falls off the bottom edge.
 
 ---
 
-**Next:** [Build](build.md)
+**Next:** [Catalog](catalog.md)

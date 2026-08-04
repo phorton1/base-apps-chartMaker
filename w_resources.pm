@@ -51,7 +51,8 @@ my @file_menu = (
 my @edit_menu = (
 	$COMMAND_NEW_REGION,
 	$ID_SEPARATOR,
-	$COMMAND_NEW_SOURCE );
+	$COMMAND_NEW_SOURCE,
+	$COMMAND_CATALOG );
 
 
 my @view_menu = (
@@ -111,6 +112,8 @@ my $command_data = {
 	$COMMAND_SET_CLOSE	=> ['Close',		'Close the open set'],
 	$COMMAND_NEW_REGION	=> ['New Region...','Create a region in the open set'],
 	$COMMAND_NEW_SOURCE	=> ['New Source...','Write a new tile source definition'],
+	$COMMAND_CATALOG	=> ['Tile Source Catalog...',
+		'The tile services chartMaker knows about, and creating sources from them'],
 	$COMMAND_PREFS		=> ['Preferences...','Folders, the map, and what a new region starts with'],
 	$COMMAND_FETCH		=> ['Fetch Tiles',	'Fill the cache with every tile the build will read'],
 	$COMMAND_BUILD_RCT	=> ['Build RCT Card','Fetch, then write the set as .rct card files'],

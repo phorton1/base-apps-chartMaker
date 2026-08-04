@@ -83,7 +83,9 @@ chartMaker ships only what it is entitled to ship. A **TSD** (*Tile Source Defin
 extension `.tsd`) is a small declarative file that describes exactly one source, and the
 application is a reader of TSD files rather than a holder of sources. Users author their
 own, or exchange them, or use the definitions that come with the app - imagery in the
-public domain or explicitly licensed for reuse, where the publisher intends this use.
+public domain or explicitly licensed for reuse, where the publisher intends this use. It
+also ships a [catalog](design/catalog.md) of services a definition can be created from,
+which is the same act at one remove and answers to the same rule.
 
 This is a boundary, not a limitation, and it buys three concrete things:
 
@@ -215,9 +217,10 @@ have been forgotten.
 **Never ships tiles, and ships no source it is not entitled to ship.** chartMaker
 distributes imagery under no circumstances - not one tile, ever. What it ships is
 *definitions*, and only for sources whose publishers permit the use those definitions
-declare. It does not catalog, link to, or hint at a source whose terms it would be working
-around. The user's choice stays the user's choice, and the application holds no opinion it
-is not entitled to hold.
+declare. It ships a [catalog](design/catalog.md) of such services, and the same rule governs
+every entry in it: an entry may state only a use its operator permits, so what the list
+offers is never a way around somebody's terms. The user's choice stays the user's choice,
+and the application holds no opinion it is not entitled to hold.
 
 **Ships no credentials.** Nothing to leak and nothing to revoke. Users supply their own
 into declared slots.
