@@ -34,38 +34,18 @@ structure of it may be changed at anytime by Patrick, and only by Patrick.
 
 
 
-## initial implementation Phase N - VERIFY-SOURCE
 
-The program shall include the ability to ascertain whether a given source is valid, working,
-workable, and to potentially ascertain things like the formats and resolutions it supports,
-absent fingerprints it may utilize, the syntax (addressing-order), rate limitations, or other
-characteristics.
+## Phase P - CREDENTIALS
 
-This already has a hook to a Test button in the source editor and a feedback mechanism there
-to notify the user of fields that are invalid and show them in various colors.  I was thinking
-that in the process of doing that, it should present a modal summary dialog box, with a clear
-OK!!! or buletted list of the problems found if any.
+The linking of sources to private credentials or api keys maintained in the
+$data_dir or other folder(s) will be implemented and tested with at least
+one such source.
 
-Then that same Test button could be added to the Catalog dialog that would "pre-test" a tsd
-without necessarily creating it on disk and merly report the dialog summary.
-
-What do you think.
-
-
-
-## CREDENTIALS
-
-The linking of sources to private credentials maintained in the $data_dir or other
-folder(s) will be implemented and tested with at least one such source.
-
-
-## POST-BUILD
-
-- overzoom detector (downsample/upsample residual)
-- identification of, remembering, and noticing sentinel "missing tile" images
-- cache cleanups of tiles that are identified as sentinels or overzoomed into 0 length "none"
-  or similarly indicated filenames, whether by promoting existing scripts/tools, like
-  scripts/tool_prune_absent.pl, or writing new user-facing operation.
+He have only a crude slot mechanism in tsds, no defined storage mechanism,
+and a number of source_catalog.md entries not yet in catalog.json.
+This may require me to obtain free keys or trial tiers to various
+service, etc.  Please give me your idea of what we need to do for
+CREDENTIALS.
 
 
 ## PNGS
@@ -76,6 +56,19 @@ Decoding and re-encoding one tile, which is an encoder and not the image-process
 No resampling, no reprojection, no compositing. It carries a quality preference, and that preference is a legitimate
 user-level setting precisely because it changes the bytes without changing what the card asserts - the same ground,
 the same zooms, the same source. Anything that changed those would belong to the region, not to a preference.
+
+
+## CACHE CLEANUP utility
+
+to tiles only in some existing regionset
+
+tiles get accumulated in testing and I have no way to easily trim the cache back to the tiles
+I actually need.
+
+cache cleanups of tiles that are identified as sentinels after fingerprints have been identfie
+
+
+
 
 
 ## USER MANUAL
@@ -99,12 +92,6 @@ scheme ala the way that navMate is currently released.
 
 ## OTHER
 
-### Cache Cleanup utility
-
-to tiles only in some existing regionset
-
-tiles get accumulated in testing and I have no way to easily trim the cache back to the tiles
-I actually need.
 
 
 ### Overlay TSD's

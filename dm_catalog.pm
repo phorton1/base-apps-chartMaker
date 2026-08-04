@@ -34,11 +34,16 @@
 # would be repeated once per layer and would eventually disagree with
 # itself.
 #
-# WHAT IT SHIPS IS A STARTING POINT, NOT A FACT.  Every entry carries the
-# date it was surveyed and nothing here claims to be current.  A source
-# created from an entry is UNTESTED by construction; the probe is the
-# instrument that says whether it works, and the catalog does not pretend
-# to answer a question it cannot ask without the network.
+# WHAT IT SHIPS IS A STARTING POINT, NOT A FACT.  Nothing here claims to
+# be current.  A source created from an entry is UNTESTED by construction;
+# the probe is the instrument that says whether it works, and the catalog
+# does not pretend to answer a question it cannot ask without the network.
+#
+# AND IT CARRIES NO DATE.  It ships inside the installer, so the release
+# already dates it more accurately than a hand-typed string ever did, and
+# a precise date on a claim nobody re-checked reads as currency it has not
+# got.  Where a service was last looked at is recorded once, per service,
+# in docs/notes/source_catalog.md.
 #
 # NOTHING HERE GOES TO THE NETWORK.  Enumerating a provider's real layer
 # list is a live read of a WMTS or ArcGIS metadata document, it is a
@@ -60,7 +65,6 @@ BEGIN
 	our @EXPORT = qw(
 		loadCatalog
 		catalogError
-		catalogSurveyed
 		catalogRoot
 		catalogEntries
 		catalogEntry
@@ -84,9 +88,21 @@ our $dbg_catalog = 0;
 
 my $CATALOG_VERSION = 1;
 
-my @INHERIT_NODE = qw( region cost buildable requires surveyed canonical );
+my @INHERIT_NODE = qw( moniker region cost buildable requires canonical );
 	# THE PROVIDER-LEVEL STATEMENT.  Terms and reach belong to the service
 	# and not to one of its layers, so they are said once.
+	#
+	# moniker IS THE JOIN COLUMN.  It names the SERVICE, and it is the same
+	# string in the survey, in docs/notes/source_catalog.md and here, which
+	# is what makes a claim at one end of the pipeline checkable at the
+	# other.  It is inherited because a provider's layers are all the same
+	# service; where a provider publishes several - Esri does - the child
+	# says its own and the child's value wins outright.
+	#
+	# It is NOT the id.  An id names an entry and a moniker names the thing
+	# the entry is an entry OF, so 'linz' publishes 'linz_aerial'.  Keeping
+	# them identical would give a service a name that reads like a layer
+	# the day it gains a second one.
 	#
 	# canonical IS ON THIS LIST BECAUSE WHERE A SERVICE HAS IMAGERY IS A
 	# FACT ABOUT THE SERVICE.  Every layer NASA GIBS publishes covers the
@@ -107,7 +123,6 @@ my @NEVER_INHERIT_TSD = qw( name cache_key url zoom notes
 
 my $loaded  = 0;
 my $error   = '';
-my $survey  = '';
 my @root    = ();
 my @entries = ();
 my %by_id   = ();
@@ -370,7 +385,6 @@ sub loadCatalog
 
 	$loaded  = 1;
 	$error   = '';
-	$survey  = '';
 	@root    = ();
 	@entries = ();
 	%by_id   = ();
@@ -401,8 +415,6 @@ sub loadCatalog
 	return _err("catalog has no 'nodes' array")
 		if ref($cat->{nodes}) ne 'ARRAY' || !@{$cat->{nodes}};
 
-	$survey = $cat->{surveyed} // '';
-
 	my %seen;
 	for my $raw (@{$cat->{nodes}})
 	{
@@ -415,13 +427,12 @@ sub loadCatalog
 	$by_id{$_->{id}} = $_ for @entries;
 
 	display($dbg_catalog,0,"loadCatalog() ".scalar(@root)." providers, ".
-		scalar(@entries)." entries, surveyed $survey");
+		scalar(@entries)." entries");
 	return '';
 }
 
 
 sub catalogError   { return $error }
-sub catalogSurveyed { return $survey }
 
 sub catalogRoot
 {
@@ -697,13 +708,10 @@ sub catalogLines
 		return \@out;
 	}
 
-	my $when = $node->{surveyed} || $survey;
-	if ($when)
-	{
-		push @out,'';
-		_para(\@out,"surveyed $when - a starting point for checking, ".
-			"not a current fact");
-	}
+	push @out,'';
+	_para(\@out,'surveyed by a person - a starting point for checking, '.
+		'not a current fact. When each service was last looked at is '.
+		'recorded in docs/notes/source_catalog.md');
 	return \@out;
 }
 
@@ -780,7 +788,6 @@ sub _foldNode
 		kids     => [],
 	};
 	$fold->{$_} = $node->{$_} for @INHERIT_NODE;
-	$fold->{surveyed} = undef;
 	$fold->{value} =
 		'This service publishes these layers as PNG and its imagery as '.
 		'JPEG, so they are collected here rather than listed among the '.
@@ -838,11 +845,11 @@ sub _attachTo
 		};
 		$kid->{$_} = $node->{$_} for @INHERIT_NODE;
 
-		# A FETCHED ENTRY IS DATED NOW AND NOT BY THE SURVEY.  It did not
-		# come from the survey and saying it did would be the one lie this
-		# whole design is arranged to avoid.
+		# A FETCHED ENTRY WAS NOT SURVEYED, and the 'fetched' flag is what
+		# says so.  It did not come from the survey and letting it borrow
+		# the survey's voice would be the one lie this whole design is
+		# arranged to avoid.
 
-		$kid->{surveyed} = undef;
 		$kid->{value}    = 'Listed by the service itself rather than '.
 			'surveyed by a person, so nothing here says whether the '.
 			'imagery is any good. Probe it.';

@@ -70,8 +70,8 @@ my $entries = catalogEntries();
 
 ok(scalar(@$root) >= 5,scalar(@$root)." providers at the top level");
 ok(scalar(@$entries) >= 8,scalar(@$entries)." entries in all");
-ok(catalogSurveyed() =~ /^\d{4}-\d{2}-\d{2}$/,
-	"the catalog states a survey date: ".catalogSurveyed());
+ok(!scalar(grep { /surveyed/i && /\d{4}-\d{2}-\d{2}/ } catalogLines($root->[0])),
+	"the catalog states no date - the release dates it");
 
 
 #---------------------------------------------
@@ -203,10 +203,21 @@ ok(!catalogEntry('google_satellite'),
 
 
 #---------------------------------------------
-# coherence with the published survey
+# coherence with the published catalog document
 #---------------------------------------------
+# THE JOIN COLUMN, ASSERTED.  A fact about a service enters at the survey,
+# is distilled into docs/notes/source_catalog.md and is codified here, and
+# the moniker is what makes one end checkable against the other.  Until it
+# existed the three files were three retellings: a hostname invented in
+# the middle one reached this one with a confident sentence attached and
+# nothing could have caught it.
+#
+# It asserts the direction that can be asserted.  Every service the
+# application SHIPS must be documented; the document holds far more
+# services than ship, which is what a survey is for, so the reverse is not
+# a rule.
 
-print "\n--- the catalog and docs/notes/source_catalog.md agree ---\n";
+print "\n--- every shipped moniker is documented ---\n";
 
 my $doc = "$app_dir/docs/notes/source_catalog.md";
 if (open(my $fh,'<',$doc))
@@ -214,10 +225,20 @@ if (open(my $fh,'<',$doc))
 	local $/ = undef;
 	my $text = <$fh>;
 	close $fh;
-	my ($when) = $text =~ /Surveyed\s+(\d{4}-\d{2}-\d{2})/;
-	ok($when && $when eq catalogSurveyed(),
-		"survey dates agree: doc ".($when // 'none').
-		", catalog ".catalogSurveyed());
+
+	my %said;
+	$said{$1}++ while $text =~ /`([a-z0-9_]+)`/g;
+
+	my %want;
+	for my $e (@$entries)
+	{
+		ok($e->{moniker},"$e->{id} names a moniker");
+		$want{$e->{moniker}}++ if $e->{moniker};
+	}
+	for my $m (sort keys %want)
+	{
+		ok($said{$m},"moniker '$m' appears in source_catalog.md");
+	}
 }
 else
 {
@@ -289,8 +310,10 @@ print "\n--- the detail panel ---\n";
 
 my $l = catalogLines($esri);
 ok(scalar(grep { /^url / } @$l),'the panel shows the url');
-ok(says($l,qr/surveyed \d{4}-\d{2}-\d{2}/),
-	'the panel dates what it says');
+ok(says($l,qr/surveyed by a person/),
+	'the panel says who judged it');
+ok(!says($l,qr/\d{4}-\d{2}-\d{2}/),
+	'and states no date, which is source_catalog.md\'s job');
 ok(says($l,qr/starting point for checking/),
 	'and does not claim to be current');
 

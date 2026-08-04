@@ -1,10 +1,10 @@
 {
   "catalog_version": 1,
-  "surveyed": "2026-08-01",
-  "notes": "THE SHIPPED TILE SOURCE CATALOG. Read only, and read from the application's resource folder rather than from the user's data folder, because it is application material that must stay coherent with the code and with docs/notes/source_catalog.md. It is never copied anywhere and never edited in place. Every row is a STARTING POINT FOR CHECKING and not a current fact: services move, endpoints retire, and terms change without the endpoint changing. What each entry carries is what was found at the operator's own published terms on the surveyed date. Creating a source from an entry writes an UNTESTED file - the probe is the instrument that says whether it works.",
+  "notes": "THE SHIPPED TILE SOURCE CATALOG, and the last node of a pipeline. A fact about a tile service enters at the survey, is distilled into docs/notes/source_catalog.md, and is codified here - never the other way round. The 'moniker' on each service is the join column across all three, which is why it is here rather than only in the documents. Read only, and read from the application's resource folder rather than from the user's data folder, because it is application material that must stay coherent with the code. It is never copied anywhere and never edited in place. Every row is a STARTING POINT FOR CHECKING and not a current fact: services move, endpoints retire, and terms change without the endpoint changing. THIS FILE CARRIES NO DATE - it ships inside the installer, so the release dates it, and when each service was last looked at is recorded once per service in docs/notes/source_catalog.md. Creating a source from an entry writes an UNTESTED file - the probe is the instrument that says whether it works.",
   "nodes": [
     {
       "id": "gibs",
+      "moniker": "gibs",
       "name": "NASA GIBS",
       "canonical": {
         "where": "Government Cut, Miami",
@@ -61,6 +61,7 @@
 
     {
       "id": "esri",
+      "moniker": "esri_world",
       "name": "Esri ArcGIS",
       "canonical": {
         "where": "Golden Gate, San Francisco",
@@ -83,6 +84,7 @@
       "nodes": [
         {
           "id": "esri_world_imagery",
+          "moniker": "esri_world",
           "name": "World Imagery",
           "brief": "z17-19 real   global   display only",
           "depth": "declares LODs 0 to 23 and answers everywhere; real cached detail measured z17-18 over Panama, z19 over Miami and New York",
@@ -100,6 +102,7 @@
         },
         {
           "id": "esri_world_imagery_clarity",
+          "moniker": "esri_clarity",
           "name": "World Imagery (Clarity)",
           "brief": "z19 stated   global   display only",
           "depth": "declares LODs 0 to 23, maxScale at level 23, so no stated ceiling",
@@ -114,6 +117,7 @@
         },
         {
           "id": "esri_wayback",
+          "moniker": "esri_wayback",
           "name": "World Imagery Wayback",
           "region": "global",
           "depth": "as World Imagery, per archived release",
@@ -135,6 +139,7 @@
 
     {
       "id": "usgs_imagery_only",
+      "moniker": "usgs",
       "name": "USGS Imagery Only",
       "canonical": {
         "where": "Golden Gate, San Francisco",
@@ -165,6 +170,7 @@
 
     {
       "id": "gsi_seamlessphoto",
+      "moniker": "gsi",
       "name": "Japan GSI seamlessphoto",
       "canonical": {
         "where": "Yokohama waterfront",
@@ -195,6 +201,7 @@
 
     {
       "id": "ign_fr",
+      "moniker": "ign_fr",
       "name": "IGN France",
       "canonical": {
         "where": "Marseille, Vieux-Port",
@@ -238,6 +245,7 @@
 
     {
       "id": "ign_es",
+      "moniker": "ign_es",
       "name": "Spain IGN",
       "canonical": {
         "where": "Barcelona",
@@ -280,6 +288,7 @@
 
     {
       "id": "nsw_imagery",
+      "moniker": "nsw",
       "name": "NSW Spatial Services imagery",
       "canonical": {
         "where": "Sydney Harbour",
@@ -310,6 +319,7 @@
 
     {
       "id": "linz_aerial",
+      "moniker": "linz",
       "name": "LINZ Basemaps aerial",
       "canonical": {
         "where": "Waitemata Harbour, Auckland",
@@ -318,9 +328,9 @@
       },
       "brief": "z22   New Zealand   NEEDS A KEY",
       "region": "New Zealand",
-      "cost": "free API key; standard access is capped at 1,000 tile requests per minute",
+      "cost": "free API key, and no account for the standard tier; standard access is capped at 1,000 tile requests per minute",
       "buildable": "yes, CC BY 4.0",
-      "requires": "an API key, pasted into the credential slot 'linz_api_key'. Only DEVELOPER access issues a static key; standard access uses a rotating dynamic one and cannot live in a credential slot.",
+      "requires": "an API key, pasted into the credential slot 'linz_api_key'. STANDARD access needs no registration at all and its key is good for 90 days, so it lives in a slot perfectly well and re-pasting it is the whole of the maintenance. DEVELOPER access issues a key that does not expire and is requested by emailing basemaps@linz.govt.nz.",
       "depth": "z0 to z22 in EPSG:3857 per LINZ documentation. 5 cm over urban areas down to 10 m satellite elsewhere",
       "value": "Excellent New Zealand coverage including the Chathams and the offshore islands.",
       "tsd": {
@@ -338,12 +348,13 @@
           { "slot": "linz_api_key" }
         ],
         "policy": { "max_concurrency": 4, "min_interval_ms": 0 },
-        "notes": "THE KEY IS A SLOT AND NOT A VALUE. This file declares where a key goes and never carries one, which is what makes it safe to hand to somebody. The credential store is not implemented yet, so a source written from this entry will load and will NOT fetch until it is. The service also serves WebP and Avif, which this application does not read."
+        "notes": "THE KEY IS A SLOT AND NOT A VALUE. This file declares where a key goes and never carries one, which is what makes it safe to hand to somebody. The credential store is not implemented yet, so a source written from this entry will load and will NOT fetch until it is. Without a key the service answers 400 with 'API Key Invalid: missing', and with a malformed one 'API Key Invalid: malformed' - two honest and distinguishable refusals, which is more than most keyed services manage. The service also serves WebP and Avif, which this application does not read."
       }
     },
 
     {
       "id": "openseamap_seamarks",
+      "moniker": "openseamap",
       "name": "OpenSeaMap seamarks",
       "canonical": {
         "where": "Portsmouth and the Solent",
@@ -373,37 +384,8 @@
     },
 
     {
-      "id": "noaa_enc",
-      "name": "NOAA Chart Display Service",
-      "canonical": {
-        "where": "Chesapeake Bay entrance",
-        "at": [36.95, -76.03],
-        "why": "Busy United States chart water with full ENC coverage, so anything other than a chart tile here is about the request and not about the place."
-      },
-      "brief": "chart rendering   US waters   free",
-      "region": "United States waters",
-      "cost": "free, no key",
-      "buildable": "yes, US Government work",
-      "depth": "chart rendering rather than imagery, so depth is a symbology question and not a resolution one",
-      "value": "NOAA ENC data drawn with paper-chart symbology. Not imagery, and the only entry here that renders a chart rather than a photograph.",
-      "tsd": {
-        "name": "NOAA - ENC Chart Display Service",
-        "cache_key": "noaa_enc",
-        "url": "https://gis.charttools.noaa.gov/arcgis/rest/services/MCS/ENCOnline/MapServer/exts/MaritimeChartService/WMTS/tile/1.0.0/NOAACharts/default/GoogleMapsCompatible/{z}/{y}/{x}.png",
-        "tile_format": "png",
-        "zoom": { "min": 0, "max": 17 },
-        "attribution": "NOAA Office of Coast Survey",
-        "terms_url": "https://www.charts.noaa.gov/InteractiveCatalog/nrnc.shtml",
-        "license": "US Government work - not subject to copyright (17 USC 105). NOAA states that its ENC products are for reference and that official navigation requires the official product used as intended.",
-        "redistributable": "yes",
-        "uses": ["display", "build"],
-        "policy": { "max_concurrency": 2, "min_interval_ms": 0 },
-        "notes": "A WMTS served through an ArcGIS MaritimeChartService extension, so the path is REST rather than a query string. Also distributed as MBTiles for offline use, which is a different and often better route than tiling it here."
-      }
-    },
-
-    {
       "id": "eox_s2cloudless",
+      "moniker": "eox",
       "name": "EOX Sentinel-2 cloudless",
       "canonical": {
         "where": "Trieste",
@@ -435,6 +417,7 @@
 
     {
       "id": "emodnet_bathymetry",
+      "moniker": "emodnet",
       "name": "EMODnet bathymetry",
       "canonical": {
         "where": "Dogger Bank, North Sea",
@@ -465,6 +448,7 @@
 
     {
       "id": "gebco",
+      "moniker": "gebco",
       "name": "GEBCO bathymetry",
       "canonical": {
         "where": "Colombia Basin, Caribbean",
@@ -495,6 +479,7 @@
 
     {
       "id": "coral_atlas",
+      "moniker": "coral",
       "name": "Allen Coral Atlas",
       "canonical": {
         "where": "Cairns, Great Barrier Reef",
@@ -510,55 +495,57 @@
       "tsd": {
         "name": "Allen Coral Atlas - benthic map",
         "cache_key": "coral_atlas_benthic",
-        "url": "https://allencoralatlas.org/tiles/benthic/{z}/{x}/{y}.png",
+        "url": "https://allencoralatlas.org/geoserver/gwc/service/tms/1.0.0/coral-atlas%3Abenthic_data_verbose@EPSG%3A900913@png/{z}/{x}/{-y}.png",
         "tile_format": "png",
-        "zoom": { "min": 0, "max": 17 },
+        "zoom": { "min": 8, "max": 17 },
+        "absent_fingerprints": [
+          { "bytes": 1784, "md5": "29e79cc2e4fe182660936eb2ff1f5aab" }
+        ],
         "attribution": "Allen Coral Atlas (2022). Imagery, maps and monitoring of the world's tropical coral reefs.",
         "terms_url": "https://allencoralatlas.org/terms/",
         "license": "CC BY 4.0. Attribution required.",
         "redistributable": "yes",
         "uses": ["display"],
         "policy": { "max_concurrency": 2, "min_interval_ms": 0 },
-        "notes": "A CLASSIFICATION and not a photograph: flat areas of colour standing for bottom type. Nothing that judges imagery by detail or by variance says anything useful about it, and a flat tile here is data rather than an absence."
+        "notes": "A CLASSIFICATION and not a photograph: flat areas of colour standing for bottom type. Nothing that judges imagery by detail or by variance says anything useful about it, and a flat tile here is data rather than an absence. THE ROW ORDER IS FLIPPED and that is what {-y} is for: this is a GeoWebCache TMS, whose rows count from the south. Asked with a northward row it answers 200 with a 1784 byte empty tile rather than an error, which is the row-order trap in its purest form - every tile arrives, nothing is wrong, and the map is scrambled. EPSG:900913 is the older spelling of EPSG:3857 and the same grid. The service publishes WMS and WFS as well; this is the one path of the three that a tile client can address. WHERE IT HOLDS NOTHING IT SENDS A FIXED EMPTY PNG rather than a 404, byte identical at 1784 bytes across three levels and three places, which is the declared fingerprint above - and for a classification product an empty tile IS the answer 'no reef here'. The floor is z8 because this is a GeoWebCache that RENDERS ON DEMAND: a seeded level answers in under a second, and a whole-hemisphere vector render below z8 does not return inside any timeout worth setting."
       }
     },
 
     {
       "id": "qld_imagery",
+      "moniker": "qld",
       "name": "Queensland Government imagery",
       "canonical": {
         "where": "Moreton Bay, Brisbane",
         "at": [-27.4, 153.15],
         "why": "Coastal Queensland at the state's most imaged harbour."
       },
-      "brief": "z19   Queensland   token",
+      "brief": "z20   Queensland   free",
       "region": "Queensland, Australia",
-      "cost": "no charge, but a token is required. Measured 2026-08-04: every tile request at Moreton Bay answers HTTP 200 carrying {\"error\":{\"code\":499,\"message\":\"Token Required\"}}, at every level from z0 to z19. The survey recorded this as free with no key, which the service contradicts.",
+      "cost": "free, no key",
       "buildable": "the licence varies per image between CC BY, CC BY-SA and public domain, so it must be checked per dataset rather than once",
-      "depth": "tile cache built to 1:1129, which is level 19",
+      "depth": "the service declares 21 levels of detail with maxScale at 1:564, which is level 20",
       "value": "Excellent on that coast. The whole-of-state satellite mosaic derives from Planet and is CC BY-SA, which imposes share-alike on anything built from it.",
-      "requires": "an ArcGIS token, pasted into the credential slot 'qld_token'. Also checking the licence of the particular dataset you are addressing, because it is not one licence",
+      "requires": "checking the licence of the particular dataset you are addressing, because it is not one licence",
       "tsd": {
         "name": "Queensland - latest state imagery program",
         "cache_key": "qld_imagery",
-        "url": "https://spatial-gis.information.qld.gov.au/arcgis/rest/services/Basemaps/LatestStateProgram_AllUsers/ImageServer/tile/{z}/{y}/{x}",
+        "url": "https://spatial-img.information.qld.gov.au/arcgis/rest/services/Basemaps/LatestStateProgram_AllUsers/ImageServer/tile/{z}/{y}/{x}",
         "tile_format": "jpeg",
-        "zoom": { "min": 0, "max": 19 },
-        "attribution": "(c) State of Queensland (Department of Resources)",
+        "zoom": { "min": 0, "max": 20 },
+        "attribution": "Includes material (c) State of Queensland (Department of Natural Resources and Mines, Manufacturing and Regional and Rural Development); (c) Planet Labs Netherlands B.V. reproduced under licence from Planet and Geoplex",
         "terms_url": "https://www.qld.gov.au/legal/copyright",
         "license": "Varies per image between CC BY 4.0, CC BY-SA 4.0 and public domain. The whole-of-state satellite mosaic derives from Planet and is CC BY-SA, whose share-alike condition attaches to anything built from it.",
         "redistributable": "unknown",
         "uses": ["display"],
-        "credentials": [
-          { "slot": "qld_token" }
-        ],
         "policy": { "max_concurrency": 4, "min_interval_ms": 0 },
-        "notes": "An ArcGIS ImageServer rather than a MapServer, and the tile path is the same shape: {z}/{y}/{x}, row before column. THE TOKEN IS A SLOT AND NOT A VALUE, like every credential here. Measured 2026-08-04: without one the service answers HTTP 200 with a JSON body saying 'Token Required', which is a refusal wearing a success code - a fetcher reading the status alone would cache it as imagery."
+        "notes": "An ArcGIS ImageServer rather than a MapServer, and the tile path is the same shape: {z}/{y}/{x}, row before column. THE HOST IS spatial-img AND NOT spatial-gis. Both are live ArcGIS servers on the same platform, and only spatial-img publishes this service; asked on spatial-gis it answers HTTP 200 carrying {\"error\":{\"code\":499,\"message\":\"Token Required\"}} at every level, which is what ArcGIS says for a service that is not there rather than for one that wants a token. Reading that as 'get a token' is how this entry acquired a credential slot it never needed. The service declares compression MIXED and means it: over Moreton Bay it answers PNG at z6 and JPEG at z11 and z16, so tile_format here is an expectation and the format is read from the bytes."
       }
     },
 
     {
       "id": "de_africa",
+      "moniker": "de_africa",
       "name": "Digital Earth Africa",
       "canonical": {
         "where": "Table Bay, Cape Town",
@@ -574,7 +561,7 @@
       "tsd": {
         "name": "Digital Earth Africa - Sentinel-2 geomedian",
         "cache_key": "de_africa_s2",
-        "url": "https://ows.digitalearth.africa/wmts/1.0.0/gm_s2_annual/default/GoogleMapsCompatible/{z}/{y}/{x}.png",
+        "url": "https://ows.digitalearth.africa/wmts?service=WMTS&request=GetTile&version=1.0.0&layer=gm_s2_annual&style=simple_rgb&tilematrixset=WholeWorld_WebMercator&format=image/png&TileMatrix={z}&TileRow={y}&TileCol={x}",
         "tile_format": "png",
         "zoom": { "min": 0, "max": 14 },
         "attribution": "Digital Earth Africa (contains modified Copernicus Sentinel data)",
@@ -583,7 +570,7 @@
         "redistributable": "yes",
         "uses": ["display", "build"],
         "policy": { "max_concurrency": 2, "min_interval_ms": 0 },
-        "notes": "A WMTS on a RESTful path. The annual geomedian is a composite rather than a single pass, so it has no acquisition date and no clouds."
+        "notes": "SLOW, and it renders on demand: z11 over Table Bay answers with 105 kB of PNG, while z6 and z14 did not return inside 20 seconds. That is a property of the service and not of the address. A KVP WMTS and NOT a RESTful one: its capabilities publish no ResourceURL, so the address is built from the GetTile operation. Two values in it are the service's own and cannot be guessed - the tile matrix set is called WholeWorld_WebMercator rather than GoogleMapsCompatible, and the default style is simple_rgb rather than 'default', which the service refuses by name. The annual geomedian is a composite rather than a single pass, so it has no acquisition date and no clouds."
       }
     }
   ]

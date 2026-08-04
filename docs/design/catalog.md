@@ -122,15 +122,39 @@ belongs to whatever asks; what is written here is only where to ask.
 
 ## Nothing it ships claims to be current
 
-Every entry carries the date it was surveyed, and the dialog says in as many words that a
-row is a starting point for checking rather than a fact. Services move, endpoints retire,
-and terms change without the endpoint changing.
+The dialog says in as many words that a row is a starting point for checking rather than a
+fact. Services move, endpoints retire, and terms change without the endpoint changing.
+
+**And it carries no date.** A date on a row reads as a currency it has not got, and it
+borrows authority from a precision nobody earned - the entry that was most precisely dated
+in this file was also the one that was wrong. The catalog ships inside the installer, so the
+release already dates it more accurately than a hand-typed string could, and where each
+service was last looked at is recorded once per service in
+[the survey](../notes/source_catalog.md).
 
 **A source created from an entry is untested by construction.** The catalog goes nowhere
 near the network, so it cannot know whether a url still answers. [Test](tsd_editor.md#test)
 is the instrument that finds out - and [the probe](build.md#the-probe) is the one that says
 whether the imagery is any good over an area. Pretending otherwise would be worse than saying
 nothing.
+
+## The moniker is the join column
+
+Every service carries a `moniker`: one short name, the same string in the survey, in
+[the published list](../notes/source_catalog.md) and here. It is inherited exactly as the
+licence is, because a provider's layers are all one service, and a child overrides it where
+one provider publishes several.
+
+**It is not the id.** An id names an entry and a moniker names the thing an entry is an
+entry *of*, so `linz` publishes `linz_aerial`. Keeping the two identical would give a
+service a name that reads like a layer the day it gains a second one.
+
+What it buys is that a claim made at one end of the pipeline can be checked at the other.
+Without it the three files were three retellings with no common key, and that is not a
+theoretical objection: four addresses reached this file having never been fetched, three of
+them invented at the distillation step, and no reader could have caught any of them. A test
+asserts that every shipped moniker appears in the published list, and
+`scripts/sweep_catalog.pl` asks each entry's service whether the address is real.
 
 ### What ships, and what is fetched
 
