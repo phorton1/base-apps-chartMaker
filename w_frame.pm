@@ -43,6 +43,7 @@ use w_progress;
 use w_probe;
 use w_probecfg;
 use w_report;
+use w_blank;
 use w_buildcfg;
 use w_preflight;
 use winRegions;
@@ -472,6 +473,19 @@ sub runLongAct
 				  $prog->{ok} ? 'built' : 'refused';
 
 	w_report->show($this,$outcome,[ @{$prog->{lines}} ]);
+
+	# AND THEN WHAT THE ACT TAUGHT, AFTER the report rather than inside it.
+	# The report is what the user asked for; a candidate blank is a separate
+	# question this act happened to be able to raise, and stacking it into
+	# the report would bury the report.
+	#
+	# EVERY INSTALLED SOURCE IS ASKED ABOUT, not only the ones this act
+	# touched.  A candidate is a fact about a service rather than about a
+	# run, and one learned earlier and never shown is still worth showing.
+	# Nothing repeats: a decline is remembered, and a declared fingerprint
+	# stops being a candidate.
+
+	w_blank->offerFor($this,[ map { getSource($_) } getSourceIds() ]);
 }
 
 

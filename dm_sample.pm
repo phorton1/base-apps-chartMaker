@@ -522,13 +522,12 @@ sub _sampleUnit
 
 		$row->{found}++;
 
-		# A REPEATED BODY IS A CANDIDATE FINGERPRINT, and this is the only
-		# thing a probe ever writes down.  Never acted on: a source that
-		# legitimately serves identical tiles - open ocean, a uniform
-		# icecap - would have real imagery declared missing, so it waits
-		# for a person to look at the picture and put it in the file.
-
-		_noteBody($src,$r);
+		# A REPEATED BODY IS A CANDIDATE FINGERPRINT, AND THIS MODULE NO
+		# LONGER LOOKS FOR ONE.  It is learned in dm_fetch, where every tile
+		# this application ever receives passes, so a sample contributes to
+		# the same record a build and a verify do rather than being one of
+		# several detectors that could disagree.  A probe still SEES its
+		# candidates - by reading the record like everybody else.
 
 		# NO DECODE UNLESS ASKED, and 'flat' is a decode like any other.
 		#
@@ -611,36 +610,6 @@ sub _median
 	return undef if !$list || !@$list;
 	my @s = sort { $a <=> $b } @$list;
 	return $s[int(@s/2)];
-}
-
-
-sub _noteBody
-	# Track repeated bodies within this run and hand the second sighting to
-	# the observation record, which dedups and bounds it from there.
-{
-	my ($src,$r) = @_;
-	return if !$r->{bytes};
-
-	my $len = length(${$r->{bytes}});
-	return if $len > 8192;		# a repeated body is a fill; a photograph is not
-
-	my $md5 = _md5(${$r->{bytes}});
-	return if !$md5;
-
-	my $key = "$src->{id}/$len:$md5";
-	our %body_seen;
-	return if ++$body_seen{$key} != 2;	# on the SECOND sighting, once
-
-	obsCandidateFingerprint($src,$len,$md5);
-	imageKeepExemplar($src,$md5,$r->{bytes});
-}
-
-
-sub _md5
-{
-	my ($data) = @_;
-	my $ok = eval { require Digest::MD5; 1 } or return '';
-	return Digest::MD5::md5_hex($data);
 }
 
 

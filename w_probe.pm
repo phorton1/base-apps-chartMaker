@@ -46,7 +46,9 @@ use Pub::Utils;
 use Pub::WX::Window;
 use cm_defs;
 use cm_state;
+use dm_source;
 use dm_sample;
+use w_blank;
 use base qw(Wx::Panel Pub::WX::Window);
 
 
@@ -198,6 +200,24 @@ sub runInFlight
 }
 
 
+sub offerBlanks
+	# WHAT THE RUN TAUGHT, once it has stopped.
+	#
+	# A probe fetches hundreds of real tiles, so it is the richest source of
+	# this evidence in the application - and it is exactly the act somebody
+	# runs when they are already asking whether a service is any good, which
+	# makes it the right moment to be asked back.
+	#
+	# THE SOURCES THIS MODE HOLDS, not every installed one.  The probe pane
+	# is about a comparison somebody set up, and widening it here would put
+	# a question about an unrelated service on the end of it.
+{
+	my ($this) = @_;
+	my @srcs = map { getSource($_->{id}) } @{ probeSources() || [] };
+	w_blank->offerFor($this,[ grep { $_ } @srcs ]);
+}
+
+
 sub onTimer
 	# THE ONLY THING THAT READS THE SHARED ARRAYS, and it reads them by
 	# sequence rather than by content: rebuilding a 400 line control on
@@ -212,6 +232,22 @@ sub onTimer
 	# are created.  The same trap winSources::onTimer documents.
 
 	return if !$this->{built};
+
+	# THE END OF A RUN IS A LANDING POINT, and it is checked BEFORE the
+	# sequence gate below.  A run finishing does not publish a unit, so the
+	# sequence need not move at the moment it ends, and gating on it would
+	# mean the offer arrived on the next run or never.
+	#
+	# ONLY WHAT THIS PANE STARTED.  A run driven from the console has no
+	# record here and reports 0, which is correct: nobody is looking at a
+	# dialog they did not ask for.
+
+	if ($this->{was_running} && !$this->runInFlight())
+	{
+		$this->{was_running} = 0;
+		$this->offerBlanks();
+	}
+	$this->{was_running} = 1 if $this->runInFlight();
 
 	my $seq = probeSeq();
 	return if $seq == $this->{seen};

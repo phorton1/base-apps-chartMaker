@@ -16,6 +16,7 @@ use cm_defs;
 use dm_set;
 use dm_source;
 use dm_cache;
+use dm_observe;
 use dm_fetch;
 
 my $TMP = 'C:/_temp/base-apps-chartMaker';
@@ -280,6 +281,88 @@ if ($up)
 		"(got '$g->{status}')");
 	ok(!-f "$stub_cache/garbage/5/1_1.none",
 		"and an error is NOT cached");
+
+
+	#---------------------------------------------
+	# what a fetch LEARNS about a service
+	#---------------------------------------------
+	# A SERVICE ANSWERING 'NOTHING HERE' WITH A 200 AND A PICTURE is the
+	# failure that looks like success, and the only tell is that the SAME
+	# picture comes back at unrelated coordinates.  It is learned HERE,
+	# in the one doorway every tile passes through, because anywhere else
+	# it becomes a question of which surfaces remembered to ask - and a
+	# user who never ran the optional one exports a card full of grey.
+	#
+	# THE STUB SERVES ONE BODY FOR EVERY TILE, which is exactly what a
+	# service with a fill does.
+
+	print "\n=== a fetch learns what a service serves instead of a tile ===\n";
+
+	# A SOURCE NOTHING HAS FETCHED YET, because everything above has been
+	# hammering stub_ok and its body is already known.  The first sighting
+	# is the assertion, so it has to actually be the first.
+
+	open(my $lfh,'>',"$stub_dir/sources/learn.tsd") or die $!;
+	print $lfh stubTsd('stub_learn','ok');
+	close $lfh;
+	rescanSources();
+
+	obsLoad();
+	my $learn = getSource('stub_learn');
+
+	fetchTile($learn,5,10,10);
+	my @none = obsCandidates($learn);
+	ok(!scalar(@none),
+		"one sighting of a body is a tile, and nothing is recorded (got ".
+		scalar(@none).")");
+
+	fetchTile($learn,7,33,44);
+	my @cand = obsCandidates($learn);
+	ok(scalar(@cand) == 1,
+		"the SAME body at a second, unrelated coordinate is a candidate ".
+		"(got ".scalar(@cand).")");
+	ok($cand[0]{count} == 2,"counted twice (got ".($cand[0]{count} // 0).")");
+	ok($cand[0]{z} == 5 && $cand[0]{x} == 10 && $cand[0]{y} == 10,
+		"and it carries the coordinate of the FIRST sighting, so the tile ".
+		"can be found without keeping a copy of it");
+
+	# THE COUNT IS EXACT WHERE IT IS READ.  Reporting on powers of two
+	# keeps the record's lock out of a ten thousand tile run without
+	# understating the small numbers a person actually looks at - a column
+	# with three suspect levels in it must not say two.
+
+	fetchTile($learn,9,99,99);
+	ok((obsCandidates($learn))[0]{count} == 3,
+		"three sightings read as three - a column with three suspect ".
+		"levels must not say two (got ".
+		((obsCandidates($learn))[0]{count} // 0).")");
+
+	fetchTile($learn,11,7,7);
+	ok((obsCandidates($learn))[0]{count} == 4,
+		"and four as four (got ".
+		((obsCandidates($learn))[0]{count} // 0).")");
+
+	# ALREADY DECLARED IS NOT A CANDIDATE.  A fingerprint in the file is
+	# the question already answered, and re-offering it on every fetch
+	# would make the record argue with the source.
+
+	my $declared = stubTsd('stub_known','ok');
+	$declared =~ s/"attribution"/"absent_fingerprints": [ { "bytes": $cand[0]{bytes}, "md5": "$cand[0]{md5}" } ],\n  "attribution"/;
+	open(my $dfh,'>',"$stub_dir/sources/known.tsd") or die $!;
+	print $dfh $declared;
+	close $dfh;
+	rescanSources();
+
+	my $s_known = getSource('stub_known');
+	ok($s_known && @{$s_known->{absent_fingerprints} || []} == 1,
+		"a source declaring that body loads");
+
+	fetchTile($s_known,5,10,10);
+	fetchTile($s_known,7,33,44);
+	fetchTile($s_known,9,99,99);
+	ok(!scalar(obsCandidates($s_known)),
+		"and its OWN fetches record no candidate, because the file has ".
+		"already answered that question");
 
 	$ua->get("$stub_url/quit");
 }

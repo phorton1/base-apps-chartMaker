@@ -91,7 +91,7 @@ sub _png
 
 sub _mapServerJson
 	# A MINIMAL BUT HONEST MapServer description.  Cut down from the real
-	# World_Imagery answer, keeping every field dm_probe reads and nothing
+	# World_Imagery answer, keeping every field dm_meta reads and nothing
 	# else -- so a field the probe starts depending on shows up here as a
 	# missing value rather than as a silently correct default.
 	#
@@ -204,7 +204,7 @@ sub handle
 
 	# ---- the ArcGIS shapes, so the metadata probe has something to read
 	#
-	# THE PATH IS SHAPED LIKE A REAL MapServer because dm_probe derives the
+	# THE PATH IS SHAPED LIKE A REAL MapServer because dm_meta derives the
 	# metadata url from the tile url by pattern, exactly as it must for a
 	# real TSD.  A stub that answered on some private path would test the
 	# parser and skip the derivation, which is the part that breaks.

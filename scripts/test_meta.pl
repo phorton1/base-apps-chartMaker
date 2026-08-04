@@ -1,16 +1,21 @@
 #!/usr/bin/perl
 #---------------------------------------------
-# test_probe.pl -- the metadata probe, against real services
+# test_meta.pl -- the metadata reader, against real services
 #---------------------------------------------
-# HITS THE LIVE ArcGIS AND GIBS ENDPOINTS, deliberately.  A probe whose
+# HITS THE LIVE ArcGIS AND GIBS ENDPOINTS, deliberately.  A reader whose
 # whole purpose is to find out what a service actually says cannot be
 # tested against a fixture of what it said once: the fixture would keep
 # passing after the service changed, which is the single failure this
 # feature exists to catch.
 #
+# THIS IS NOT THE PROBE.  dm_meta reads a description and fetches no
+# imagery at all; the probe is dm_sample, which sweeps real tiles over an
+# area and is tested in test_sample.pl.  Both were called probe once, and
+# that is why every sentence about either of them used to be ambiguous.
+#
 # What is asserted is therefore the SHAPE of the answer and the rules
 # applied to it, not the values.  'ArcGIS declares a ceiling' is a claim
-# about the probe; 'ArcGIS declares z23' is a claim about Esri, and would
+# about this module; 'ArcGIS declares z23' is a claim about Esri, and would
 # be someone else's bug when it broke.
 #
 # The offline half - family detection, the maxScale rule, tilemap decoding
@@ -28,7 +33,7 @@ use cm_defs;
 use dm_source;
 use dm_fetch;
 use dm_observe;
-use dm_probe;
+use dm_meta;
 
 my $TMP = 'C:/_temp/base-apps-chartMaker';
 $Pub::Utils::data_dir = "$TMP/probe";
@@ -127,7 +132,7 @@ obsLoad();
 print "=== ArcGIS MapServer, live ===\n";
 
 my $esri = getSource('esri_world_imagery') or die "no esri source\n";
-my $p = probeSource($esri);
+my $p = metaSource($esri);
 
 ok($p->{family} eq 'arcgis',"family detected as arcgis (got '$p->{family}')");
 ok($p->{ok},"the MapServer answered".($p->{ok} ? '' : " - $p->{reason}"));
@@ -160,7 +165,7 @@ if ($p->{ok})
 print "\n=== the same service, addressed wrongly ===\n";
 
 my $bad = getSource('esri_scrambled') or die "no scrambled source\n";
-my $pb = probeSource($bad);
+my $pb = metaSource($bad);
 ok($pb->{ok},"the probe still succeeds - the FILE is wrong, not the service");
 
 if ($pb->{ok})
@@ -173,7 +178,7 @@ if ($pb->{ok})
 		"and a zoom.max above what the service answers to");
 
 	print "  --- what a person would read ---\n";
-	print "  $_\n" for @{probeLines($pb)};
+	print "  $_\n" for @{metaLines($pb)};
 }
 
 
@@ -184,7 +189,7 @@ if ($pb->{ok})
 print "\n=== WMTS GetCapabilities, live ===\n";
 
 my $gibs = getSource('gibs_weld_annual') or die "no gibs source\n";
-my $pw = probeSource($gibs);
+my $pw = metaSource($gibs);
 
 ok($pw->{family} eq 'wmts',"family detected as wmts (got '$pw->{family}')");
 ok($pw->{ok},"GetCapabilities answered".($pw->{ok} ? '' : " - $pw->{reason}"));
@@ -200,7 +205,7 @@ if ($pw->{ok})
 		"the shipped file agrees with the service (".
 		scalar(@{$pw->{disagree}})." disagreement(s))");
 	print "  --- what a person would read ---\n";
-	print "  $_\n" for @{probeLines($pw)};
+	print "  $_\n" for @{metaLines($pw)};
 }
 
 
@@ -211,14 +216,14 @@ if ($pw->{ok})
 print "\n=== no metadata endpoint ===\n";
 
 my $plain = getSource('plain_xyz') or die "no plain source\n";
-my $pp = probeSource($plain);
+my $pp = metaSource($plain);
 ok($pp->{family} eq 'unknown',"family is unknown");
 ok(!$pp->{ok},"and the probe reports that rather than failing at it");
 ok($pp->{reason} =~ /no metadata endpoint/,
 	"with a reason a person can act on");
 
 # NOT AN ERROR, AND THE RENDERING MUST NOT LOOK LIKE ONE.
-my $lines = probeLines($pp);
+my $lines = metaLines($pp);
 ok(scalar(grep { /only ever reports/ } @$lines),
 	"and the text says plainly that nothing was changed");
 
@@ -234,7 +239,7 @@ if ($p->{ok} && $p->{has_tilemap})
 	ok(1,"the service's capabilities advertise Tilemap");
 
 	# Bocas del Toro at z10, where there is certainly imagery.
-	my $tm = probeTilemap($esri,10,278,485,4,4);
+	my $tm = metaTilemap($esri,10,278,485,4,4);
 	ok($tm->{ok},"a 4x4 block answered".($tm->{ok} ? '' : " - $tm->{reason}"));
 	ok($tm->{ok} && $tm->{count_total} == 16,
 		"16 tiles answered by ONE request");
@@ -245,7 +250,7 @@ if ($p->{ok} && $p->{has_tilemap})
 	# The same place at z19, deeper than Esri's real imagery there.  This
 	# is the answer the sampler would otherwise pay 64 fetches for.
 
-	my $deep = probeTilemap($esri,19,142559,248534,8,8);
+	my $deep = metaTilemap($esri,19,142559,248534,8,8);
 	ok($deep->{ok},"a 8x8 block at z19 answered");
 	ok($deep->{ok} && $deep->{count_total} == 64,
 		"64 tiles answered by ONE request");
@@ -257,7 +262,7 @@ else
 	ok(0,"the service did not advertise Tilemap - cannot test it");
 }
 
-my $none = probeTilemap($plain,10,1,1,4,4);
+my $none = metaTilemap($plain,10,1,1,4,4);
 ok(!$none->{ok},"tilemap refuses a non-ArcGIS source rather than guessing");
 
 
@@ -277,7 +282,7 @@ ok(-f obsDir()."/esri.json","and it reached disk, keyed by cache_key");
 # every TSD a cache of a server's current mood.
 
 my $before = do { open(my $fh,'<',"$TMP/probe/sources/esri_wrong.tsd"); local $/; <$fh> };
-probeSource($bad);
+metaSource($bad);
 my $after = do { open(my $fh,'<',"$TMP/probe/sources/esri_wrong.tsd"); local $/; <$fh> };
 ok($before eq $after,"probing a file with ".scalar(@{$pb->{disagree}}).
 	" disagreements does not touch it");
@@ -336,7 +341,7 @@ if ($up)
 {
 	rescanSources();
 	my $st = getSource('stub_arcgis') or die "no stub source\n";
-	my $ps = probeSource($st);
+	my $ps = metaSource($st);
 
 	ok($ps->{family} eq 'arcgis',
 		"the metadata url was DERIVED from the tile url, not configured");
@@ -363,7 +368,7 @@ if ($up)
 	# THE COMPRESSED TILEMAP.  z1 on the stub answers 'valid' with no data
 	# array, meaning every tile in the block is present.
 
-	my $c = probeTilemap($st,1,10,20,8,8);
+	my $c = metaTilemap($st,1,10,20,8,8);
 	ok($c->{ok},"a compressed tilemap block decoded");
 	ok($c->{ok} && $c->{count_total} == 64,
 		"as 64 tiles (got ".($c->{count_total} // 0).")");
@@ -371,11 +376,11 @@ if ($up)
 		"ALL PRESENT - not the empty block a naive decode would report ".
 		"(got ".($c->{count_present} // 0).")");
 
-	my $z = probeTilemap($st,2,10,20,8,8);
+	my $z = metaTilemap($st,2,10,20,8,8);
 	ok($z->{ok} && $z->{count_present} == 0,
 		"an explicit array of zeros is 0 of $z->{count_total} present");
 
-	my $m = probeTilemap($st,3,10,20,8,8);
+	my $m = metaTilemap($st,3,10,20,8,8);
 	ok($m->{ok} && $m->{count_present} == 32,
 		"and a mixed block is counted correctly ".
 		"($m->{count_present} of $m->{count_total})");

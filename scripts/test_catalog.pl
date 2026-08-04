@@ -389,7 +389,7 @@ ok(scalar(grep { /^url\s+\S+$/ } @{catalogLines($esri)}) == 1,
 #---------------------------------------------
 # expanding a provider
 #---------------------------------------------
-# ENTIRELY OFFLINE.  Reading a capabilities document is dm_probe's job and
+# ENTIRELY OFFLINE.  Reading a capabilities document is dm_meta's job and
 # is tested against the live service there; what is tested here is what
 # this module does with the answer, which must not need a network to
 # check.

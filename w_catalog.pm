@@ -54,7 +54,7 @@ use cm_state;
 use cm_utils;
 use dm_source;
 use dm_catalog;
-use dm_probe;
+use dm_meta;
 use dm_verify;
 use w_source;
 use w_progress;
@@ -721,7 +721,7 @@ sub onExpand
 	$prog->{active} = 1;
 	$prog->{phase}  = 'Starting';
 
-	threads->create(\&dm_probe::layersWorker,$prog,
+	threads->create(\&dm_meta::layersWorker,$prog,
 		[ $x->{kind},$x->{url} ])->detach();
 
 	my $dlg = w_progress->new($this,"Expand - $node->{name}",$prog);

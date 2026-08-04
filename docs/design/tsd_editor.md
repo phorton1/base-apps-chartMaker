@@ -98,11 +98,27 @@ would break the one that was working a moment ago.
   file may address them deliberately, and deleting a definition says nothing about imagery.
   It warns first, and names the regions that will stop resolving.
 
+## The two absence lists are rows
+
+`absent_fingerprints` and `absent_headers` are the only fields in the format that are arrays
+of records, and they are edited as **one entry per line** - `<bytes> <md5>` and
+`<name>: <value>`. The alternative was a grid with add and remove buttons for something most
+files use once or never.
+
+**The grammar lives in `dm_source`**, which renders the stored array into text and parses it
+back, so what a person types is checked by the same code that decides whether the resulting
+file loads. A parser in the dialog would be a second grammar, free to accept what the loader
+refuses.
+
+**An empty box means the field is absent**, not that it is an empty array. That distinction
+is the point: clearing the text is how somebody turns a fingerprint off to see what a service
+really serves, and it is the first thing they will want when they distrust one.
+
 ## What it does not touch
 
-`credentials`, `absent_fingerprints` and `absent_headers` have no controls yet and are
-**carried through unchanged**. A file that lost them by passing through the editor would be
-a file quietly damaged by being looked at.
+`credentials` has no control - a list of slots, where a slot with no value in it is not
+something a text box can usefully offer - and is **carried through unchanged**. A file that
+lost it by passing through the editor would be a file quietly damaged by being looked at.
 
 `tile_size` and `crs` have exactly one legal value each, so no control offers them: an
 editable one could only ever be used to make the file invalid.
@@ -140,8 +156,7 @@ Two halves, and only one of them has a place.
 
 **Unplaced, and it can only ever refute.** The file's own coherence, asked of `dm_source`
 because a second opinion about what a TSD may be is a second rulebook, plus the service's own
-metadata where it publishes any - which is [the probe](build.md#the-probe), unchanged and not
-reimplemented. This half settles a malformed url, a credential slot the file does not
+metadata where it publishes any - which is `dm_meta`, unchanged and not reimplemented. This half settles a malformed url, a credential slot the file does not
 declare, the wrong grid, a scrambled row order, a ceiling below what is claimed. It never
 confirms imagery and is never worded as though it had.
 
@@ -215,19 +230,120 @@ reads it for. What twenty identical lines fail to supply is the reason, so a col
 answered the same way throughout gains **one sentence** saying so, with the server's own
 words beneath it.
 
-**A blank the file does not declare is found from the column itself**, with two signals of
-very different strength and worded differently:
+**A blank the file does not declare is not found here at all.** Repeated bodies are learned
+in [the fetch path](#every-fetch-teaches), where every tile this application receives passes,
+and Test marks a level `poss sentinel` when its body is one the observation record already
+knows. A second rule here would be a second opinion about the same evidence, free to
+disagree with it on the one screen somebody is reading in order to decide.
 
-- **The same image at several levels is conclusive** and needs no threshold. Zooming in
-  changes what a tile contains, always, so one identical image answering four levels is not
-  imagery at any of them. Esri World Imagery declares z23 and returns the same 2521 byte
-  JPEG at z20 through z23 over Singapore; its real ceiling there is z19.
-- **Far smaller than its own column** is a suspicion and says so. Open water is genuinely
-  small, so this only fires where the rest of the column is substantial.
+It still works on a service never fetched before, which was the only reason to keep a local
+rule: this column's own fetches went through that path on the way here. Esri's fill answers
+three or four levels of a column, so it crosses the threshold during the run that is about
+to report it.
 
-Either way the bytes and the md5 are **offered** as an `absent_fingerprint` and never added.
-A checker that quietly corrected the file it was checking would make every source a cache of
-a server's current mood.
+**Size alone marks nothing.** A nearly uniform tile compresses to a few hundred bytes whether
+it is a server's blank or the Caribbean, and this application is pointed at water more than
+at anything else. Measured: Esri at Bocas del Toro answers z14 to z18 with 865 to 1089 byte
+tiles against a column middle of 8259, and every one of them is real imagery of the sea.
+
+A candidate is **offered** and never added. A checker that quietly corrected the file it was
+checking would make every source a cache of a server's current mood.
+
+## Every fetch teaches
+
+A service that answers "nothing here" with a 200 and a picture is the failure that looks like
+success, and the only tell is that the **same picture comes back at unrelated coordinates**.
+Panning or zooming changes what a tile holds, always, so one identical body answering many
+places is not imagery at any of them.
+
+**It is learned in `fetchTile`, because that is the one doorway.** Every tile this
+application ever receives passes through it - a build, a fill, a sample, a verify, the map
+proxy - so learning there is a property of *fetching* rather than of anybody's reason for
+fetching. Anywhere else it becomes a question of which surfaces remembered to ask, and a user
+who never ran the optional one exports a card full of grey.
+
+Three things make it free:
+
+- **Size gates it.** A fill is a few hundred bytes to a couple of KB and a photograph is not,
+  so nothing above 8 KB is ever hashed. Real imagery lands under the gate too, which is why
+  size only ever decides what is *hashed* and never what is suspicious.
+- **The table is bounded and per thread.** Misra-Gries: on a miss with the table full, every
+  counter is decremented and the exhausted ones are dropped. With `k` counters anything
+  occupying more than `1/(k+1)` of the stream survives **in any arrival order** - a guarantee,
+  not a hope, and what stops a thousand one-off oddities from evicting a real fill between
+  its first and second sighting. Per thread, because a fill repeats within any one worker's
+  own stream, so nothing needs sharing until there is something to report.
+- **Reporting is exact while the count is small, then on powers of two.** A solid run of ten
+  thousand identical tiles takes the observation record's lock about twenty times, and a
+  column with three suspect levels in it never says "seen 2 times" - which is the one place
+  the number is actually read.
+
+**What is recorded is a coordinate, not a copy.** `{z, x, y, bytes, md5, count}` under the
+source's `cache_key`. The tile is already in the cache, so a second copy beside the record
+would write every candidate twice, need a reaper as the list churns, and put the picture
+furthest from the moment it is most useful - which is when a cleanup is about to delete the
+real one.
+
+**A candidate is offer-worthy at two sightings.** One sighting of a body is a tile.
+
+**And a body the file already declares is not a candidate.** A fingerprint in the file is the
+question already answered, and re-offering it on every fetch would make the record argue with
+the source.
+
+## Looking at it, and keeping it
+
+An offer shows **the tile**, because a byte count, an md5 and a number of sightings cannot
+settle the only question that matters: is this a server saying "nothing here", or is it snow,
+or cloud, or deep water? A person answers that by looking, and by no statistic at all.
+
+The tile is read from the cache at the recorded coordinate and its md5 is checked. If the
+cache has been pruned, or the service has since served something real there, **one** tile is
+refetched. Nothing can be accepted that could not be shown, and where it cannot be shown the
+dialog says *why* - "cannot be shown" with no cause is the least useful sentence a dialog can
+print.
+
+This wxPerl publishes no `Wx::MemoryInputStream`, so the bytes go through a **single scratch
+file** with a fixed name, which is unlinked the moment the pixels are decoded. That is a
+different thing from the per-candidate copies this design removed: nothing accumulates,
+nothing needs reaping, and losing it costs nothing.
+
+Accepting puts the pair into the editor's `absent_fingerprints` row, where it is **visible
+and deletable** - deleting the text is how somebody turns a fingerprint off to see what a
+service really serves. Nothing reaches disk until Save, and because the row is a real control
+the dialog goes dirty by the ordinary mechanism.
+
+## Where an offer is made
+
+Never in the middle of anything. A build is thousands of tiles over hours and a probe is
+hundreds, and a modal question arriving inside either is what this application refuses
+everywhere else. An offer waits for the **end** of an act, when the work is over and the
+person is standing in front of a report:
+
+- **after a Test**, in the editor
+- **after a build or a fetch**, once the report is dismissed
+- **after a probe run stops**, in the probe pane
+
+One driver serves all three, because the only difference between them is **who is holding the
+file**. With an editor open the pair goes into its visible row and Save writes it; with no
+editor open there is nothing to race and the `.tsd` is read, appended to and rewritten
+directly. A dialog that wrote for both cases would have to know which case it was in.
+
+**A candidate is disqualified by three things**: seen once, because one sighting of a body is
+a tile; already declared, because the file has answered that question; and **already
+declined**. Without the last, every build of a source with real imagery that happens to
+repeat - a uniform icecap, a stretch of open ocean - would put the same picture in front of
+the same person forever, and the fastest way to make somebody stop reading a dialog is to ask
+them something they have answered.
+
+**No is not forever.** Declines are a bounded ring per source, so a seventh pushes the oldest
+out and that one may be asked again. A permanent no would be a second declaration with none
+of the visibility of the first, and the file is where a permanent answer belongs.
+
+The build report asks about **every installed source**, because a candidate is a fact about a
+service rather than about a run, and one learned earlier and never shown is still worth
+showing. The probe pane asks only about the sources its mode holds, since that pane is a
+comparison somebody set up and widening it would append a question about an unrelated
+service.
 
 ### Three outcomes, and only one is a pass
 
@@ -256,9 +372,9 @@ other per-machine facts in the ini rather than in anybody's preferences. A remem
 rectangle is checked against the display before it is used, so a monitor that has been
 unplugged cannot put the dialog somewhere unreachable.
 
-The fields scroll; the reason line and the buttons do not. A field list grows - credentials
-and the two absence lists have no controls yet and will want them - and the way out of a
-modal dialog must never be the thing that falls off the bottom edge.
+The fields scroll; the reason line and the buttons do not. A field list grows - the two
+absence lists were added to it - and the way out of a modal dialog must never be the thing
+that falls off the bottom edge.
 
 ---
 

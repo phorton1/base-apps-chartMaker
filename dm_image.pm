@@ -55,7 +55,6 @@ BEGIN
 		imageIsFlat
 		imageDetailRatio
 		imageIsBlowup
-		imageKeepExemplar
 		imageDescribe
 		$DETAIL_RATIO
 	);
@@ -377,43 +376,18 @@ sub imageIsBlowup
 
 
 #---------------------------------------------
-# one copy of a candidate body, for a human to look at
+# NO EXEMPLAR IS KEPT, AND THAT IS THE DESIGN
 #---------------------------------------------
-
-sub imageKeepExemplar
-	# A repeated body appears identically wherever it occurs, so ONE copy
-	# is all anybody needs - and without it the candidate is an md5 nobody
-	# can judge.  A tile that is obviously a 'no data' fill is obvious in
-	# half a second by eye and by no statistic at all.
-	#
-	# Beside the observation record, as an ordinary image file rather than
-	# base64 inside a JSON record meant to stay readable: it can be opened
-	# by double-clicking it.  In $temp_dir, where losing it costs one
-	# re-probe.
-{
-	my ($src,$md5,$bytes) = @_;
-	return 0 if !$src || !$md5 || !$bytes;
-
-	my $key = $src->{cache_key} || $src->{id} or return 0;
-	my $dir = "$temp_dir/observations/$key.fp";
-
-	if (!-d $dir)
-	{
-		my_mkdir("$temp_dir/observations") if !-d "$temp_dir/observations";
-		my_mkdir($dir) or return 0;
-	}
-
-	my $path = "$dir/$md5.".($src->{tile_format} || 'jpeg');
-	return 1 if -f $path;
-
-	open(my $fh,'>',$path) or return 0;
-	binmode $fh;
-	print $fh $$bytes;
-	close $fh;
-	display($dbg_image,0,"kept exemplar $path");
-	return 1;
-}
-
+# imageKeepExemplar used to write a second copy of every candidate body
+# beside the observation record, so that a person could open it.  It is
+# gone, and what replaced it is a COORDINATE.
+#
+# The tile is already in the cache.  A copy meant writing every candidate
+# twice, needed a reaper as the candidate list churned - which it never
+# had, so the folder grew forever - and put the picture furthest from the
+# moment it is most useful, which is when a cleanup is about to delete the
+# real one.  A candidate now carries z/x/y and whoever wants to look reads
+# the cache, or refetches that one tile.
 
 sub imageDescribe
 	# What a candidate body LOOKS like, in words, so a list of them can be

@@ -42,6 +42,7 @@ use Pub::UA;
 use cm_defs;
 use dm_source;
 use dm_cache;
+use dm_observe;
 use dm_engine;
 
 
@@ -201,6 +202,121 @@ sub _declaredAbsentHeader
 }
 
 
+#---------------------------------------------
+# learning what a service serves instead of a tile
+#---------------------------------------------
+# A SERVICE THAT ANSWERS 'NOTHING HERE' WITH A 200 AND A PICTURE IS THE
+# FAILURE THAT LOOKS LIKE SUCCESS, and the only thing that gives it away is
+# that the SAME picture comes back at unrelated places.  Zooming or panning
+# changes what a tile holds, always, so one identical body answering many
+# coordinates is not imagery at any of them.
+#
+# IT IS LEARNED HERE BECAUSE THIS IS THE ONE DOORWAY.  Every tile this
+# application ever receives passes through fetchTile - a build, a fill, a
+# sample, a verify, the map proxy - so learning here is a property of
+# FETCHING rather than of anybody's reason for fetching.  Put anywhere else
+# it becomes a question of which surfaces remembered to ask, and a user who
+# never ran the optional one exports a card full of grey.
+#
+# THREE THINGS MAKE IT FREE.
+#
+#	SIZE GATES IT.  A fill is a few hundred bytes to a couple of KB; a
+#	photograph is not.  Nothing above the gate is ever hashed, so the
+#	hashed stream is a fraction of the fetched one.
+#
+#	THE TABLE IS BOUNDED AND PER THREAD.  Misra-Gries: on a miss with the
+#	table full, every counter is decremented and the exhausted ones are
+#	dropped.  With k counters anything occupying more than 1/(k+1) of the
+#	stream survives to the end IN ANY ORDER - it is a guarantee rather
+#	than a hope, and it is what stops a thousand one-off oddities from
+#	evicting a real fill between its first and second sighting.  Per
+#	thread because a fill repeats within any one worker's own stream, so
+#	nothing needs sharing until there is something to report.
+#
+#	REPORTING IS RATE LIMITED.  A solid run of ten thousand identical
+#	tiles must not take the observation record's lock ten thousand times,
+#	so the count is carried locally and handed over in batches.
+#
+# NOTHING HERE DECIDES ANYTHING.  A candidate is a number and a coordinate
+# in the observation record.  A person looks at the picture and puts it in
+# the file, or does not.
+
+my $FILL_MAX_BYTES = 8192;
+	# ABOVE THIS A BODY IS A PHOTOGRAPH.  Measured: Esri's 'Map data not
+	# yet available' tile is 2521 bytes and carries rendered TEXT, which is
+	# expensive, so the gate has to be well clear of a flat colour.  Real
+	# imagery lands under it too - open water at 865 bytes - which is why
+	# size only decides what is HASHED and never what is suspicious.
+
+my $MG_SLOTS = 256;
+	# About 12 KB per source, and a guarantee that anything over roughly
+	# 0.4 percent of the hashed stream survives.
+
+my $REPORT_AT = 2;
+	# Twice is the least that means anything.  One sighting is a tile.
+	#
+	# EXACT WHILE THE NUMBER IS SMALL, then on powers of two.  A solid run
+	# of ten thousand identical tiles must not take the observation
+	# record's lock ten thousand times - but the counts a person actually
+	# reads are the small ones, and a verify column with three suspect
+	# levels in it saying "seen 2 times" is wrong in the one place it is
+	# being read.  So the first few are reported as they happen and the
+	# rest double: about twenty writes for those ten thousand, and never
+	# an understatement where it would be noticed.
+
+my $REPORT_EXACT_TO = 16;
+	# Below this every sighting is reported, so a column a person is
+	# reading never understates itself.
+
+my %mg;		# PER THREAD, not shared: cache_key => { md5 => \%slot }
+
+
+sub _learn
+	# One body, counted.  Called only for a 200 that decoded as an image.
+{
+	my ($source,$z,$x,$y,$dataref) = @_;
+
+	my $len = length($$dataref);
+	return if $len > $FILL_MAX_BYTES;
+
+	# ALREADY DECLARED IS NOT A CANDIDATE.  A fingerprint in the file is
+	# the question already answered, and re-offering it every fetch would
+	# make the record argue with the source.
+
+	return if _isDeclaredAbsent($source,$dataref);
+
+	my $key = $source->{cache_key} || $source->{id} or return;
+	my $md5 = md5_hex($$dataref);
+	my $tbl = $mg{$key} ||= {};
+
+	if (my $slot = $tbl->{$md5})
+	{
+		my $n = ++$slot->{n};
+		return if $n < $REPORT_AT;
+		return if $n > $REPORT_EXACT_TO && ($n & ($n - 1));
+
+		obsCandidateFingerprint($source,$len,$md5,
+			$slot->{z},$slot->{x},$slot->{y},$slot->{n} - $slot->{told});
+		$slot->{told} = $slot->{n};
+		return;
+	}
+
+	if (scalar(keys %$tbl) < $MG_SLOTS)
+	{
+		$tbl->{$md5} = { n => 1, told => 0, z => $z, x => $x, y => $y };
+		return;
+	}
+
+	# THE TABLE IS FULL: every counter pays one, and the exhausted leave.
+	# The arriving body is NOT inserted, which is what bounds the work.
+
+	for my $m (keys %$tbl)
+	{
+		delete $tbl->{$m} if --$tbl->{$m}{n} < 1;
+	}
+}
+
+
 sub _said
 	# WHAT THE SERVER SAID, WHEN WHAT IT SENT WAS NOT AN IMAGE.
 	#
@@ -296,6 +412,13 @@ sub fetchTile
 
 		display($dbg_fetch,0,"fetched $source->{id} $z/$x/$y ".
 			"($format, ".length($data)." bytes, ${ms}ms)");
+
+		# WHAT THIS TILE TEACHES ABOUT THE SERVICE, before it is handed to
+		# whoever asked.  See the note above _learn: this is the one place
+		# every tile passes through, so it is the only place that can learn
+		# without depending on why somebody was fetching.
+
+		_learn($source,$z,$x,$y,\$data);
 
 		return { status => 'ok', format => $format, bytes => \$data,
 			http => $code, ms => $ms };

@@ -197,16 +197,40 @@ ok(scalar(@ring) == 6,
 ok($ring[-1] eq 'class20',"and the newest is kept");
 ok($ring[0] eq 'class15',"and the oldest is dropped");
 
-obsCandidateFingerprint($a,2521,'f27d9de7f80c13501f470595e327aa6d');
-obsCandidateFingerprint($a,2521,'f27d9de7f80c13501f470595e327aa6d');
-$rec = obsRecord($a);
-ok($rec->{fp_candidates} eq '2521:f27d9de7f80c13501f470595e327aa6d',
-	"a fingerprint candidate is recorded once, not twice");
+# A CANDIDATE IS ONE ENTRY THAT COUNTS UP, not one entry per sighting.
+# The repeat IS the evidence, so the number is the whole point of the
+# record and it must survive being seen again.
 
-obsCandidateFingerprint($a,$_,'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa') for (1..20);
-my @fps = split(/,/,obsRecord($a)->{fp_candidates});
+obsCandidateFingerprint($a,2521,'f27d9de7f80c13501f470595e327aa6d',20,7,9);
+obsCandidateFingerprint($a,2521,'f27d9de7f80c13501f470595e327aa6d',20,7,9);
+my @cand = obsCandidates($a);
+ok(scalar(@cand) == 1,
+	"a fingerprint candidate is one entry, not one per sighting (got ".
+	scalar(@cand).")");
+ok($cand[0]{count} == 2,"and the sightings are counted (got $cand[0]{count})");
+ok($cand[0]{bytes} == 2521 &&
+   $cand[0]{md5} eq 'f27d9de7f80c13501f470595e327aa6d',
+	"with the pair that identifies the body");
+ok($cand[0]{z} == 20 && $cand[0]{x} == 7 && $cand[0]{y} == 9,
+	"and the coordinate of the tile, so the picture can be found without ".
+	"a second copy of it");
+
+# COUNTS ARE HANDED OVER IN BATCHES, because a solid run of ten thousand
+# identical tiles must not take this record's lock ten thousand times.
+
+obsCandidateFingerprint($a,2521,'f27d9de7f80c13501f470595e327aa6d',20,7,9,64);
+ok((obsCandidates($a))[0]{count} == 66,"a batch adds its whole delta");
+
+# THE HIGHEST COUNTS KEEP THE SPACE.  Dropping the oldest would be wrong
+# here: the entry seen ten thousand times is exactly the one a burst of
+# one-off oddities would push out.
+
+obsCandidateFingerprint($a,$_,sprintf("%032x",$_),1,1,1) for (1..20);
+my @fps = obsCandidates($a);
 ok(scalar(@fps) == 6,
-	"and candidates are bounded too (got ".scalar(@fps).")");
+	"candidates are bounded (got ".scalar(@fps).")");
+ok($fps[0]{md5} eq 'f27d9de7f80c13501f470595e327aa6d',
+	"and the most-seen candidate survived 20 one-off arrivals");
 
 # THE WHOLE RECORD, WEIGHED.  A dozen scalars and two short lists is the
 # commitment; a few hundred bytes is what that looks like on disk.

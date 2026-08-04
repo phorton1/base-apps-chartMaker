@@ -1,6 +1,6 @@
 #!/usr/bin/perl
 #---------------------------------------------
-# dm_probe.pm
+# dm_meta.pm
 #---------------------------------------------
 # ASK THE SERVICE WHAT IT IS, rather than finding out one tile at a time.
 #
@@ -24,7 +24,7 @@
 # means an honest ceiling of z12 does not imply a tile at every z12 square,
 # and no metadata document anywhere answers that.  That is the sampler's
 # question and it is a PLACED one; this probe is placeless on purpose.  The
-# one exception is probeTilemap below, which is placed, is a different act,
+# one exception is metaTilemap below, which is placed, is a different act,
 # and is called by something else.
 #
 # NOTHING HERE EVER EDITS A TSD.  The findings are shown to a person beside
@@ -34,7 +34,7 @@
 # doing -- a probe that quietly rewrote the file would make every TSD a
 # cache of a server's current mood.
 
-package dm_probe;
+package dm_meta;
 use strict;
 use warnings;
 use threads;
@@ -52,15 +52,15 @@ BEGIN
 {
 	use Exporter qw( import );
 	our @EXPORT = qw(
-		probeSource
-		probeTilemap
-		probeLines
+		metaSource
+		metaTilemap
+		metaLines
 		serviceLayers
 	);
 }
 
 
-our $dbg_probe:shared = 0;
+our $dbg_meta:shared = 0;
 	# 0  = one line per probe
 	# -1 = the metadata url and what came back
 
@@ -390,7 +390,7 @@ sub _probeWMTS
 # the probe
 #---------------------------------------------
 
-sub probeSource
+sub metaSource
 	# ONE request, no imagery.  Returns findings; never writes a TSD.
 {
 	my ($source) = @_;
@@ -429,7 +429,7 @@ sub probeSource
 	_compare($source,$out) if $out->{ok};
 	_remember($source,$out) if $out->{ok};
 
-	display($dbg_probe,0,"probeSource($source->{id}) $family -> ".
+	display($dbg_meta,0,"metaSource($source->{id}) $family -> ".
 		($out->{ok} ? "ok, ".scalar(@{$out->{disagree}})." disagreement(s)"
 					: "failed: $out->{reason}"));
 	return $out;
@@ -535,17 +535,17 @@ sub _remember
 # the placed one
 #---------------------------------------------
 
-sub probeTilemap
+sub metaTilemap
 	# WHICH TILES ACTUALLY EXIST, FOR A WHOLE BLOCK, IN ONE REQUEST.
 	#
 	# THIS IS PLACED AND THE REST OF THIS MODULE IS NOT, which is why it is
-	# a separate entry point rather than part of probeSource.  It is also
+	# a separate entry point rather than part of metaSource.  It is also
 	# the cheapest coverage answer anywhere in this application: sixty four
 	# tiles answered by one request and no imagery, where the sampler would
 	# otherwise fetch sixty four times.
 	#
 	# ONLY THE ArcGIS FAMILY OFFERS IT, and only when its capabilities say
-	# so, which probeSource records.  Returns { ok, present => [0|1,...],
+	# so, which metaSource records.  Returns { ok, present => [0|1,...],
 	# rows, cols } with the block in row major order.
 {
 	my ($source,$z,$x,$y,$rows,$cols) = @_;
@@ -585,7 +585,7 @@ sub probeTilemap
 	my $present = 0;
 	$present += ($_ ? 1 : 0) for @$data;
 
-	display($dbg_probe,0,"probeTilemap($source->{id},$z,$x,$y,$rows,$cols) ".
+	display($dbg_meta,0,"metaTilemap($source->{id},$z,$x,$y,$rows,$cols) ".
 		"$present of ".scalar(@$data)." present");
 
 	return { ok => 1, ms => $got->{ms}, rows => $rows, cols => $cols,
@@ -598,7 +598,7 @@ sub probeTilemap
 # rendering
 #---------------------------------------------
 
-sub probeLines
+sub metaLines
 	# The findings as text, rendered ONCE for the console and the pane
 	# alike, which is the same discipline the build report and the analysis
 	# already follow.
@@ -874,7 +874,7 @@ sub serviceLayers
 	my $kvp = _kvpGetTile($xml);
 
 	my @blocks = ($xml =~ m{<Layer>(.*?)</Layer>}gs);
-	display($dbg_probe,0,"serviceLayers($kind) ".scalar(@blocks).
+	display($dbg_meta,0,"serviceLayers($kind) ".scalar(@blocks).
 		" layers in "._bytes(length $xml));
 
 	if ($prog)
@@ -987,7 +987,7 @@ sub serviceLayers
 		};
 	}
 
-	display($dbg_probe,0,"serviceLayers kept ".scalar(@layers)." of ".
+	display($dbg_meta,0,"serviceLayers kept ".scalar(@layers)." of ".
 		scalar(@blocks));
 
 	# DEEPEST FIRST, AND THAT IS GUIDANCE RATHER THAN A VERDICT.

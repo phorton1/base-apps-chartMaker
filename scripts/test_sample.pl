@@ -363,7 +363,17 @@ ok(scalar(grep { /FAILED/ } @$dl),"the report names the failures separately");
 # a repeated body is a candidate fingerprint
 #---------------------------------------------
 
-print "\n=== a repeated body is offered, never acted on ===\n";
+print "\n=== a repeated body is NOT this module's to notice ===\n";
+
+# THE SAMPLER NO LONGER LOOKS FOR ONE.  A repeated body is learned in
+# dm_fetch, where every tile this application receives passes, so a sample,
+# a build and a verify all feed one record rather than being three
+# detectors free to disagree.  Tested here only to the extent that this
+# module must not have grown its own opinion back.
+#
+# THESE TILES ARE PLANTED IN THE CACHE, so nothing was fetched and there is
+# correctly nothing to learn from them. Detection is exercised against real
+# fetches in test_fetch.pl.
 
 my ($apolys) = sampleScope('Alpha');
 plantLevel('samp_a',$apolys,9,$FILL);
@@ -373,10 +383,9 @@ my $f = sampleService('samp_a','Alpha',{ zmin => 9, zmax => 10 });
 ok($f->{totals}{found} > 0,"the fill tiles were found ($f->{totals}{found})");
 
 my $cand = obsField(getSource('samp_a'),'fp_candidates') // '';
-ok($cand =~ /^\d+:[0-9a-f]+$/,
-	"a candidate fingerprint was recorded as bytes:md5 ($cand)");
-ok(scalar(grep { length } split(/,/,$cand)) == 1,
-	"exactly one entry, however many times the body was seen");
+ok(!length($cand),
+	"a sample of CACHED tiles records no candidate, because nothing was ".
+	"fetched to learn from (got '$cand')");
 
 # NEVER ACTED ON.  The tiles are still imagery as far as everything else is
 # concerned; only a person editing the .tsd can change that.

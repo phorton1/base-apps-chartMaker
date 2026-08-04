@@ -90,6 +90,9 @@ BEGIN
 		obsError
 		obsRateLimited
 		obsCandidateFingerprint
+		obsCandidates
+		obsDeclineFingerprint
+		obsDeclined
 		obsMsPerTile
 		obsRecordRate
 		obsFlush
@@ -145,7 +148,7 @@ my @FIELDS = qw(
 	last_ok last_error last_error_at error_ring
 	saw_429 saw_429_at saw_429_interval saw_429_concurrency
 	clean_requests clean_concurrency ceiling
-	fp_candidates
+	fp_candidates fp_declined
 	meta_family meta_zmax meta_format meta_probed_at );
 
 # THE meta_ FIELDS COME FROM A DELIBERATE PROBE, everything else from work
@@ -154,7 +157,7 @@ my @FIELDS = qw(
 # knowledge rather than the author's claim - and separating them by how
 # they were obtained would put one truth in two places.
 
-my %IS_RING = ( error_ring => 1, fp_candidates => 1 );
+my %IS_RING = ( error_ring => 1, fp_candidates => 1, fp_declined => 1 );
 
 
 my %obs:shared;			# "<cache_key>/<field>" => scalar
@@ -401,18 +404,112 @@ sub obsCandidateFingerprint
 	# uniform icecap - would have real imagery declared missing, and nothing
 	# downstream could tell.  So a candidate waits here for a person to look
 	# at the picture and put it in the file.
+	#
+	# IT CARRIES A COORDINATE AND NOT A COPY OF THE TILE.  The tile is
+	# already in the cache; writing a second copy beside the record would
+	# duplicate every candidate, need a reaper as the list churns, and put
+	# the picture furthest from the moment it is most useful, which is when
+	# a cleanup is about to delete the real one.  So this keeps z/x/y and
+	# whoever wants to look reads the cache - or refetches one tile.
+	#
+	# AND A COUNT, because a repeat is the whole of the evidence.  Twice is
+	# the least that means anything and thousands of times is a different
+	# statement entirely, so the number is kept rather than a flag.
+	#
+	# THE HIGHEST COUNTS KEEP THE SPACE.  This is a bounded field like the
+	# error ring, but dropping the OLDEST would be wrong here: a fill that
+	# has been seen ten thousand times is exactly the entry a burst of
+	# one-off oddities would push out.
 {
-	my ($src,$bytes,$md5) = @_;
+	my ($src,$bytes,$md5,$z,$x,$y,$add) = @_;
 	my $key = _keyOf($src);
 	return if !$key || !$bytes || !$md5;
+	$add = 1 if !defined $add || $add < 1;
 
-	my $entry = "$bytes:$md5";
 	lock(%obs);
-	my $was = $obs{"$key/fp_candidates"} || '';
-	return if index(",$was,",",$entry,") >= 0;
-	_push($key,'fp_candidates',$entry);
+	my @all = grep { length } split(/,/,($obs{"$key/fp_candidates"} || ''));
+
+	my $found = 0;
+	for my $e (@all)
+	{
+		my @f = split(/:/,$e);
+		next if ($f[0] // '') ne $bytes || lc($f[1] // '') ne lc($md5);
+		$f[5] = ($f[5] || 0) + $add;
+		$e = join(':',@f);
+		$found = 1;
+		last;
+	}
+	push @all,join(':',$bytes,lc($md5),$z // 0,$x // 0,$y // 0,$add)
+		if !$found;
+
+	@all = sort { ((split(/:/,$b))[5] || 0) <=> ((split(/:/,$a))[5] || 0) } @all;
+	pop @all while @all > $RING;
+
+	$obs{"$key/fp_candidates"} = join(',',@all);
 	$dirty{$key} = 1;
-	display($dbg_observe,0,"obsCandidateFingerprint $key $entry");
+	display($dbg_observe,0,"obsCandidateFingerprint $key $bytes:$md5 +$add");
+}
+
+
+sub obsDeclineFingerprint
+	# A CANDIDATE SOMEBODY LOOKED AT AND SAID NO TO.
+	#
+	# WITHOUT THIS THE OFFER IS A NAG.  Every build and every probe of a
+	# source with real imagery that happens to repeat - a uniform icecap,
+	# a stretch of open ocean - would put the same picture in front of the
+	# same person forever, and the fastest way to make somebody stop
+	# reading a dialog is to ask them a question they have answered.
+	#
+	# NO IS NOT FOREVER, WHICH IS WHY IT IS A RING.  Six declines are
+	# remembered per source; a seventh pushes the oldest out and that one
+	# may be asked again.  A permanent no would be a second declaration
+	# with none of the visibility of the first, and the file is where a
+	# permanent answer belongs.
+{
+	my ($src,$md5) = @_;
+	my $key = _keyOf($src);
+	return if !$key || !$md5;
+
+	lock(%obs);
+	my $was = $obs{"$key/fp_declined"} || '';
+	return if index(",$was,",",".lc($md5).",") >= 0;
+	_push($key,'fp_declined',lc($md5));
+	$dirty{$key} = 1;
+	display($dbg_observe,0,"obsDeclineFingerprint $key $md5");
+}
+
+
+sub obsDeclined
+	# The md5s this source has been told are not blanks.
+{
+	my ($src) = @_;
+	my $key = _keyOf($src);
+	return () if !$key;
+	return grep { length } split(/,/,(obsField($key,'fp_declined') // ''));
+}
+
+
+sub obsCandidates
+	# What is on record, parsed, highest count first.
+	#	[ { bytes, md5, z, x, y, count } ]
+	#
+	# PARSED HERE AND NOWHERE ELSE.  Four surfaces will want to read this
+	# and a second parser is a second opinion about what the field means.
+{
+	my ($src) = @_;
+	my $key = _keyOf($src);
+	return () if !$key;
+
+	my @out;
+	for my $e (grep { length } split(/,/,(obsField($key,'fp_candidates') // '')))
+	{
+		my @f = split(/:/,$e);
+		next if scalar(@f) < 6;
+		push @out,{ bytes => $f[0] + 0, md5 => lc($f[1]),
+			z => $f[2] + 0, x => $f[3] + 0, y => $f[4] + 0,
+			count => $f[5] + 0 };
+	}
+	return @out;
 }
 
 

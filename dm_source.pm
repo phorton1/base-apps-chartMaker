@@ -62,6 +62,8 @@ BEGIN
 		getSourceFiles
 		getRefused
 		sourceFields
+		sourceListText
+		sourceListParse
 		checkSourceField
 		checkSource
 		readSourceFile
@@ -594,8 +596,87 @@ my @EDIT_FIELDS = (
 	[ 'license',        'big',      'License' ],
 	[ 'policy.max_concurrency','int','Max concurrent' ],
 	[ 'policy.min_interval_ms','int','Min interval ms' ],
+	[ 'absent_fingerprints','list','Absent fingerprints' ],
+	[ 'absent_headers', 'list',     'Absent headers' ],
 	[ 'notes',          'big',      'Notes' ],
 );
+
+
+#---------------------------------------------
+# the two absence lists, as text
+#---------------------------------------------
+# A LIST OF OBJECTS, EDITED AS LINES.  These are the only fields in the
+# format that are arrays of records, and the alternative to a text form is
+# a grid control with add and remove buttons for something most files use
+# once or never.  One entry per line, in the plainest form that survives
+# being retyped by hand:
+#
+#	absent_fingerprints   <bytes> <md5>
+#	absent_headers        <name>: <value>
+#
+# THE FORMAT LIVES HERE BECAUSE THE RULES DO.  The editor renders and
+# parses by calling this module, so what a person types is checked by the
+# same code that decides whether the resulting file loads.  A parser in the
+# dialog would be a second grammar, free to accept what the loader refuses.
+#
+# AN EMPTY BOX MEANS THE FIELD IS ABSENT, not that it is an empty array.
+# That matters: deleting the text is how somebody turns a fingerprint off
+# to see what the service really serves, which is a thing they will want to
+# do the moment they distrust one.
+
+sub sourceListText
+	# The stored array, as the text a person edits.
+{
+	my ($name,$val) = @_;
+	return '' if ref($val) ne 'ARRAY';
+
+	my @lines;
+	for my $e (@$val)
+	{
+		next if ref($e) ne 'HASH';
+		push @lines,"$e->{bytes} $e->{md5}"
+			if $name eq 'absent_fingerprints' &&
+			   defined $e->{bytes} && defined $e->{md5};
+		push @lines,"$e->{name}: $e->{value}"
+			if $name eq 'absent_headers' &&
+			   defined $e->{name} && defined $e->{value};
+	}
+	return join("\n",@lines);
+}
+
+
+sub sourceListParse
+	# ($name,$text) -> (\@list,$why).  $why is '' or the one reason, and on
+	# a reason the list is undef: a half parsed absence list is worse than
+	# none, because the half that parsed would silently take effect.
+{
+	my ($name,$text) = @_;
+	$text = '' if !defined $text;
+
+	my @out;
+	my $n = 0;
+	for my $line (split(/\r?\n/,$text))
+	{
+		$n++;
+		next if $line !~ /\S/;
+		$line =~ s/^\s+|\s+$//g;
+
+		if ($name eq 'absent_fingerprints')
+		{
+			return (undef,"line $n must be '<bytes> <md5>'")
+				if $line !~ /^(\d+)\s+([0-9a-fA-F]{32})$/;
+			return (undef,"line $n: bytes must be a positive whole number")
+				if $1 < 1;
+			push @out,{ bytes => $1 + 0, md5 => lc($2) };
+			next;
+		}
+
+		return (undef,"line $n must be '<header-name>: <value>'")
+			if $line !~ /^([A-Za-z0-9][A-Za-z0-9._-]*)\s*:\s*(.+)$/;
+		push @out,{ name => $1, value => $2 };
+	}
+	return (\@out,'');
+}
 
 sub sourceFields
 	# The fields the editor offers, in the order it offers them.  tile_size
@@ -661,6 +742,16 @@ sub checkSourceField
 	return "must be a short name like 'GCJ-02'"
 		if $name eq 'displacement' && $val =~ /\S/ &&
 		   $val !~ /^[A-Za-z0-9][A-Za-z0-9 ._-]{0,31}$/;
+
+	# THE TWO ABSENCE LISTS, PARSED BY THE ONE PARSER.  Asking it rather
+	# than restating its grammar here is what keeps the box and the loader
+	# from disagreeing about the same three lines of text.
+
+	if ($name eq 'absent_fingerprints' || $name eq 'absent_headers')
+	{
+		my (undef,$why) = sourceListParse($name,$val);
+		return $why if $why;
+	}
 
 	if ($name eq 'url' && $val =~ /\S/)
 	{

@@ -858,7 +858,7 @@ sub _attachTo
 
 sub catalogAttach
 	# Hang a service's own layer list under the group that names it.
-	# ($node,$layers) -> (added,skipped).  $layers is what dm_probe's
+	# ($node,$layers) -> (added,skipped).  $layers is what dm_meta's
 	# serviceLayers returned, and this module knows nothing about how it
 	# was obtained -- which is what keeps the protocol reader out of here.
 	#

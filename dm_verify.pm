@@ -72,8 +72,9 @@ use cm_state;
 use dm_source;
 use dm_region;
 use dm_catalog;
+use dm_observe;
 use dm_fetch;
-use dm_probe;
+use dm_meta;
 
 
 BEGIN
@@ -83,6 +84,8 @@ BEGIN
 		verifySource
 		verifyLines
 		verifyHeadline
+		verifyOffers
+		verifyNewCandidates
 		verifyPlaces
 		verifyWorker
 	);
@@ -101,11 +104,12 @@ my $MAX_LEVELS = 24;
 	# may state, so this bounds a runaway rather than sampling a column:
 	# nothing is ever silently left unasked.
 
-my $REAL_COLUMN = 4000;
-	# BELOW THIS A COLUMN IS TOO LIGHT TO JUDGE ANYTHING BY.  An overlay of
-	# seamarks is mostly small tiles honestly, and calling its ordinary
-	# output suspicious would make the suspicion worthless.  Only the ratio
-	# rule uses this; the repeated-image rule needs no threshold at all.
+my $OFFER_AT = 2;
+	# TWICE IS THE LEAST THAT MEANS ANYTHING.  One sighting of a body is a
+	# tile; the same body at two unrelated coordinates is the beginning of
+	# evidence.  The same number dm_fetch reports at, restated here because
+	# this module decides what to SHOW and that is a different decision
+	# from what to record.
 
 
 #---------------------------------------------
@@ -360,7 +364,7 @@ sub _column
 			(defined $lev->{bytes} ? " $lev->{bytes} bytes" : ''));
 	}
 
-	_suspect($col);
+	_suspect($source,$col);
 	display($dbg_verify,0,"column at $place->{where}: ".
 		(_span($col) || 'nothing at any declared level'));
 	return $col;
@@ -368,70 +372,37 @@ sub _column
 
 
 sub _suspect
-	# A TILE THAT IS PROBABLY THE SERVICE SAYING 'NOTHING HERE' WITH A 200.
+	# WHAT THE OBSERVATION RECORD ALREADY KNOWS, MARKED ON THE COLUMN.
 	#
-	# THE COLUMN IS THE ONLY BASELINE THERE IS, and it gives two signals of
-	# very different strength, so they are said in different words.
+	# NOTHING IS COMPUTED HERE.  Repeated bodies are learned in dm_fetch,
+	# where every tile this application receives passes, so a second rule
+	# in this module would be a second opinion about the same evidence and
+	# free to disagree with it on screen.
 	#
-	# THE SAME IMAGE AT SEVERAL LEVELS IS CONCLUSIVE and needs no threshold
-	# to say so.  Zooming in changes what a tile contains, always, so one
-	# identical image answering four different levels is not imagery at any
-	# of them.  Measured at Singapore: Esri World Imagery declares z23 and
-	# returns the same 2521 byte JPEG at z20, z21, z22 and z23.  Its real
-	# ceiling there is z19 and its declared one is four levels higher.
+	# IT STILL WORKS ON A SERVICE NEVER FETCHED BEFORE, which was the one
+	# reason to keep a local rule: this column's OWN fetches went through
+	# dm_fetch on the way here.  Esri's fill answers four levels of a
+	# column, so it reaches the record's threshold during the run that is
+	# about to report it.
 	#
-	# FAR SMALLER THAN ITS OWN COLUMN is weaker and is only a suspicion.
-	# A byte count means nothing alone - open water is genuinely small -
-	# but 929 bytes among tiles running to 16 KB is what a declared blank
-	# looks like, and a file with no fingerprint is exactly the file that
-	# cannot tell.
-	#
-	# NEITHER COUNTS AS ABSENT AND NEITHER IS WRITTEN.  The md5 is carried
-	# so a person can accept it as a fingerprint if they agree.
+	# AND SIZE ALONE MARKS NOTHING.  A nearly uniform tile compresses to a
+	# few hundred bytes whether it is a server's blank or the Caribbean,
+	# and this application is pointed at water more than at anything else.
+	# Measured: Esri at Bocas del Toro answers z14 to z18 with 865 to 1089
+	# byte tiles against a column middle of 8259, and every one of them is
+	# real imagery of the sea.
 {
-	my ($col) = @_;
+	my ($source,$col) = @_;
 
-	my @tiles = grep { $_->{state} eq 'tile' } @{$col->{levels}};
-	return if !@tiles;
+	my %known = map { $_->{md5} => $_ } verifyNewCandidates($source);
+	return if !%known;
 
-	# ONE IMAGE ANSWERING SEVERAL LEVELS.  Conclusive, so it is stated as a
-	# fact, marked on every level it covers, and it is the ONLY thing that
-	# earns a fingerprint offer: offering to declare a tile absent is
-	# offering to make this application ignore it forever.
-
-	my %at;
-	push @{$at{$_->{md5}}},$_->{z} for @tiles;
-	for my $lev (@tiles)
+	for my $lev (@{$col->{levels}})
 	{
-		my $zs = $at{$lev->{md5}};
-		next if scalar(@$zs) < 2;
-		$lev->{flag}  = 'same image as z'.join(', z',grep { $_ != $lev->{z} } @$zs);
-		$lev->{offer} = 1;
-	}
-
-	# AND THE WEAK ONE, WHICH CANNOT TELL A BLANK FROM OPEN WATER.
-	#
-	# A nearly uniform tile compresses to a few hundred bytes whether it is
-	# a server's blank or the Caribbean, and this application is pointed at
-	# water more than at anything else.  Measured: Esri at Bocas del Toro
-	# answers z14 to z18 with 865 to 1089 byte tiles against a column
-	# middle of 8259, and every one of them is real imagery of the sea.
-	#
-	# SO IT SAYS TWO WORDS AND OFFERS NOTHING.  The byte counts are on
-	# screen beside it; a sentence explaining them would be the machine
-	# arguing for a conclusion only somebody looking at the tiles can
-	# reach.
-
-	my @sizes = sort { $a <=> $b } map { $_->{bytes} } @tiles;
-	return if scalar(@sizes) < 3;
-
-	my $mid = $sizes[int(scalar(@sizes)/2)];
-	return if $mid < $REAL_COLUMN;
-
-	for my $lev (@tiles)
-	{
-		next if $lev->{flag};
-		$lev->{flag} = 'small tile' if $lev->{bytes} * 4 < $mid;
+		next if $lev->{state} ne 'tile';
+		my $c = $known{$lev->{md5} // ''} or next;
+		$lev->{flag}  = 'poss sentinel';
+		$lev->{offer} = $c;
 	}
 }
 
@@ -492,8 +463,17 @@ sub _fieldValue
 	# A field name may be dotted - zoom.max, policy.min_interval_ms - and
 	# the editor names them that way, so the same names have to reach it
 	# back or nothing it is told can be painted.
+	#
+	# AND TWO OF THEM ARE LISTS.  checkSourceField takes the TEXT a person
+	# would type, so handing it the stored array stringifies a reference
+	# into the check and refuses every well formed file that declares a
+	# fingerprint - which is every file this feature is about.
 {
 	my ($source,$name) = @_;
+
+	return sourceListText($name,$source->{$name})
+		if $name eq 'absent_fingerprints' || $name eq 'absent_headers';
+
 	return $source->{$name} if $name !~ /\./;
 	my ($a,$b) = split(/\./,$name,2);
 	return ref($source->{$a}) eq 'HASH' ? $source->{$a}{$b} : undef;
@@ -530,7 +510,7 @@ sub _unplaced
 	# tile services publish no machine readable description at all, and
 	# 'this one does not' is a true answer rather than a failure.
 
-	my $found = probeSource($source);
+	my $found = metaSource($source);
 	$out->{family} = $found->{family};
 	$out->{facts}  = $found->{facts} || [];
 
@@ -682,7 +662,7 @@ sub verifySource
 # rendering
 #---------------------------------------------
 # ONE RENDERING, THREE SURFACES - the dialog, the console and a headless
-# test read exactly the same lines.  The same reason dm_probe renders its
+# test read exactly the same lines.  The same reason dm_meta renders its
 # own findings: text only a wx control can produce is text no test can
 # read, and this is the text somebody decides on.
 
@@ -701,6 +681,53 @@ my %MARK = (
 	garbage => 'NOT AN IMAGE',
 	error   => 'error',
 );
+
+
+sub verifyNewCandidates
+	# ($source) -> the candidates worth putting in front of somebody.
+	#
+	# THREE THINGS DISQUALIFY ONE, and they are the whole of the filter:
+	# seen once, because one sighting of a body is a tile; already declared,
+	# because the file has answered that question; and already declined,
+	# because asking somebody something they have answered is the fastest
+	# way to make them stop reading dialogs.
+	#
+	# HERE RATHER THAN IN EACH SURFACE.  The editor asks it after a Test, a
+	# build report asks it at the end of a build, and the probe pane asks it
+	# when a run stops.  Three copies of this would be three chances to
+	# offer something one of them should not have.
+{
+	my ($source) = @_;
+	return () if !$source;
+
+	my %declared = map { lc($_->{md5} // '') => 1 }
+		@{ $source->{absent_fingerprints} || [] };
+	my %declined = map { $_ => 1 } obsDeclined($source);
+
+	return grep { $_->{count} >= $OFFER_AT &&
+				  !$declared{$_->{md5}} &&
+				  !$declined{$_->{md5}} } obsCandidates($source);
+}
+
+
+sub verifyOffers
+	# The candidates this finding touched, highest count first.  ONE walk,
+	# here, because the dialog offers them, the editor accepts them and the
+	# report prints them, and three walks would be three chances to differ.
+{
+	my ($out) = @_;
+	return () if !$out;
+
+	my %seen;
+	for my $col (@{$out->{columns} || []})
+	{
+		for my $lev (@{$col->{levels} || []})
+		{
+			$seen{$lev->{offer}{md5}} = $lev->{offer} if $lev->{offer};
+		}
+	}
+	return sort { $b->{count} <=> $a->{count} } values %seen;
+}
 
 
 sub verifyHeadline
@@ -805,28 +832,25 @@ sub verifyLines
 
 	# THE OFFER, LAST, AND IT IS AN OFFER.
 
-	# ONLY THE CONCLUSIVE RULE OFFERS ONE.  Offering to declare a tile
-	# absent is offering to make every part of this application ignore it
-	# forever, and a guess is not enough to earn that.
+	# THE CANDIDATES THIS SOURCE HAS ACCUMULATED, which are a fact about
+	# the service rather than about this run - so the count is what is
+	# shown, and it can be far larger than anything this column saw.
 
-	my %offer;
-	for my $col (@{$out->{columns}})
-	{
-		$offer{$_->{md5}} = $_ for grep { $_->{offer} } @{$col->{levels}};
-	}
-	if (%offer)
+	my @offers = verifyOffers($out);
+	if (@offers)
 	{
 		push @l,'A BLANK THIS FILE DOES NOT DECLARE:';
 		push @l,'';
-		push @l,wrapText('  One image is answering several levels, which no '.
-			'imagery does. Adding the bytes and md5 below to '.
-			'absent_fingerprints would let every part of this application '.
-			'tell that tile from imagery. Nothing has been added.',76);
+		push @l,wrapText('  One image is answering unrelated places, which '.
+			'no imagery does. Declaring it as an absent_fingerprint would '.
+			'let every part of this application tell that tile from '.
+			'imagery. Nothing has been declared.',76);
 		push @l,'';
-		for my $s (sort { $a->{z} <=> $b->{z} } values %offer)
+		for my $s (@offers)
 		{
-			push @l,sprintf("    { \"bytes\": %d, \"md5\": \"%s\" }",
-				$s->{bytes},$s->{md5});
+			push @l,sprintf("    %d bytes, md5 %s",$s->{bytes},$s->{md5});
+			push @l,sprintf("    seen %d times, first at z%d/%d/%d",
+				$s->{count},$s->{z},$s->{x},$s->{y});
 		}
 		push @l,'';
 	}

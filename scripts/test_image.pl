@@ -177,25 +177,13 @@ ok(!defined imageDetailRatio(\$junk2,jpegOf($fine),0,0),
 	"an undecodable parent yields no ratio");
 
 
-print "\n=== the exemplar ===\n";
+print "\n=== describing a candidate ===\n";
 
-my $src = { id => 'test_src', cache_key => 'test_src', tile_format => 'jpeg' };
-my $dir = "$Pub::Utils::temp_dir/observations/test_src.fp";
-unlink glob("$dir/*") if -d $dir;
+# NO EXEMPLAR IS KEPT ANY MORE.  A candidate carries z/x/y and the tile is
+# read from the cache, so there is no second copy to test.  What remains is
+# the RANKING, which is what a person reads before deciding to look.
 
 my $bytes = jpegOf($flat);
-ok(imageKeepExemplar($src,'deadbeef',$bytes),"an exemplar is kept");
-
-my $path = "$dir/deadbeef.jpeg";
-ok(-f $path,"as a real file at $path");
-ok(-s $path > 100,"with the actual bytes in it (".(-s $path)." bytes)");
-
-# ONE COPY, NOT ONE PER SIGHTING.  A repeated body is identical wherever it
-# appears, so the second sighting must not rewrite it.
-my $was = (stat($path))[9];
-ok(imageKeepExemplar($src,'deadbeef',$bytes),"keeping it again succeeds");
-ok((stat($path))[9] == $was,"and does not rewrite the file");
-
 ok(imageDescribe($bytes) =~ /blue/,
 	"imageDescribe names the colour: ".imageDescribe($bytes));
 

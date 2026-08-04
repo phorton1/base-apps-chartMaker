@@ -32,7 +32,7 @@ use cm_defs;
 use cm_state;
 use dm_source;
 use dm_cache;
-use dm_probe;
+use dm_meta;
 use w_source;
 use w_catalog;
 use base qw(Wx::SplitterWindow Pub::WX::Window);
@@ -109,11 +109,17 @@ sub new
 	# to the network, which is why it says so and why it is not run on
 	# selection.
 
-	$this->{ctl_probe} = Wx::Button->new($right,-1,'Probe',
+	# CALLED METADATA AND NOT PROBE.  Two acts in this application go to a
+	# service and report what they found, and this is the smaller one: it
+	# reads a description and fetches no imagery at all.  THE PROBE is the
+	# other one - the placed sweep with the marks on the map - and having
+	# both called probe made every sentence about either one ambiguous.
+
+	$this->{ctl_meta} = Wx::Button->new($right,-1,'Metadata',
 		wxDefaultPosition,[$LBL,-1]);
-	$this->{ctl_probe}->SetToolTip(
+	$this->{ctl_meta}->SetToolTip(
 		'Ask the service what it says about itself - one request, no imagery');
-	$this->{ctl_probe}->Enable(0);
+	$this->{ctl_meta}->Enable(0);
 
 	$this->{ctl_edit} = Wx::Button->new($right,-1,'Edit',
 		wxDefaultPosition,[$LBL,-1]);
@@ -152,7 +158,7 @@ sub new
 	$row->AddSpacer(10);
 	$row->Add($this->{ctl_rescan},0,$CV,0);
 	$row->AddSpacer(10);
-	$row->Add($this->{ctl_probe},0,$CV,0);
+	$row->Add($this->{ctl_meta},0,$CV,0);
 	$row->AddSpacer(10);
 	$row->Add($this->{ctl_edit},0,$CV,0);
 	$row->AddSpacer(10);
@@ -184,7 +190,7 @@ sub new
 		for ($MENU_NEW, $MENU_CATALOG, $MENU_EDIT, $MENU_DELETE);
 	EVT_BUTTON($this,$this->{ctl_use},\&onUse);
 	EVT_BUTTON($this,$this->{ctl_rescan},\&onRescan);
-	EVT_BUTTON($this,$this->{ctl_probe},\&onProbe);
+	EVT_BUTTON($this,$this->{ctl_meta},\&onMeta);
 	EVT_BUTTON($this,$this->{ctl_edit},sub { $this->editSelected() });
 	EVT_BUTTON($this,$this->{ctl_catalog},sub { $this->catalogDialog() });
 
@@ -608,7 +614,7 @@ sub onSelect
 }
 
 
-sub onProbe
+sub onMeta
 	# ON THE MAIN THREAD, ON PURPOSE.  Every other network act in this
 	# application is on a worker with a progress dialog, because a fill is
 	# thousands of requests over hours.  This is ONE request, and the two
@@ -625,13 +631,13 @@ sub onProbe
 	my $src = $id ? getSource($id) : undef;
 	return if !$src;
 
-	$this->{ctl_probe}->Enable(0);
+	$this->{ctl_meta}->Enable(0);
 	$this->{ctl_what}->SetLabel('asking the service...');
 	$this->{props}->SetValue("asking $src->{name}...\n");
 	$this->{props}->Update();
 
 	my $busy = Wx::BusyCursor->new();
-	my $found = probeSource($src);
+	my $found = metaSource($src);
 	undef $busy;
 
 	$this->{probed} = $found;
@@ -653,7 +659,7 @@ sub showProperties
 	if (!$node)
 	{
 		$this->{ctl_use}->Enable(0);
-		$this->{ctl_probe}->Enable(0);
+		$this->{ctl_meta}->Enable(0);
 		$this->{ctl_edit}->Enable(0);
 		$this->{ctl_what}->SetLabel('');
 		$this->{ctl_why}->SetLabel('');
@@ -669,7 +675,7 @@ sub showProperties
 	if (!$src)
 	{
 		$this->{ctl_use}->Enable(0);
-		$this->{ctl_probe}->Enable(0);
+		$this->{ctl_meta}->Enable(0);
 		$this->{ctl_edit}->Enable(1);
 		$this->{ctl_what}->SetLabel('');
 		$this->{ctl_why}->SetLabel("REFUSED - ".($node->{why} // ''));
@@ -687,7 +693,7 @@ sub showProperties
 	my $active = _activeId();
 	my $is_on  = ($active && $id eq $active) ? 1 : 0;
 	$this->{ctl_use}->Enable($is_on ? 0 : 1);
-	$this->{ctl_probe}->Enable(1);
+	$this->{ctl_meta}->Enable(1);
 	$this->{ctl_what}->SetLabel($is_on ? 'shown on the map' : '');
 
 	# THE PROBE'S FINDINGS REPLACE THE PANEL RATHER THAN JOINING IT, and
@@ -701,7 +707,7 @@ sub showProperties
 	{
 		$this->{ctl_what}->SetLabel('what the SERVICE says - select again '.
 			'for what the FILE says');
-		$this->{props}->SetValue(join("\n",@{probeLines($this->{probed})})."\n");
+		$this->{props}->SetValue(join("\n",@{metaLines($this->{probed})})."\n");
 		return;
 	}
 

@@ -30,7 +30,7 @@ use dm_cache;
 use dm_fetch;
 use dm_observe;
 use dm_engine;
-use dm_probe;
+use dm_meta;
 use dm_region;
 use dm_coverage;
 use cm_config;
@@ -136,6 +136,9 @@ sub commandHelp
 		[ 'config rate <src> <ms>',		'go no faster than this (on top of the TSD)'],
 		[ 'config reset',		'back to defaults, removing build.json'				],
 		[ 'analyse [id|set|all]','what a fetch/build would cost - reads nothing else'],
+		[ 'meta <id>',			'what a service says about ITSELF - one request, no imagery'],
+		[ 'meta <id> <z> <x> <y> [n]',
+										'which tiles an n x n block holds, in one request'],
 		[ 'sample <tsd> <region>[/<sub>] [zmin zmax] [nodepth]',
 										'probe ONE service over an area - is it worth using?'],
 		[ 'fetch <id|set|all> [zmax]',	'fill the cache with every tile the build will read'],
@@ -371,11 +374,11 @@ sub _engineCommand
 }
 
 
-sub _probeCommand
-	# 'probe <id>'            what the service says about itself
-	# 'probe <id> <z> <x> <y> [n]'   which tiles an n x n block holds
+sub _metaCommand
+	# 'meta <id>'             what the service says about itself
+	# 'meta <id> <z> <x> <y> [n]'    which tiles an n x n block holds
 	#
-	# THE SAME RENDERING THE PANE READS.  probeLines is called here and by
+	# THE SAME RENDERING THE PANE READS.  metaLines is called here and by
 	# winSources, so the console and the window cannot drift -- the same
 	# discipline the build report and the analysis already follow.
 {
@@ -384,14 +387,14 @@ sub _probeCommand
 
 	if (!defined($id) || !length($id))
 	{
-		warning(0,0,"probe: usage is 'probe <id>' or ".
-			"'probe <id> <z> <x> <y> [block]'");
+		warning(0,0,"meta: usage is 'meta <id>' or ".
+			"'meta <id> <z> <x> <y> [block]'");
 		return;
 	}
 	my $src = getSource($id);
 	if (!$src)
 	{
-		warning(0,0,"probe: no source with id '$id'");
+		warning(0,0,"meta: no source with id '$id'");
 		return;
 	}
 
@@ -402,13 +405,13 @@ sub _probeCommand
 	if (defined $y)
 	{
 		$n ||= 8;
-		my $tm = probeTilemap($src,$z,$x,$y,$n,$n);
+		my $tm = metaTilemap($src,$z,$x,$y,$n,$n);
 		if (!$tm->{ok})
 		{
-			warning(0,0,"probe: $tm->{reason}");
+			warning(0,0,"meta: $tm->{reason}");
 			return;
 		}
-		display(0,0,"probe $id tilemap $z/$x/$y ${n}x${n}");
+		display(0,0,"meta $id tilemap $z/$x/$y ${n}x${n}");
 		display(0,1,"$tm->{count_present} of $tm->{count_total} present ".
 			"in $tm->{ms} ms, one request");
 
@@ -424,7 +427,7 @@ sub _probeCommand
 		return;
 	}
 
-	display(0,1,$_) for @{probeLines(probeSource($src))};
+	display(0,1,$_) for @{metaLines(metaSource($src))};
 }
 
 
@@ -588,10 +591,11 @@ sub _sampleCommand
 	# names those, the BUILD answers coverage exactly within them, and
 	# sampling would re-derive a thing already known precisely.
 	#
-	# 'sample', NOT 'probe', AND THE COLLISION IS THE REASON.  'probe' is
-	# already the verb for asking a service what it says about ITSELF,
-	# which is placeless and costs one request.  This is the placed
-	# question and costs hundreds, so they are two verbs.
+	# 'sample' IS THE VERB AND PROBE IS THE FEATURE.  Asking a service what
+	# it says about ITSELF is 'meta' - placeless, one request, no imagery.
+	# This is the placed question, it costs hundreds of requests, and it is
+	# what a person means by probing.  The two were both called probe once,
+	# which made every sentence about either of them ambiguous.
 	#
 	# THE CONSOLE FACE OF PROBE MODE, because the vocabulary rule says
 	# nothing may be reachable only from a dialog - and because it makes
@@ -1695,9 +1699,9 @@ sub dispatchCommand
 	{
 		_tileCommand($rpart);
 	}
-	elsif ($lpart eq 'probe')
+	elsif ($lpart eq 'meta')
 	{
-		_probeCommand($rpart);
+		_metaCommand($rpart);
 	}
 	elsif ($lpart eq 'engine')
 	{

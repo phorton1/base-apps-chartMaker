@@ -25,7 +25,7 @@ use dm_source;
 use dm_fetch;
 use dm_observe;
 use dm_catalog;
-use dm_probe;
+use dm_meta;
 use dm_verify;
 
 my $TMP = 'C:/_temp/base-apps-chartMaker';
@@ -170,35 +170,137 @@ sub sized
 		$col->{levels}[$z]{md5}   = $p->[1];
 		$z++;
 	}
-	dm_verify::_suspect($col);
 	return $col;
 }
 
-my $same = sized([20000,'a'],[19000,'b'],[18000,'c'],
-	[2521,'z'],[2521,'z'],[2521,'z']);
-ok(($same->{levels}[3]{flag} // '') =~ /same image as z4, z5/,
-	'one image answering three levels is named as one image, not three tiles');
-ok($same->{levels}[3]{offer},
-	'and it is the only thing that earns a fingerprint offer, because '.
-	'offering one is offering to ignore that tile forever');
-ok(!$same->{levels}[0]{flag},
-	'the levels that really did differ are left alone');
+# NOTHING IS COMPUTED HERE ANY MORE.  Repeated bodies are learned in
+# dm_fetch, where every tile passes, so this module reads the observation
+# record and marks what it already knows.  A second rule here would be a
+# second opinion about the same evidence, free to disagree with it on the
+# one screen somebody is reading in order to decide.
 
-# A SMALL TILE IS FLAGGED IN TWO WORDS AND ARGUES NOTHING.  Measured: Esri
-# at Bocas del Toro answers z14 to z18 with 865 to 1089 byte tiles against
-# a column middle of 8259, and every one of them is real imagery of the
-# sea.  A nearly uniform tile compresses the same whether it is a blank or
-# the Caribbean, and this application is pointed at water.
+my $vsrc = { id => 'vfy_marks', cache_key => 'vfy_marks',
+			 tile_format => 'jpeg' };
 
-my $small = sized([20000,'a'],[19000,'b'],[18000,'c'],[929,'d']);
-ok(($small->{levels}[3]{flag} // '') eq 'small tile',
-	'a tile far smaller than its own column says so in two words');
-ok(!$small->{levels}[3]{offer},
-	'and offers nothing, because it cannot tell a blank from open water');
+obsCandidateFingerprint($vsrc,2521,'z' x 32,20,3,4,9);
 
-my $light = sized([900,'a'],[800,'b'],[700,'c'],[150,'d']);
-ok(!$light->{levels}[3]{flag},
-	'a column of honestly small tiles - an overlay - flags nothing');
+my $marked = sized([20000,'a' x 32],[19000,'b' x 32],
+					[2521,'z' x 32],[2521,'z' x 32]);
+dm_verify::_suspect($vsrc,$marked);
+
+ok(($marked->{levels}[2]{flag} // '') eq 'poss sentinel',
+	'a level whose body the record knows is marked poss sentinel');
+ok($marked->{levels}[2]{offer} &&
+   $marked->{levels}[2]{offer}{count} == 9,
+	"and carries the record's own count, which is a fact about the ".
+	'service rather than about this run');
+ok(!$marked->{levels}[0]{flag},
+	'a body the record has never seen is marked nothing at all');
+
+# SIZE ALONE MARKS NOTHING.  Measured: Esri at Bocas del Toro answers z14
+# to z18 with 865 to 1089 byte tiles against a column middle of 8259, and
+# every one of them is real imagery of the sea.
+
+my $small = sized([20000,'a' x 32],[19000,'b' x 32],
+					[18000,'c' x 32],[929,'d' x 32]);
+dm_verify::_suspect($vsrc,$small);
+ok(!$small->{levels}[3]{flag},
+	'a small tile the record does not know is NOT marked - a blank and '.
+	'open water weigh the same');
+
+# AND A CANDIDATE SEEN ONCE IS NOT SHOWN.  One sighting of a body is a
+# tile; twice is the beginning of evidence.
+
+my $vonce = { id => 'vfy_once', cache_key => 'vfy_once', tile_format => 'jpeg' };
+obsCandidateFingerprint($vonce,2521,'y' x 32,20,3,4,1);
+my $once = sized([20000,'a' x 32],[2521,'y' x 32]);
+dm_verify::_suspect($vonce,$once);
+ok(!$once->{levels}[1]{flag},
+	'a candidate the record has seen once is not marked');
+
+# THREE THINGS DISQUALIFY A CANDIDATE, and an offer point in a build report
+# has to apply all three or it becomes a nag.
+
+my $vq = { id => 'vfy_q', cache_key => 'vfy_q', tile_format => 'jpeg' };
+obsCandidateFingerprint($vq,2521,'a' x 32,20,1,1,9);   # offerable
+obsCandidateFingerprint($vq,900, 'b' x 32,20,1,1,1);   # seen once
+obsCandidateFingerprint($vq,700, 'c' x 32,20,1,1,9);   # will be declared
+obsCandidateFingerprint($vq,600, 'd' x 32,20,1,1,9);   # will be declined
+
+$vq->{absent_fingerprints} = [ { bytes => 700, md5 => 'c' x 32 } ];
+obsDeclineFingerprint($vq,'d' x 32);
+
+my @new = verifyNewCandidates($vq);
+ok(scalar(@new) == 1 && $new[0]{md5} eq 'a' x 32,
+	'only the one that is repeated, undeclared and not yet declined is '.
+	'offered (got '.scalar(@new).')');
+
+obsDeclineFingerprint($vq,'a' x 32);
+ok(!scalar(verifyNewCandidates($vq)),
+	'and saying no to it stops it being asked again');
+
+
+#---------------------------------------------
+# accepting one with no editor open
+#---------------------------------------------
+# THE OTHER HALF OF THE CONTRACT.  With an editor open the pair goes into
+# its visible row and Save writes it; at the end of a build or a probe
+# there is no editor, nothing to race, and the file is written here.
+#
+# THE FILE IS READ AND REWRITTEN, never the loaded source hash - which
+# carries fields the loader added and the file does not have.
+
+print "\n--- accepting a fingerprint with no editor open ---\n";
+
+require w_blank;
+
+my $SDIR = "$TMP/verify/sources";
+mkdir $SDIR if !-d $SDIR;
+open(my $sfh,'>',"$SDIR/wtest.tsd") or die $!;
+print $sfh <<'EOJ';
+{
+  "tsd_version": 1,
+  "id": "wtest",
+  "cache_key": "wtest",
+  "name": "write test",
+  "url": "https://w.example.com/{z}/{x}/{y}.jpg",
+  "zoom": { "min": 0, "max": 19 },
+  "attribution": "test",
+  "uses": ["display"]
+}
+EOJ
+close $sfh;
+rescanSources();
+
+my $wsrc = getSource('wtest');
+ok($wsrc && !$wsrc->{absent_fingerprints},
+	'a source with no fingerprints loads');
+
+my $cand = { bytes => 2521, md5 => 'e' x 32, z => 20, x => 1, y => 2,
+			 count => 4 };
+ok(w_blank::_writeInto($wsrc,$cand),'accepting one writes the file');
+
+rescanSources();
+my $after = getSource('wtest');
+ok($after && @{$after->{absent_fingerprints} || []} == 1 &&
+   $after->{absent_fingerprints}[0]{bytes} == 2521 &&
+   $after->{absent_fingerprints}[0]{md5} eq 'e' x 32,
+	'and the file still LOADS, with the pair in it');
+
+# ACCEPTING THE SAME ONE TWICE IS A NO-OP.  Two identical entries would
+# never match anything the loader normalises, and the second is not an
+# error - somebody may simply have been asked again.
+
+ok(!w_blank::_writeInto($after,$cand),'accepting it again writes nothing');
+rescanSources();
+ok(@{getSource('wtest')->{absent_fingerprints}} == 1,
+	'and does not double the entry');
+
+# AND IT IS NO LONGER OFFERED, because the file has answered the question.
+
+obsCandidateFingerprint(getSource('wtest'),2521,'e' x 32,20,1,2,9);
+ok(!scalar(verifyNewCandidates(getSource('wtest'))),
+	'a declared fingerprint stops being a candidate anywhere');
 
 
 #---------------------------------------------

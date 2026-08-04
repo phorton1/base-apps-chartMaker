@@ -536,10 +536,14 @@ tiles a run fetched are in the cache.
 
 - **rate statistics**, as every other act already contributes.
 - **candidate fingerprints.** A body that comes back byte-identical at several different
-  coordinates is offered as a possible "no tile" marker, with one copy of the image kept beside
-  the observation record so a person can look at it. **Never acted on** - a source that
-  legitimately serves identical tiles, open ocean or a uniform icecap, would have real imagery
-  declared missing and nothing downstream could tell. A person promotes it into the `.tsd`.
+  coordinates is offered as a possible "no tile" marker. **The probe does not find these** -
+  they are learned in [the fetch path](tsd_editor.md#every-fetch-teaches), where every tile
+  passes, so a sample contributes to the same record a build and a verify do rather than
+  being one of several detectors free to disagree. What is recorded is a coordinate rather
+  than a copy of the image, because the tile is already in the cache. **Never acted on** - a
+  source that legitimately serves identical tiles, open ocean or a uniform icecap, would have
+  real imagery declared missing and nothing downstream could tell. A person looks at the tile
+  and promotes it into the `.tsd`.
 
 ## Editor and preview are one component in two modes
 

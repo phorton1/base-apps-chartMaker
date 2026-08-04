@@ -57,6 +57,7 @@ use dm_verify;
 use w_ini;
 use w_progress;
 use w_verify;
+use w_blank;
 use base qw(Wx::Dialog);
 
 
@@ -98,6 +99,7 @@ my $H_MIN	= 300;
 sub _rowHeight
 {
 	my ($name,$kind) = @_;
+	return 46 if $kind eq 'list';
 	return 24 if $kind ne 'big';
 	return 50 if $name eq 'license';
 	return 80 if $name eq 'notes';
@@ -115,9 +117,9 @@ sub new
 	# dialog was 806 pixels tall and its Save button sat below the bottom
 	# edge - the one layout fault a modal cannot survive, because there is no
 	# way out of it and no way to see that there was supposed to be.  A
-	# field list also grows: credentials and the two absence lists have no
-	# controls yet and will want them.  So the height is chosen for the
-	# SCREEN, the fields scroll inside it, and the way out is always visible.
+	# field list also grows: the two absence lists were added to it.  So the
+	# height is chosen for the SCREEN, the fields scroll inside it, and the
+	# way out is always visible.
 
 	# WHERE IT WAS LEFT, AND HOW BIG IT WAS LEFT.  Moving and resizing a
 	# dialog is the user saying where they want it; reopening in the middle
@@ -157,13 +159,19 @@ sub new
 	$this->{rows}    = [];
 	$this->{proven}  = {};		# field => a web hit's refutation
 
-	# WHAT IS NOT EDITED IS STILL CARRIED.  credentials and the two absence
-	# lists have no controls in this phase, and a file that lost them by
-	# passing through the editor would be a file quietly damaged by being
-	# looked at.
+	# WHAT IS NOT EDITED IS STILL CARRIED.  credentials has no control - it
+	# is a list of slots, and a slot with no value in it is not a thing a
+	# text box can usefully offer - and a file that lost it by passing
+	# through the editor would be a file quietly damaged by being looked at.
+	#
+	# THE TWO ABSENCE LISTS ARE NO LONGER CARRIED.  They are rows now, so
+	# they are visible, editable and DELETABLE, which is what a person needs
+	# in order to turn a fingerprint off and see what the service really
+	# serves.  Carrying an invisible field was also the reason accepting a
+	# fingerprint could not mark the dialog dirty.
 
 	$this->{carry} = {};
-	for my $k (qw( credentials absent_fingerprints absent_headers ))
+	for my $k (qw( credentials ))
 	{
 		$this->{carry}{$k} = $tsd->{$k} if defined $tsd->{$k};
 	}
@@ -224,6 +232,12 @@ sub new
 			my $style = ($kind eq 'big') ?
 				(wxTE_MULTILINE | wxTE_DONTWRAP) : 0;
 			$style = wxTE_MULTILINE if $kind eq 'big' && $name ne 'url';
+
+			# ONE ENTRY PER LINE, AND IT DOES NOT WRAP.  A wrapped md5 reads
+			# as two entries, which is the one misreading this control must
+			# not invite.
+
+			$style = wxTE_MULTILINE | wxTE_DONTWRAP if $kind eq 'list';
 			$ctl = Wx::TextCtrl->new($scroll,$id,
 				$this->_get($tsd,$name) // '',[$X_CTL,$y],[$w,$h],$style);
 			EVT_TEXT($this,$id,sub { $this->onEdit() });
@@ -340,6 +354,13 @@ sub _get
 	}
 	return join(',',@{$tsd->{$name}}) if $name eq 'subdomains' &&
 		ref($tsd->{$name}) eq 'ARRAY';
+
+	# THE ABSENCE LISTS ARE RENDERED BY THE MODULE THAT OWNS THEIR GRAMMAR,
+	# so what appears in the box is exactly what its parser accepts back.
+
+	return sourceListText($name,$tsd->{$name})
+		if $name eq 'absent_fingerprints' || $name eq 'absent_headers';
+
 	my $v = $tsd->{$name};
 	return undef if !defined $v || ref $v;
 	return "$v";
@@ -403,6 +424,18 @@ sub tsd
 			if defined $v->{"policy.$p"} && $v->{"policy.$p"} =~ /^\d+$/;
 	}
 	$out->{policy} = \%pol if %pol;
+
+	# AN EMPTY BOX MEANS THE FIELD IS GONE, not that it is an empty array.
+	# Clearing the text is how somebody turns a fingerprint off in order to
+	# see what the service really serves, and writing "absent_fingerprints":
+	# [] would leave a field behind that says nothing.
+
+	for my $k (qw( absent_fingerprints absent_headers ))
+	{
+		next if !defined $v->{$k} || $v->{$k} !~ /\S/;
+		my ($list) = sourceListParse($k,$v->{$k});
+		$out->{$k} = $list if $list && @$list;
+	}
 
 	return $out;
 }
@@ -560,6 +593,33 @@ sub clearProven
 }
 
 
+sub addFingerprint
+	# ($bytes,$md5) INTO THE VISIBLE ROW, which is the whole reason that row
+	# exists.  Nothing is written to disk: the user sees the pair appear in
+	# the box, Save is enabled because a control really did change, and they
+	# can delete it again if they change their mind.
+	#
+	# ALREADY THERE IS A NO-OP AND SAYS SO.  Accepting the same finding twice
+	# is not an error and must not double the entry, which would then never
+	# match anything the loader normalises.
+{
+	my ($this,$bytes,$md5) = @_;
+	return 0 if !$bytes || !$md5;
+
+	my ($row) = grep { $_->{name} eq 'absent_fingerprints' } @{$this->{rows}};
+	return 0 if !$row;
+
+	my $was = $row->{ctl}->GetValue();
+	return 0 if $was =~ /\b\Q$md5\E\b/i;
+
+	$was .= "\n" if $was =~ /\S/ && $was !~ /\n$/;
+	$row->{ctl}->SetValue($was."$bytes ".lc($md5));
+
+	$this->onEdit();
+	return 1;
+}
+
+
 sub onTest
 	# ASK THE SERVICE ABOUT THE VALUES IN THIS DIALOG, on a worker, under
 	# the progress dialog.
@@ -610,6 +670,36 @@ sub onTest
 
 	$this->setProven($_->{field},$_->{why}) for @{$out->{refuted} || []};
 	w_verify->show($this,$out);
+
+	# AND THEN THE CANDIDATES, ONE AT A TIME, AFTER the summary rather than
+	# instead of it.  The summary is the answer to what was asked; a
+	# candidate is a separate question this run happens to be able to put,
+	# and stacking it on top of the report would bury the report.
+
+	# A DECLINE IS REMEMBERED HERE TOO.  Without it, testing the same source
+	# twice in a row asks the same question twice, and the second asking is
+	# how somebody learns to dismiss this dialog without reading it.
+
+	my $added = 0;
+	for my $c (verifyOffers($out))
+	{
+		if (!w_blank->show($this,$tsd,$c))
+		{
+			obsDeclineFingerprint($tsd,$c->{md5});
+			next;
+		}
+		$added += $this->addFingerprint($c->{bytes},$c->{md5});
+	}
+	obsFlushAll();
+
+	# AN UNSAVED CHANGE HAS TO SAY SO.  It is visible in its own row, but
+	# that row may be scrolled off, and the change is the kind somebody
+	# would be dismayed to lose by closing the dialog.
+
+	$this->{why}->SetLabel($added == 1 ?
+		'a fingerprint was added - Save to keep it' :
+		"$added fingerprints were added - Save to keep them")
+		if $added;
 }
 
 

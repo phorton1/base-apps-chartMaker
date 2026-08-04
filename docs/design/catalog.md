@@ -127,8 +127,9 @@ row is a starting point for checking rather than a fact. Services move, endpoint
 and terms change without the endpoint changing.
 
 **A source created from an entry is untested by construction.** The catalog goes nowhere
-near the network, so it cannot know whether a url still answers. [The probe](build.md#the-probe)
-is the instrument that finds out, and pretending otherwise would be worse than saying
+near the network, so it cannot know whether a url still answers. [Test](tsd_editor.md#test)
+is the instrument that finds out - and [the probe](build.md#the-probe) is the one that says
+whether the imagery is any good over an area. Pretending otherwise would be worse than saying
 nothing.
 
 ### What ships, and what is fetched
@@ -168,7 +169,7 @@ appear under it.
 path; IGN France and Spain IGN answer a KVP query. Deriving the address from a tile url
 would work for the first and fail silently for the others.
 
-**Reading it is `dm_probe`'s job**, and it was already most of the way there. That module
+**Reading it is `dm_meta`'s job**, and it was already most of the way there. That module
 already fetched and scanned both a WMTS `GetCapabilities` and an ArcGIS MapServer's JSON in
 order to ask *is this one source right*; expanding asks *what does this service publish*.
 Same documents, same scanning, one set of rules about what a ceiling is and where a row
@@ -307,7 +308,7 @@ of levels at a place and there is no way to read twenty of those at once.
 ## Two exits, and they are not alternatives
 
 **Create writes files.** Every instrument the application has takes a TSD file - the map
-shows one, the probe measures one, the source list lists them - so writing files is the
+shows one, Test and the probe measure one, the source list lists them - so writing files is the
 on-ramp to all of it rather than a shortcut past it. Judging twenty services means first
 having twenty files.
 
