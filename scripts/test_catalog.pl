@@ -320,22 +320,24 @@ ok(says($l,qr/starting point for checking/),
 my $linz = catalogEntry('linz_aerial');
 ok($linz,'linz_aerial is an entry');
 $l = catalogLines($linz);
-ok(scalar(grep { /credentials\s+linz_api_key/ } @$l),
-	'a keyed entry names its credential slot');
-ok(says($l,qr/will load but not fetch/),
-	'and says plainly that nothing fills it yet');
+ok(scalar(grep { /key\s+linz_api_key/ } @$l),
+	'a keyed entry names the key_name it needs');
+ok(says($l,qr/NOT SET/) || says($l,qr/key linz_api_key - set/),
+	'and says whether anything is bound to it');
+ok(says($l,qr/basemaps\.linz\.govt\.nz/),
+	'and where to get one, which is the whole point of obtain_url');
 ok(!checkSource(catalogLeaf($linz),catalogTsd($linz)),
 	'a keyed entry still produces a file dm_source would load');
 
 # AND THE EDITOR MUST AGREE WITH THE LOADER ABOUT IT.  The Edit exit hands
 # this hash straight to w_source, which colours and gates Save from the
-# per-FIELD check.  When that check did not know about declared slots it
-# refused a url the loader accepts, so a keyed entry could be created and
-# then never saved.
+# per-FIELD check.  When that check did not know about declared key_names
+# it refused a url the loader accepts, so a keyed entry could be created
+# and then never saved.
 
 my $ltsd = catalogTsd($linz);
-ok(!checkSourceField('url',$ltsd->{url},$ltsd->{credentials}),
-	'and the per-field check accepts its url given the declared slots');
+ok(!checkSourceField('url',$ltsd->{url},$ltsd->{keys}),
+	'and the per-field check accepts its url given the declared key_names');
 ok(checkSourceField('url',$ltsd->{url}),
 	'while the same url with nothing declared is still refused');
 

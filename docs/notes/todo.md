@@ -35,7 +35,7 @@ structure of it may be changed at anytime by Patrick, and only by Patrick.
 
 
 
-## Phase P - CREDENTIALS
+## Phase P - KEY STORE
 
 The linking of sources to private credentials or api keys maintained in the
 $data_dir or other folder(s) will be implemented and tested with at least

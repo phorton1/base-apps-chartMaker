@@ -517,8 +517,16 @@ sub _doFetch
 			last;
 		}
 
-		if ($class eq 'auth' || $class eq 'garbage')
+		if ($class eq 'auth' || $class eq 'garbage' || $class eq 'unresolved')
 		{
+			# 'unresolved' NEVER REACHED THE NETWORK AT ALL.  It is here
+			# rather than above because the answer is the same -- do not ask
+			# again -- and for a stronger reason than the other two: those
+			# describe a server's reply, while this one says the request was
+			# never made.  Retrying a url with a literal brace still in it
+			# would be asking somebody else's server a malformed question
+			# once per try.
+
 			_bump('unretried');
 			last;
 		}

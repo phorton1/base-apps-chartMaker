@@ -72,7 +72,7 @@ worth documenting and not worth shipping, and most of them are.
 | `gsi` | Japan GSI seamlessphoto | Japan | yes, under the GSI tile terms | free, no key | z18, from the layer specification | Excellent in Japan. Returns 404 outside the country, so an absence is unambiguous. |
 | `nsw` | NSW Spatial Services (SIX) | New South Wales | yes, CC BY 4.0 with an authorship term | free, no key | declares LODs 0 to 23 with `maxScale` also at 23, so it states no real ceiling; 10 cm over towns, 50 cm regional | Excellent on that coast. `format: MIXED`. Newer coverage supersedes older below 1:150,000, so depth varies by place. |
 | `qld` | Queensland Government imagery | Queensland | licence varies per image between CC BY, CC BY-SA and public domain | free, no key | 21 levels with `maxScale` 1:564, which is z20 | Excellent on that coast. The whole-of-state satellite mosaic derives from Planet and is CC BY-SA, which imposes share-alike on anything built from it. |
-| `linz` | LINZ Basemaps aerial | New Zealand | yes, CC BY 4.0 | free key, no account for the standard tier | z22 per LINZ documentation; 5 cm urban to 10 m satellite | Excellent New Zealand coverage including the Chathams and the offshore islands. |
+| `linz` | LINZ Basemaps | New Zealand | yes, CC BY 4.0 | free key, no account for the standard tier | the whole-country `aerial` mosaic holds real detail to about z18 and upsamples above it; the individual survey layers go to 7.5 cm, which is real to about z21 | Excellent New Zealand coverage including the Chathams and the offshore islands. It publishes 138 layers, each named for its place, year and resolution - `auckland-2024-0.075m` - which is the only statement of real depth the service makes. `aerial` is those layers blended, so **name a layer to pin an acquisition** rather than to gain detail: the mosaic changes when LINZ re-flies and a card built from it is not reproducible. |
 | `de_africa` | Digital Earth Africa | Africa | yes | free | Sentinel derived at 10 m, so real detail ends near z14 | Continental context, and the only free option covering that coastline at all. Slow: it renders on demand. |
 | `eox` | EOX Sentinel-2 cloudless | global | 2016 mosaic CC BY 4.0; 2018 onward CC BY-NC-SA 4.0 | free, fair use; production use is paid | z13 | Shallow, and the later mosaics carry a licence that restricts reuse. |
 | `oam` | OpenAerialMap | global | yes, CC BY 4.0 with Open Imagery Network attribution | free | varies per contributed image, occasionally very high | Opportunistic. Coverage is wherever somebody flew and uploaded, so it is a supplement and never a base source. |
@@ -109,7 +109,7 @@ worth documenting and not worth shipping, and most of them are.
 | `gsi` | August 2026 | fetched, docs | `https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/{z}/{x}/{y}.jpg` | `gsi_seamlessphoto` |
 | `nsw` | August 2026 | fetched, metadata, docs | `https://maps.six.nsw.gov.au/arcgis/rest/services/public/NSW_Imagery/MapServer/tile/{z}/{y}/{x}` | `nsw_imagery` |
 | `qld` | August 2026 | fetched, metadata, docs | `https://spatial-img.information.qld.gov.au/arcgis/rest/services/Basemaps/LatestStateProgram_AllUsers/ImageServer/tile/{z}/{y}/{x}` | `qld_imagery` |
-| `linz` | August 2026 | fetched, docs | `https://basemaps.linz.govt.nz/v1/tiles/aerial/EPSG:3857/{z}/{x}/{y}.jpeg?api={linz_api_key}` | `linz_aerial` |
+| `linz` | August 2026 | fetched, metadata, docs | `https://basemaps.linz.govt.nz/v1/tiles/{layer}/WebMercatorQuad/{z}/{x}/{y}.jpeg?api={linz_api_key}` and `https://basemaps.linz.govt.nz/v1/tiles/WMTSCapabilities.xml?api={linz_api_key}` | `linz`, expanded |
 | `de_africa` | August 2026 | fetched, metadata | `https://ows.digitalearth.africa/wmts?service=WMTS&request=GetTile&version=1.0.0&layer=gm_s2_annual&style=simple_rgb&tilematrixset=WholeWorld_WebMercator&format=image/png&TileMatrix={z}&TileRow={y}&TileCol={x}` | `de_africa` |
 | `eox` | August 2026 | fetched, docs | `https://tiles.maps.eox.at/wmts/1.0.0/s2cloudless_3857/default/GoogleMapsCompatible/{z}/{y}/{x}.jpg` | `eox_s2cloudless` |
 | `oam` | August 2026 | docs | per image, from the OpenAerialMap API | - |
@@ -247,13 +247,38 @@ grey image past its real depth, which is declared as another.
 
 **Region prose does not say where the tiles are.** Japan GSI serves real imagery over Bocas
 del Toro at z3 and z8 and nothing at z12; IGN France serves Bocas del Toro at z12, the same
-ground as Esri World Imagery pixel for pixel; USGS serves Panama down to z8. Every one of
-those is a global low-zoom backdrop under a national label, and none of it is discoverable
-from a terms page.
+ground as Esri World Imagery pixel for pixel; USGS serves Panama down to z8; and LINZ, a New
+Zealand service, answers over Bocas del Toro as well. Four global low-zoom backdrops under
+national labels, none of it discoverable from a terms page - and only Japan GSI, which 404s
+outside Japan, gives an unambiguous absence anywhere.
 
 **A column is not monotonic.** Japan GSI over Tokyo answers z2 to z18 unbroken and refuses z0
 and z1, which is its cache floor rather than a gap. Esri declares z23 and, at Singapore,
 returns the same 2,521 byte JPEG at z20 through z23, so its real ceiling there is z19.
+
+**A global commercial mosaic may BE a national open one.** Esri World Imagery over the
+Chatham Islands is pixel for pixel LINZ's imagery at z19, because Esri's mosaic ingests
+contributed government aerial and LINZ contributes. IGN France and Esri agree the same way
+over Bocas del Toro. The practical consequence is a licence one: Esri ships display only,
+the national services ship open licences that permit building. **Where the deep global
+mosaic looks good, ask who flew it** - the buildable original may be sitting right behind it.
+
+**A blended mosaic is not reproducible and a named layer is.** LINZ's `aerial` is its
+individual surveys stitched together, best pass per place - identical to the survey layer
+wherever the mosaic chose it - and it changes when the operator re-flies. Two cards built a
+year apart from one region are therefore not the same card, and neither one records which
+pass it got. Naming the survey pins it. That is a reason to prefer a named layer for a
+BUILD which does not apply to browsing at all.
+
+**A service's own metadata can declare nothing at all about depth.** LINZ publishes 25
+levels to z24 with no per-layer limits and a whole-world bounding box, so every one of its
+138 layers reads as z24 to anything that trusts the document. What it does instead is name
+the resolution in the layer identifier - `auckland-2024-0.075m` is 7.5 cm - which is a
+better answer than the metadata and is available to a person rather than to a parser.
+
+**A keyed service's capabilities document is keyed too**, and hands back templates with the
+live key baked into them. LINZ does exactly that, which is why reading one and writing
+files from it has to take the key back out.
 
 **Some services are slow rather than absent, and the difference is invisible to a status
 code.** Digital Earth Africa and Allen Coral Atlas both render on demand: a seeded level

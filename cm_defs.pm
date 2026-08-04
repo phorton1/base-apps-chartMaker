@@ -39,6 +39,7 @@ BEGIN
 		$COMMAND_NEW_REGION
 		$COMMAND_NEW_SOURCE
 		$COMMAND_CATALOG
+		$COMMAND_KEYS
 		$COMMAND_PREFS
 		$COMMAND_BUILD_RCT
 		$COMMAND_BUILD_MBTILES
@@ -151,6 +152,14 @@ our $COMMAND_NEW_SOURCE	= 10033;
 # had found the first.
 
 our $COMMAND_CATALOG	= 10034;
+
+# THE KEY STORE SITS WITH THEM, and in the Edit menu rather than under
+# Preferences, because a key_value is USER MATERIAL and not a setting.  A
+# preference changes how the application behaves; a key is a thing the user
+# obtained from somebody else and without which a source they installed
+# does nothing at all.  The FOLDER it lives in is the preference.
+
+our $COMMAND_KEYS		= 10035;
 
 # Preferences is a VIEW menu item rather than a File one, because nothing
 # it changes is part of the document.

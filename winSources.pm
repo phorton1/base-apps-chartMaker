@@ -31,6 +31,7 @@ use Pub::WX::Window;
 use cm_defs;
 use cm_state;
 use dm_source;
+use dm_keys;
 use dm_cache;
 use dm_meta;
 use w_source;
@@ -728,10 +729,25 @@ sub showProperties
 		$text .= sprintf("%-16s %s\n","policy.$_",$src->{policy}{$_})
 			for sort keys %{$src->{policy}};
 	}
-	if ($src->{credentials})
+	# THE KEYS THIS SOURCE NEEDS, AND WHETHER THEY ARE SET.  The state
+	# matters more than the list: a source whose key is unbound looks
+	# perfectly healthy in every other line of this panel and will not fetch
+	# a single tile.
+
+	if ($src->{keys})
 	{
-		$text .= sprintf("%-16s %s\n",'credentials',
-			join(',',map { $_->{slot} } @{$src->{credentials}}));
+		for my $key (@{$src->{keys}})
+		{
+			my $name = $key->{key_name} // '';
+			my $val  = getKeyValue($name);
+			$text .= sprintf("%-16s %s\n",'key',
+				$name.((defined($val) && $val =~ /\S/) ? '' : '   NOT SET'));
+		}
+	}
+	if (my $bad = sourceUnresolved($src))
+	{
+		$text .= sprintf("%-16s %s\n",'UNUSABLE',
+			"unresolved token {$bad} - this source cannot fetch");
 	}
 
 	# HOW THIS SOURCE SAYS NO.  Counts rather than the values themselves:

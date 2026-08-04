@@ -44,6 +44,7 @@ use Pub::Utils;
 use cm_defs;
 use cm_state;
 use dm_set;
+use dm_keys;
 
 
 BEGIN
@@ -56,6 +57,8 @@ BEGIN
 		getBuildSourceIds
 		getSource
 		sourceTileUrl
+		sourceUnresolved
+		sourcePlaceholders
 		getDefaultSource
 		setDefaultSource
 
@@ -94,14 +97,20 @@ my @FORMATS			= qw( jpeg png );
 my @FIELDS = qw(
 	tsd_version id name notes cache_key url subdomains tile_format tile_size
 	crs zoom attribution terms_url license redistributable uses
-	credentials policy absent_fingerprints absent_headers displacement );
+	keys policy absent_fingerprints absent_headers displacement );
 
-# The closed placeholder set.  A url may contain these and the credential
-# slots the file itself declares, and nothing else.  {-y} covers the TMS
-# row flip so no scheme enum is needed; {q} covers quadkey addressing,
-# which is the same grid under a different encoding.
+# The closed placeholder set.  A url may contain these and the key_names
+# the file itself declares, and nothing else.  {-y} covers the TMS row flip
+# so no scheme enum is needed; {q} covers quadkey addressing, which is the
+# same grid under a different encoding.
+#
+# THIS LIST IS THE ONE COPY.  dm_keys takes it as an argument rather than
+# holding its own, because two lists of what a reserved token is would be
+# two rulebooks and they would drift.
 
 my @PLACEHOLDERS = qw( z x y -y s q );
+
+sub sourcePlaceholders { return @PLACEHOLDERS }
 
 
 my $scan_seq:shared	= 1;	# bumped by rescanSources()
@@ -284,21 +293,34 @@ sub _validate
 	return _err($file,"zoom must satisfy 0 <= min <= max <= 24")
 		if $zoom->{min} < 0 || $zoom->{max} < $zoom->{min} || $zoom->{max} > 24;
 
-	# credentials are SLOTS, never values
+	# keys are NAMES, never values.  The value lives in the key store; this
+	# file says which names it uses and where to get one.
+	#
+	# THE DECLARATION IS KEPT RATHER THAN INFERRED FROM THE URL, and that
+	# is a deliberate choice with a cost.  A rule of 'anything in braces is
+	# a key_name' would be simpler and would turn every typo -- {Z}, {yy},
+	# {tilerow} -- into an unbound key that loads fine and then fails
+	# against somebody else's server with a literal brace in the request.
+	# Declaring costs one line and buys two things: a typo is caught HERE,
+	# and a file handed to a stranger tells them what they must supply
+	# before they try it rather than after.
 
-	my %slots;
-	if (defined $tsd->{credentials})
+	my %names;
+	if (defined $tsd->{keys})
 	{
-		return _err($file,"credentials must be an array")
-			if ref($tsd->{credentials}) ne 'ARRAY';
-		for my $cred (@{$tsd->{credentials}})
+		return _err($file,"keys must be an array")
+			if ref($tsd->{keys}) ne 'ARRAY';
+		for my $key (@{$tsd->{keys}})
 		{
-			return _err($file,"each credential must be an object with a slot")
-				if ref($cred) ne 'HASH' || !defined($cred->{slot});
-			return _err($file,"credential slot '$cred->{slot}' must be [a-z0-9_]")
-				if $cred->{slot} !~ /^[a-z0-9_]+$/;
-			return _err($file,"credential slot '$cred->{slot}' is declared twice")
-				if $slots{$cred->{slot}}++;
+			return _err($file,"each key must be an object with a key_name")
+				if ref($key) ne 'HASH' || !defined($key->{key_name});
+			return _err($file,"key_name '$key->{key_name}' must be [a-z0-9_]")
+				if $key->{key_name} !~ /^[a-z0-9_]+$/;
+			return _err($file,"key_name '$key->{key_name}' is declared twice")
+				if $names{$key->{key_name}}++;
+			return _err($file,"key '$key->{key_name}' may not carry a value ".
+					"- a key_value belongs in the key store, never in a .tsd")
+				if defined $key->{key_value};
 		}
 	}
 
@@ -422,13 +444,14 @@ sub _validate
 	return _err($file,"url is required")
 		if !defined($tsd->{url}) || $tsd->{url} !~ /\S/;
 
-	my %allowed = map { $_ => 1 } (@PLACEHOLDERS, keys %slots);
+	my %allowed = map { $_ => 1 } (@PLACEHOLDERS, keys %names);
 	my @used    = _placeholdersOf($tsd->{url});
 	my %used    = map { $_ => 1 } @used;
 
 	for my $ph (@used)
 	{
-		return _err($file,"url contains '{$ph}', which is not a placeholder this format defines")
+		return _err($file,"url contains '{$ph}', which is neither a ".
+				"placeholder this format defines nor a key_name this file declares")
 			if !$allowed{$ph};
 	}
 
@@ -693,9 +716,9 @@ sub checkSourceField
 	# question a text box can settle.  That is the verification phase, and
 	# it reports separately.
 	#
-	# $creds IS THE FILE'S credentials ARRAY, and the url check is the one
-	# rule here that cannot be answered by looking at one value.  A DECLARED
-	# SLOT IS A LEGAL PLACEHOLDER -- _validate has always allowed it -- so
+	# $keys IS THE FILE'S keys ARRAY, and the url check is the one rule here
+	# that cannot be answered by looking at one value.  A DECLARED key_name
+	# IS A LEGAL PLACEHOLDER -- _validate has always allowed it -- so
 	# without being told what the file declares, this refused a url the
 	# LOADER accepts.  The editor then painted it red and disabled Save on a
 	# file that would have loaded perfectly, which is the two grains of one
@@ -703,10 +726,10 @@ sub checkSourceField
 	# was supposed to prevent.
 	#
 	# It is optional because most callers are asking about a field that has
-	# no opinion about credentials, and a required argument would make every
-	# one of them state something it does not know.
+	# no opinion about keys, and a required argument would make every one of
+	# them state something it does not know.
 {
-	my ($name,$val,$creds) = @_;
+	my ($name,$val,$keys) = @_;
 	$val = '' if !defined $val;
 
 	# ASCII, ALWAYS.  These files are read by people, transported between
@@ -755,16 +778,16 @@ sub checkSourceField
 
 	if ($name eq 'url' && $val =~ /\S/)
 	{
-		my @slots = map { $_->{slot} }
-			grep { ref($_) eq 'HASH' && defined $_->{slot} }
-			@{ (ref($creds) eq 'ARRAY') ? $creds : [] };
+		my @declared = map { $_->{key_name} }
+			grep { ref($_) eq 'HASH' && defined $_->{key_name} }
+			@{ (ref($keys) eq 'ARRAY') ? $keys : [] };
 
 		my @used = _placeholdersOf($val);
-		my %ok   = map { $_ => 1 } (@PLACEHOLDERS,@slots);
+		my %ok   = map { $_ => 1 } (@PLACEHOLDERS,@declared);
 		for my $ph (@used)
 		{
 			return "{$ph} is not a placeholder this format defines, ".
-					"and no credential slot of that name is declared"
+					"and no key_name of that name is declared"
 				if !$ok{$ph};
 		}
 		my %used = map { $_ => 1 } @used;
@@ -842,7 +865,7 @@ sub writeSourceFile
 
 	my @order = qw( tsd_version id cache_key name url subdomains
 		tile_format tile_size crs zoom uses redistributable displacement
-		attribution terms_url license credentials policy
+		attribution terms_url license keys policy
 		absent_fingerprints absent_headers notes );
 
 	# ONE VALUE AT A TIME, which is what keeps the field order canonical -
@@ -1041,14 +1064,42 @@ sub _quadKey
 }
 
 
+sub sourceUnresolved
+	# The first key_name this source needs and has no value bound to, or ''.
+	#
+	# A PROPERTY OF THE SOURCE, NOT OF A TILE.  A url that cannot be fully
+	# substituted cannot be substituted at any coordinate, so this is asked
+	# once -- when a list is drawn, when a build is preflighted -- and never
+	# nine thousand times inside a loop.
+{
+	my ($source) = @_;
+	return '' if !$source || !defined $source->{url};
+	return keyUnresolved($source->{url},\@PLACEHOLDERS);
+}
+
+
 sub sourceTileUrl
 	# The url for one tile, or undef if this source cannot answer for it.
 	#
 	# Undef is a DEFINITE ABSENCE rather than an error: a zoom outside the
 	# source's declared protocol range is a question the server would
 	# refuse, so there is no point in asking it.
+	#
+	# AN UNRESOLVED KEY IS NOT THAT, and this is the one caller that must
+	# tell the two apart.  It returns undef with $$why set, so a caller
+	# cannot read the first without having somewhere to put the second.
+	# An absence is a fact about the SERVICE and is cached; an unresolved
+	# key is a fact about the user's own configuration, is never cached,
+	# and -- above all -- never becomes a request.  A url with a literal
+	# brace still in it does not go to anybody's server.
+	#
+	# It used to warn and return undef, which dm_fetch read as 'absent' and
+	# WROTE TO THE CACHE.  So merely looking at a keyed source before
+	# pasting its key left permanent miss markers over everywhere you had
+	# looked, and nothing would ever ask again.
 {
-	my ($source,$z,$x,$y) = @_;
+	my ($source,$z,$x,$y,$why) = @_;
+	$$why = '' if ref($why);
 	return undef if !$source;
 
 	if ($z < $source->{zoom}{min} || $z > $source->{zoom}{max})
@@ -1059,10 +1110,12 @@ sub sourceTileUrl
 		return undef;
 	}
 
-	if ($source->{credentials} && @{$source->{credentials}})
+	my $unresolved = sourceUnresolved($source);
+	if ($unresolved)
 	{
-		warning(0,0,"source '$source->{id}' declares credentials, ".
-			"and the credential store is not implemented yet");
+		$$why = "unresolved token {$unresolved} - url unusable" if ref($why);
+		display($dbg_source,0,"sourceTileUrl($source->{id}) ".
+			"unresolved token {$unresolved}");
 		return undef;
 	}
 
@@ -1082,7 +1135,19 @@ sub sourceTileUrl
 		$url =~ s/\{s\}/$sub/g;
 	}
 
-	display($dbg_source+2,0,"sourceTileUrl($source->{id},$z,$x,$y) = $url");
+	# THE KEY GOES IN LAST, so nothing above this line has ever held a
+	# value and every early return is safe to print.
+
+	my $bad;
+	($url,$bad) = keyResolve($url,[ keyNamesOf($url,\@PLACEHOLDERS) ]);
+	if (!defined $url)
+	{
+		$$why = "unresolved token {$bad} - url unusable" if ref($why);
+		return undef;
+	}
+
+	display($dbg_source+2,0,"sourceTileUrl($source->{id},$z,$x,$y) = ".
+		keyRedact($url));
 	return $url;
 }
 

@@ -257,6 +257,17 @@ sub _foldersPage
 		[ $PREF_MBTILES_DIR,		'MBTiles out:',	'built chartsets'				],
 		[ $PREF_RASTER_DIR,			'RCT out:',		'built cards, one folder per set'],
 		[ $PREF_CACHE_DIR,			'Tile cache:',	'fetched tiles - not temporary'	],
+
+		# THE KEY STORE IS LAST, AND ITS HINT IS THE WHOLE REASON IT IS A
+		# PREFERENCE AT ALL.  The other five default under $data_dir because
+		# that is where a user's own material belongs; this one is split out
+		# because $data_dir is backed up and often cloud synced, and a user
+		# who does not want their keys copied to a sync service needs
+		# somewhere else to put them without giving up the default for
+		# everything else.
+
+		[ $PREF_KEYS_DIR,			'Key store:',
+			'holds chartMaker.keys.json - put it on an encrypted volume if you like'],
 	);
 
 	my $sizer = Wx::BoxSizer->new(wxVERTICAL);

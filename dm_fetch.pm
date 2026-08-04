@@ -351,12 +351,25 @@ sub fetchTile
 {
 	my ($source,$z,$x,$y) = @_;
 
-	my $url = sourceTileUrl($source,$z,$x,$y);
+	my $why;
+	my $url = sourceTileUrl($source,$z,$x,$y,\$why);
 	if (!defined $url)
 	{
-		# Outside the source's declared protocol range, or needing a
-		# credential we cannot supply.  Either way the server would
-		# refuse, so this is a definite absence and not a failure.
+		# TWO REASONS, AND THEY ARE NOT THE SAME KIND OF THING.
+		#
+		# Outside the declared protocol range is a fact about the SERVICE:
+		# it would refuse, so this is a definite absence, and an absence is
+		# cached because it will still be true tomorrow.
+		#
+		# An unresolved key_name is a fact about the USER'S OWN
+		# CONFIGURATION.  Caching it would write a permanent miss for a
+		# tile that exists, over everywhere they happened to look before
+		# pasting a key, and nothing would ever ask again.  It is an error,
+		# errors are never cached, and no request was made.
+
+		return { status => 'error', class => 'unresolved', local => 1,
+			reason => $why }
+			if $why;
 
 		return { status => 'absent', reason => 'outside the declared protocol range' };
 	}

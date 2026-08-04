@@ -8,6 +8,7 @@
 **[TSD](tsd.md)** --
 **[TSD Editor](tsd_editor.md)** --
 **Catalog** --
+**[Key Store](key_store.md)** --
 **[Build](build.md)** --
 **[MBTiles](mbtiles.md)** --
 **[RCT](rct.md)**
@@ -363,13 +364,19 @@ was on disk would schedule two writes to one name and report both as creations.
 
 ## A keyed entry is created, and says what it is
 
-A declared credential slot is a legal url placeholder, so an entry needing an API key writes
-a well formed file that loads, with the slot declared and empty. The detail panel says
-plainly that the credential store is not implemented and that the source will load but not
-fetch.
+A declared key_name is a legal url placeholder, so an entry needing an API key writes a
+well formed file that loads, with the name declared and no value in it. The detail panel
+names each key, says whether anything is bound to it, and where a value is missing gives
+the `obtain_url` as the place to get one.
 
-Written and marked beats refused: the file is then sitting there ready, and the alternative
-is learning about the gap from a failed build.
+**Create and Test may PROMPT for a missing key**, because a person is sitting here and has
+just clicked something. That is one of only two surfaces allowed to ask; build and probe
+report and stop. See [Key Store](key_store.md#prompt-where-a-person-is-authoring-fail-where-the-act-is-mechanical).
+
+**Expand needs a key before any file exists**, since a keyed service's capabilities
+document is keyed too - which is the whole reason the store is a free standing map of name
+to value rather than something hanging off an installed source. And what comes back has the
+live key baked into it, so it is stripped back to `{key_name}` before anything is written.
 
 ## Where it is reached, and what it costs to open
 

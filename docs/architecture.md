@@ -47,7 +47,7 @@ Four architectural facts account for most of what follows:
    refined over years. A rebuild reproduces the imagery from the model.
 2. **Sources are data, not code.** Every imagery source is described by a **TSD** file -
    one that ships with the app, or one the user supplies. chartMaker never ships tiles, and
-   never ships credentials.
+   never ships keys.
 3. **Depth is requested by a region and capped by a build.** The same coastline is built
    shallow for a small card and deep for a large one, from one description of where it is.
 4. **Every output is an export, and none of them is the source.** The build engine's
@@ -105,12 +105,12 @@ and a machine-checkable statement of what the format is *able* to say. A `notes`
 compensates for JSON's lack of comments.
 
 It describes a source's addressing - a URL template, the grid, the tile size - along with
-its protocol limits, its terms, what it may be used for, and the names of any credentials
-it needs. The full field reference, the validation rules and the authoring tools are in
+its protocol limits, its terms, what it may be used for, and the names of any keys it
+needs. The full field reference, the validation rules and the authoring tools are in
 [Design: TSD](design/tsd.md).
 
 The URL template substitutes from a **closed set** of placeholders - `{z} {x} {y} {-y} {s}
-{q}` plus any credential slots the file declares - and nothing else. `{-y}` covers the TMS
+{q}` plus any key names the file declares - and nothing else. `{-y}` covers the TMS
 row-flip so no scheme enum is needed; `{q}` covers quadkey addressing, which is the same
 grid under a different encoding.
 
@@ -170,16 +170,21 @@ The same distinction governs the editor: **chartMaker never prefetches beyond wh
 displaying.** Cache reuse in both directions is free and sensible; speculative fetching is
 not, and would erase the line between looking and building.
 
-### Attribution and credentials
+### Attribution and keys
 
 **Attribution is mandatory and non-empty** - chartMaker refuses to load a TSD without it.
 One validation rule, and every package chartMaker emits can carry its provenance.
 
-**Credentials are slots, never values.** A TSD names the credential a source needs and
-where to obtain one; the actual secret lives in a per-user store outside the file, whose
-location is described in [Deployment](deployment.md#the-credential-store). The consequence is that no
-key can leak through a shared definition, and no secret ever lands in a file that could be
-committed to a repository or served to a browser.
+**Keys are names, never values.** A TSD names what a source's url needs and where to
+obtain one; the value lives in a per-user store outside the file, whose location is
+described in [Deployment](deployment.md#the-key-store) and whose rules are in
+[Design: Key Store](design/key_store.md). A file carrying a value is REFUSED at load, which
+is what makes the consequence structural: no key can leak through a shared definition, and
+none ever lands in a file that could be committed to a repository or served to a browser.
+
+The mechanism is a named substitution rather than a credential system, because an API key,
+a password and an archive release number are the same thing to a url and only some of them
+are secret.
 
 **Regions and targets reference sources by id and never embed them.** Sharing a coverage
 model therefore never ships the author's source inside it. An unresolved id prompts the
@@ -195,7 +200,7 @@ application answers.
 That single decision is load-bearing for four things that otherwise have nothing to do with
 one another:
 
-- **No credential can reach the browser.** A source that needs a key is fetched by the
+- **No key can reach the browser.** A source that needs a key is fetched by the
   application, which holds the key. Nothing in the page - and nothing in the page's network
   log - contains a secret. Without the proxy, the promise made just above could not be
   kept.
@@ -222,8 +227,8 @@ every entry in it: an entry may state only a use its operator permits, so what t
 offers is never a way around somebody's terms. The user's choice stays the user's choice,
 and the application holds no opinion it is not entitled to hold.
 
-**Ships no credentials.** Nothing to leak and nothing to revoke. Users supply their own
-into declared slots.
+**Ships no keys.** Nothing to leak and nothing to revoke. Users supply their own values,
+under the names a file declares.
 
 **Web Mercator at 256 pixels, or rejected at import.** Tiles pass through byte-for-byte, so
 no reprojection or image-processing stack is needed, so the installer is a single artifact
@@ -233,13 +238,13 @@ for it, and comes back as a local source.
 **No coverage declared in a source.** Sources cannot lie about what they hold, because they
 are not asked. Coverage is discovered.
 
-**No executable content in a TSD.** The format structurally cannot compute a credential.
+**No executable content in a TSD.** The format structurally cannot compute a key.
 Enforced by the validator rather than by trust.
 
 **The editor never prefetches.** The line between displaying and building stays real.
 
 **The browser never contacts a tile server.** Every request goes through the application,
-which is what makes "no credential can reach the browser" structural rather than merely
+which is what makes "no key can reach the browser" structural rather than merely
 careful.
 
 **Nothing is editable in two places.** Lists, names, structure and status are edited in the

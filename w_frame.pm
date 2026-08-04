@@ -38,6 +38,7 @@ use dm_build;
 use dm_sample;
 use w_resources;
 use w_ini;
+use w_keys;
 use w_prefs;
 use w_progress;
 use w_probe;
@@ -79,6 +80,7 @@ sub new
 	EVT_MENU($this, $COMMAND_NEW_REGION,  \&onCommand);
 	EVT_MENU($this, $COMMAND_NEW_SOURCE,  \&onCommand);
 	EVT_MENU($this, $COMMAND_CATALOG,     \&onCommand);
+	EVT_MENU($this, $COMMAND_KEYS,        \&onCommand);
 	EVT_MENU($this, $COMMAND_PREFS,       \&onCommand);
 	EVT_MENU($this, $COMMAND_FETCH,       \&onCommand);
 	EVT_MENU($this, $COMMAND_BUILD_RCT,   \&onCommand);
@@ -620,6 +622,19 @@ sub onCommand
 		my $pane = $this->findPane($WIN_SOURCES);
 		$pane = $this->createPane($WIN_SOURCES) if !$pane;
 		$pane->catalogDialog() if $pane;
+	}
+	elsif ($id == $COMMAND_KEYS)
+	{
+		# NOT THROUGH THE PANE.  The catalog and New Source go through it
+		# because they WRITE FILES the pane has to show; this writes no
+		# file and creates no source.  What it changes is whether sources
+		# that already exist can fetch, so the pane is refreshed after
+		# rather than being the thing that opened the dialog.
+
+		w_keys->show($this);
+
+		my $pane = $this->findPane($WIN_SOURCES);
+		$pane->populate() if $pane && $pane->can('populate');
 	}
 	elsif ($id == $COMMAND_FETCH || $id == $COMMAND_BUILD_RCT ||
 		   $id == $COMMAND_BUILD_MBTILES)

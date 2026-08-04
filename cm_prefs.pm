@@ -71,6 +71,7 @@ BEGIN
 		$PREF_MBTILES_DIR
 		$PREF_RASTER_DIR
 		$PREF_CACHE_DIR
+		$PREF_KEYS_DIR
 
 		$PREF_NEW_ZAUTHOR
 		$PREF_NEW_ZMIN
@@ -97,20 +98,29 @@ our $PREF_REGION_SETS_DIR	= 'REGION_SETS_DIR';
 our $PREF_MBTILES_DIR		= 'MBTILES_DIR';
 our $PREF_RASTER_DIR		= 'RASTER_DIR';
 our $PREF_CACHE_DIR			= 'CACHE_DIR';
+our $PREF_KEYS_DIR			= 'KEYS_DIR';
 
 our $PREF_NEW_ZAUTHOR		= 'NEW_ZAUTHOR';
 our $PREF_NEW_ZMIN			= 'NEW_ZMIN';
 our $PREF_NEW_ZMAX			= 'NEW_ZMAX';
 
-# THE FIVE FOLDERS, in the order a dialog should show them: what is read,
+# THE SIX FOLDERS, in the order a dialog should show them: what is read,
 # then what is written, then what is kept.
+#
+# KEYS_DIR IS SPLIT FROM THE REST FOR ONE REASON, and it is not tidiness.
+# $data_dir is a backed-up and frequently a cloud-synced location, which is
+# right for everything a user authored and wrong for the one file that
+# holds their keys.  Splitting it costs one preference and settles the
+# question for the user in either camp, without making them move anything
+# else.
 
 our @PREF_DIRS = (
 	$PREF_SOURCES_DIR,
 	$PREF_REGION_SETS_DIR,
 	$PREF_MBTILES_DIR,
 	$PREF_RASTER_DIR,
-	$PREF_CACHE_DIR );
+	$PREF_CACHE_DIR,
+	$PREF_KEYS_DIR );
 
 
 # THE PLAIN DEFAULTS, which are just values.
@@ -199,14 +209,23 @@ my %dir_leaf = (
 	$PREF_MBTILES_DIR		=> 'mbtiles',
 	$PREF_RASTER_DIR		=> 'raster',
 	$PREF_CACHE_DIR			=> 'cache',
+
+	# THE KEY STORE IS ONE FILE AND ITS LEAF IS EMPTY, so keys.json lands
+	# in $data_dir itself rather than inside a folder holding nothing else.
+	# The PREFERENCE is still a folder, because that is what relocating to
+	# an encrypted volume or a USB stick actually is, and because it then
+	# uses the same picker as the other five.
+
+	$PREF_KEYS_DIR			=> '',
 );
 
 
 sub prefDefault
 {
 	my ($name) = @_;
-	return "$data_dir/$dir_leaf{$name}" if $dir_leaf{$name};
-	return $defaults{$name};
+	return $defaults{$name} if !exists $dir_leaf{$name};
+	my $leaf = $dir_leaf{$name};
+	return length($leaf) ? "$data_dir/$leaf" : $data_dir;
 }
 
 

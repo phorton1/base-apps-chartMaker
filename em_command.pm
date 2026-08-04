@@ -26,6 +26,7 @@ use cm_state;
 use cm_utils;
 use dm_set;
 use dm_source;
+use dm_keys;
 use dm_cache;
 use dm_fetch;
 use dm_observe;
@@ -313,10 +314,10 @@ sub _sourceCommand
 	display(0,1,sprintf("%-16s %s",'uses',join(',',@{$src->{uses}})));
 	display(0,1,sprintf("%-16s %d-%d",'zoom',$src->{zoom}{min},$src->{zoom}{max}));
 	display(0,1,sprintf("%-16s %s",'attribution',$src->{attribution}));
-	if ($src->{credentials})
+	if ($src->{keys})
 	{
-		display(0,1,sprintf("%-16s %s",'credentials',
-			join(',',map { $_->{slot} } @{$src->{credentials}})));
+		display(0,1,sprintf("%-16s %s",'keys',
+			join(',',map { $_->{key_name} } @{$src->{keys}})));
 	}
 }
 
@@ -448,9 +449,16 @@ sub _tileCommand
 		return;
 	}
 
-	my $url = sourceTileUrl($src,$z,$x,$y);
+	# REDACTED, because this is a console a person is reading and may well
+	# be pasting into a bug report.  And the two reasons a url can be
+	# missing are told apart, since one of them is fixable in the key store
+	# and the other is a fact about the service.
+
+	my $why;
+	my $url = sourceTileUrl($src,$z,$x,$y,\$why);
 	display(0,0,"tile $id $z/$x/$y");
-	display(0,1,"url    ".($url // '(none - outside the declared zoom range)'));
+	display(0,1,"url    ".(defined($url) ? keyRedact($url) :
+		($why || '(none - outside the declared zoom range)')));
 
 	my $result = getTile($src,$z,$x,$y);
 	display(0,1,"status ".$result->{status}.

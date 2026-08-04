@@ -498,7 +498,7 @@ sub _unplaced
 	{
 		my ($name) = @$f;
 		my $bad = checkSourceField($name,_fieldValue($source,$name),
-			$source->{credentials});
+			$source->{keys});
 		push @{$out->{malformed}},{ field => $name, why => $bad } if $bad;
 	}
 

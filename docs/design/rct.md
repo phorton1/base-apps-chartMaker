@@ -8,6 +8,7 @@
 **[TSD](tsd.md)** --
 **[TSD Editor](tsd_editor.md)** --
 **[Catalog](catalog.md)** --
+**[Key Store](key_store.md)** --
 **[Build](build.md)** --
 **[MBTiles](mbtiles.md)** --
 **RCT**

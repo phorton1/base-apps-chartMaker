@@ -53,9 +53,11 @@ use cm_defs;
 use cm_state;
 use cm_utils;
 use dm_source;
+use dm_keys;
 use dm_catalog;
 use dm_meta;
 use dm_verify;
+use w_keys;
 use w_source;
 use w_progress;
 use w_verify;
@@ -123,11 +125,11 @@ sub new
 	# checked it today.
 
 	my $intro = Wx::StaticText->new($this,-1,
-		'Tile services known to chartMaker, surveyed '.
-		(catalogSurveyed() || 'at an unstated date').
-		'.  Every entry is a starting point for checking and not a current '.
-		'fact.  Creating a source writes an UNTESTED definition - probe it '.
-		'to find out whether it works.');
+		'Tile services known to chartMaker.  Every entry is a starting '.
+		'point for checking and not a current fact - services move, '.
+		'endpoints retire, and terms change without the endpoint changing.  '.
+		'Creating a source writes an UNTESTED definition - probe it to find '.
+		'out whether it works.');
 	$intro->SetForegroundColour($GREY);
 
 	# A StaticText DOES NOT WRAP, it clips - and what it clipped was the
@@ -694,6 +696,37 @@ sub onCreate
 # expand
 #---------------------------------------------
 
+sub _askForKeys
+	# Every key_name a field hash declares, asked for once if nothing is
+	# bound to it.  Returns 1 to go ahead, 0 if the user declined.
+	#
+	# ONE OF THE TWO SURFACES THAT MAY PROMPT AT ALL.  A person is sitting
+	# here and has just clicked something; the entry names the key and where
+	# to get one; and the alternative is a network act that fails for a
+	# reason this dialog already knew. The mechanical surfaces - build,
+	# probe, the map - report and stop instead.
+	#
+	# DECLINING IS AN ANSWER AND IS RESPECTED.  It does not ask twice in one
+	# act, and it does not proceed to make the request anyway.
+{
+	my ($this,$tsd) = @_;
+	return 1 if !$tsd || ref($tsd->{keys}) ne 'ARRAY';
+
+	for my $key (@{$tsd->{keys}})
+	{
+		my $name = $key->{key_name} // '';
+		next if !length $name;
+
+		my $val = getKeyValue($name);
+		next if defined($val) && $val =~ /\S/;
+
+		return 0 if !w_keys->ask($this,$name,
+			$key->{label} || $name,$key->{obtain_url} || '');
+	}
+	return 1;
+}
+
+
 sub onExpand
 	# ASK THE SERVICE WHAT IT PUBLISHES, on a worker, under the progress
 	# dialog.
@@ -717,12 +750,33 @@ sub onExpand
 
 	my $x = catalogExpander($node);
 
+	# THE THIRD SEAM, AND THE ONE NOBODY EXPECTS.  A keyed service's
+	# CAPABILITIES DOCUMENT IS KEYED TOO - LINZ answers 400 without a key -
+	# so the expander url carries a {key_name} exactly as a tile url does,
+	# and it has to be resolved before the worker is given it.
+	#
+	# THE CHICKEN AND EGG THIS SETTLES.  To expand a keyed provider you
+	# need the key; to have anywhere to put the key you would, under any
+	# design where a value hangs off an installed source, need a source you
+	# do not have yet.  The store being a free standing map of name to
+	# value is what makes this possible at all, and asking here is what
+	# makes it painless.
+
+	my $group = $node->{tsd} || {};
+	return if !$this->_askForKeys({ %$group, url => $x->{url} });
+
+	my $url = $x->{url};
+	my $bad;
+	($url,$bad) = keyResolve($url,[ keyNamesOf($url,[ sourcePlaceholders() ]) ]);
+	return $this->_say("unresolved token {$bad} - url unusable",1)
+		if !defined $url;
+
 	my $prog = newProgress(2,'');
 	$prog->{active} = 1;
 	$prog->{phase}  = 'Starting';
 
 	threads->create(\&dm_meta::layersWorker,$prog,
-		[ $x->{kind},$x->{url} ])->detach();
+		[ $x->{kind},$url ])->detach();
 
 	my $dlg = w_progress->new($this,"Expand - $node->{name}",$prog);
 	$dlg->run();
@@ -789,6 +843,17 @@ sub onTest
 
 	my $node   = $sel[0];
 	my $tsd    = catalogTsd($node);
+
+	# A KEY IS ASKED FOR HERE, WHERE A PERSON IS PRESENT.  This is one of
+	# the two surfaces that may prompt: somebody just clicked Test, the
+	# entry itself says which key_name it needs and where to get one, and
+	# the alternative is a test that fails with a 400 for a reason the
+	# dialog already knew.  Build and probe never do this - they run on a
+	# worker thread under a modal progress dialog, and a prompt there would
+	# ambush somebody who walked away.
+
+	return if !$this->_askForKeys($tsd);
+
 	my @places = verifyPlaces($tsd,$node->{canonical});
 
 	my $prog = newProgress(2,'');

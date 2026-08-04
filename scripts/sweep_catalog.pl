@@ -107,9 +107,9 @@ for my $node (@$entries)
 	# SERVICE.  sourceTileUrl refuses one, and reporting that refusal
 	# beside a 404 would put our own gap in a column about theirs.
 
-	if ($tsd->{credentials} && @{$tsd->{credentials}})
+	if (my $bad = sourceUnresolved($tsd))
 	{
-		printf("     %-40s\n",'declares a credential slot - not asked');
+		printf("     %-40s\n","needs a value for {$bad} - not asked");
 		next;
 	}
 

@@ -44,6 +44,7 @@ use Pub::Utils;
 use cm_defs;
 use cm_utils;
 use dm_source;
+use dm_keys;
 use dm_fetch;
 use dm_observe;
 
@@ -404,7 +405,25 @@ sub metaSource
 		disagree => [],
 	};
 
-	my ($family,$base,$layer) = _family($source->{url} || '');
+	# THE SECOND OF THE THREE SEAMS A key_value REACHES.  A keyed service's
+	# CAPABILITIES DOCUMENT IS KEYED TOO -- LINZ answers 400 without one --
+	# so the metadata url is derived from the RESOLVED template, not from
+	# the one with braces still in it.  Deriving from the template would
+	# produce an address containing '{linz_api_key}' and a 400 that reads
+	# like a broken endpoint rather than like a missing key.
+
+	my $url = $source->{url} || '';
+	my $unresolved = sourceUnresolved($source);
+	if ($unresolved)
+	{
+		$out->{reason} = "unresolved token {$unresolved} - url unusable. ".
+			"Set a value for it in the key store.";
+		display($dbg_meta,0,"metaSource($source->{id}) $out->{reason}");
+		return $out;
+	}
+	($url) = keyResolve($url,[ keyNamesOf($url,[ sourcePlaceholders() ]) ]);
+
+	my ($family,$base,$layer) = _family($url || '');
 	$out->{family} = $family;
 
 	if ($family eq 'arcgis')
@@ -618,8 +637,12 @@ sub metaLines
 		return \@lines;
 	}
 
+	# REDACTED ON THE WAY OUT, not on the way in.  The url has to carry the
+	# real value to be fetched at all, so the one place it must not survive
+	# is where a person reads it - and this is that place.
+
 	push @lines,sprintf("%-16s %s",'family',$out->{family});
-	push @lines,sprintf("%-16s %s",'metadata',$out->{meta_url});
+	push @lines,sprintf("%-16s %s",'metadata',keyRedact($out->{meta_url}));
 	push @lines,sprintf("%-16s %d ms, %s",'answered',
 		$out->{ms} || 0,_bytes($out->{bytes} || 0));
 	push @lines,'';
@@ -712,6 +735,27 @@ sub _formatOf
 	return 'jpeg' if $mime =~ m{jpe?g}i;
 	return 'png'  if $mime =~ m{png}i;
 	return '';
+}
+
+
+my @WEB_MERCATOR_SETS = (
+	qr/^GoogleMapsCompatible(?:_Level\d+)?$/i,
+	qr/^WebMercatorQuad$/i,
+	qr/^WholeWorld_WebMercator$/i,
+);
+
+sub _isWebMercatorSet
+	# Is this tile matrix set name one of the published spellings of web
+	# mercator at 256 pixels?  See the note at its one caller.
+{
+	my ($name) = @_;
+	return 0 if !defined $name;
+	$name =~ s/^\s+|\s+$//g;
+	for my $re (@WEB_MERCATOR_SETS)
+	{
+		return 1 if $name =~ $re;
+	}
+	return 0;
 }
 
 
@@ -894,14 +938,28 @@ sub serviceLayers
 		my $id = _tagIn($block,'ows:Identifier');
 		next if !defined $id || $id !~ /\S/;
 
+
 		# WEB MERCATOR AT 256 PIXELS OR NOTHING, and for a WMTS that is a
 		# statement about the tile matrix set rather than about the layer.
-		# The GoogleMapsCompatible family IS that grid, by definition, and
-		# a layer offering no such set cannot be addressed by this
+		# A layer offering no such set cannot be addressed by this
 		# application whatever else is true of it.
+		#
+		# ONE GRID, SEVERAL PUBLISHED NAMES, and this list is names rather
+		# than a guess.  GoogleMapsCompatible is the WMTS 1.0 well known
+		# scale set; WebMercatorQuad is what the OGC's own tile matrix set
+		# registry calls the identical definition and is what LINZ
+		# publishes; WholeWorld_WebMercator is the datacube spelling and is
+		# what Digital Earth Africa publishes.  Accepting only the first
+		# hid every layer of two real services, which reads as "this
+		# provider publishes nothing usable" rather than as a gap here.
+		#
+		# The names are ANCHORED.  A substring rule over a list this short
+		# would eventually match a national grid that merely mentions one of
+		# these words, and a wrong grid is the failure that looks like
+		# success: every tile arrives and the map is somewhere else.
 
 		my @sets = ($block =~ m{<TileMatrixSet>(.*?)</TileMatrixSet>}gs);
-		my ($tms) = grep { /GoogleMapsCompatible/i } @sets;
+		my ($tms) = grep { _isWebMercatorSet($_) } @sets;
 		if (!$tms)
 		{
 			$hidden{'published on a grid this application cannot read'}++;

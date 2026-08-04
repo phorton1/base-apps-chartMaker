@@ -318,38 +318,52 @@
     },
 
     {
-      "id": "linz_aerial",
+      "id": "linz",
       "moniker": "linz",
-      "name": "LINZ Basemaps aerial",
+      "name": "LINZ Basemaps",
       "canonical": {
         "where": "Waitemata Harbour, Auckland",
         "at": [-36.84, 174.78],
-        "why": "Coastal New Zealand at its busiest harbour. This service needs a key, so with an empty credential slot the answer here is the refusal rather than a tile, and seeing the refusal is the point."
+        "why": "Coastal New Zealand at its busiest harbour, and the most densely flown ground the service holds - so an empty answer here is a statement about the service rather than about the place."
       },
-      "brief": "z22   New Zealand   NEEDS A KEY",
       "region": "New Zealand",
       "cost": "free API key, and no account for the standard tier; standard access is capped at 1,000 tile requests per minute",
       "buildable": "yes, CC BY 4.0",
-      "requires": "an API key, pasted into the credential slot 'linz_api_key'. STANDARD access needs no registration at all and its key is good for 90 days, so it lives in a slot perfectly well and re-pasting it is the whole of the maintenance. DEVELOPER access issues a key that does not expire and is requested by emailing basemaps@linz.govt.nz.",
-      "depth": "z0 to z22 in EPSG:3857 per LINZ documentation. 5 cm over urban areas down to 10 m satellite elsewhere",
-      "value": "Excellent New Zealand coverage including the Chathams and the offshore islands.",
+      "requires": "an API key, pasted into the key store under the name 'linz_api_key'. STANDARD access needs no registration at all and its key is good for 90 days, so it lives in the store perfectly well and re-pasting it is the whole of the maintenance. DEVELOPER access issues a key that does not expire and is requested by emailing basemaps@linz.govt.nz.",
+      "expander": {
+        "kind": "wmts",
+        "url": "https://basemaps.linz.govt.nz/v1/tiles/WMTSCapabilities.xml?api={linz_api_key}"
+      },
       "tsd": {
-        "name": "LINZ Basemaps - aerial",
-        "cache_key": "linz_aerial",
-        "url": "https://basemaps.linz.govt.nz/v1/tiles/aerial/EPSG:3857/{z}/{x}/{y}.jpeg?api={linz_api_key}",
         "tile_format": "jpeg",
-        "zoom": { "min": 0, "max": 22 },
         "attribution": "Sourced from the LINZ Data Service and licensed for reuse under CC BY 4.0",
         "terms_url": "https://www.linz.govt.nz/linz-copyright",
         "license": "CC BY 4.0. Attribution required.",
         "redistributable": "yes",
         "uses": ["display", "build"],
-        "credentials": [
-          { "slot": "linz_api_key" }
+        "keys": [
+          { "key_name": "linz_api_key",
+            "label": "LINZ API key",
+            "obtain_url": "https://basemaps.linz.govt.nz" }
         ],
-        "policy": { "max_concurrency": 4, "min_interval_ms": 0 },
-        "notes": "THE KEY IS A SLOT AND NOT A VALUE. This file declares where a key goes and never carries one, which is what makes it safe to hand to somebody. The credential store is not implemented yet, so a source written from this entry will load and will NOT fetch until it is. Without a key the service answers 400 with 'API Key Invalid: missing', and with a malformed one 'API Key Invalid: malformed' - two honest and distinguishable refusals, which is more than most keyed services manage. The service also serves WebP and Avif, which this application does not read."
-      }
+        "policy": { "max_concurrency": 4, "min_interval_ms": 0 }
+      },
+      "nodes": [
+        {
+          "id": "linz_aerial",
+          "name": "Aerial Imagery Basemap",
+          "brief": "z22   New Zealand   whole country",
+          "depth": "z0 to z22 in EPSG:3857 per LINZ documentation. 5 cm over urban areas down to 10 m satellite elsewhere",
+          "value": "The whole-country mosaic, and the one to start from. Excellent New Zealand coverage including the Chathams and the offshore islands. Expand the service above to reach the individual surveys behind it, which are named for their place, year and resolution.",
+          "tsd": {
+            "name": "LINZ Basemaps - aerial",
+            "cache_key": "linz_aerial",
+            "url": "https://basemaps.linz.govt.nz/v1/tiles/aerial/WebMercatorQuad/{z}/{x}/{y}.jpeg?api={linz_api_key}",
+            "zoom": { "min": 0, "max": 22 },
+            "notes": "Without a key it answers 400 'API Key Invalid: missing', and with a malformed one 'API Key Invalid: malformed' - two distinguishable refusals, which is more than most keyed services manage. The tile matrix set is WebMercatorQuad, the OGC's name for the same grid GoogleMapsCompatible names; the older EPSG:3857 spelling in this path also answers. The extension is a path segment and the service serves jpeg, png and webp."
+          }
+        }
+      ]
     },
 
     {
@@ -507,7 +521,7 @@
         "redistributable": "yes",
         "uses": ["display"],
         "policy": { "max_concurrency": 2, "min_interval_ms": 0 },
-        "notes": "A CLASSIFICATION and not a photograph: flat areas of colour standing for bottom type. Nothing that judges imagery by detail or by variance says anything useful about it, and a flat tile here is data rather than an absence. THE ROW ORDER IS FLIPPED and that is what {-y} is for: this is a GeoWebCache TMS, whose rows count from the south. Asked with a northward row it answers 200 with a 1784 byte empty tile rather than an error, which is the row-order trap in its purest form - every tile arrives, nothing is wrong, and the map is scrambled. EPSG:900913 is the older spelling of EPSG:3857 and the same grid. The service publishes WMS and WFS as well; this is the one path of the three that a tile client can address. WHERE IT HOLDS NOTHING IT SENDS A FIXED EMPTY PNG rather than a 404, byte identical at 1784 bytes across three levels and three places, which is the declared fingerprint above - and for a classification product an empty tile IS the answer 'no reef here'. The floor is z8 because this is a GeoWebCache that RENDERS ON DEMAND: a seeded level answers in under a second, and a whole-hemisphere vector render below z8 does not return inside any timeout worth setting."
+        "notes": "A CLASSIFICATION and not a photograph: flat areas of colour standing for bottom type, so a flat tile here is data rather than an absence. A GeoWebCache TMS, whose rows count from the SOUTH - hence {-y}; asked with a northward row it answers 200 with the empty tile rather than an error. EPSG:900913 is the older spelling of EPSG:3857 and the same grid. Where it holds nothing it sends a fixed empty PNG rather than a 404, which is the fingerprint declared above. It renders on demand, so the floor is z8: below that a whole-hemisphere vector render does not return. The service also publishes WMS and WFS, which a tile client cannot address."
       }
     },
 
@@ -539,7 +553,7 @@
         "redistributable": "unknown",
         "uses": ["display"],
         "policy": { "max_concurrency": 4, "min_interval_ms": 0 },
-        "notes": "An ArcGIS ImageServer rather than a MapServer, and the tile path is the same shape: {z}/{y}/{x}, row before column. THE HOST IS spatial-img AND NOT spatial-gis. Both are live ArcGIS servers on the same platform, and only spatial-img publishes this service; asked on spatial-gis it answers HTTP 200 carrying {\"error\":{\"code\":499,\"message\":\"Token Required\"}} at every level, which is what ArcGIS says for a service that is not there rather than for one that wants a token. Reading that as 'get a token' is how this entry acquired a credential slot it never needed. The service declares compression MIXED and means it: over Moreton Bay it answers PNG at z6 and JPEG at z11 and z16, so tile_format here is an expectation and the format is read from the bytes."
+        "notes": "An ArcGIS ImageServer rather than a MapServer, and the tile path is the same shape: {z}/{y}/{x}, row before column. THE HOST IS spatial-img AND NOT spatial-gis - both are live servers, only spatial-img publishes this service, and spatial-gis answers 200 carrying a 499 'Token Required' at every level, which is what ArcGIS says for a service that is not there. It declares compression MIXED and means it: over Moreton Bay, PNG at z6 and JPEG at z11 and z16."
       }
     },
 
@@ -570,7 +584,7 @@
         "redistributable": "yes",
         "uses": ["display", "build"],
         "policy": { "max_concurrency": 2, "min_interval_ms": 0 },
-        "notes": "SLOW, and it renders on demand: z11 over Table Bay answers with 105 kB of PNG, while z6 and z14 did not return inside 20 seconds. That is a property of the service and not of the address. A KVP WMTS and NOT a RESTful one: its capabilities publish no ResourceURL, so the address is built from the GetTile operation. Two values in it are the service's own and cannot be guessed - the tile matrix set is called WholeWorld_WebMercator rather than GoogleMapsCompatible, and the default style is simple_rgb rather than 'default', which the service refuses by name. The annual geomedian is a composite rather than a single pass, so it has no acquisition date and no clouds."
+        "notes": "SLOW, and it renders on demand: an unseeded level can fail to return inside 20 seconds where a seeded one answers at once. A KVP WMTS and not a RESTful one - its capabilities publish no ResourceURL, so the address comes from the GetTile operation. Two values in it are the service's own: the tile matrix set is WholeWorld_WebMercator rather than GoogleMapsCompatible, and the default style is simple_rgb, with 'default' refused by name. The annual geomedian is a composite rather than a single pass, so it has no acquisition date and no clouds."
       }
     }
   ]

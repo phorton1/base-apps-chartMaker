@@ -182,9 +182,9 @@ The browser never contacts a tile server directly. It asks the application for
 `/tile/<source>/<z>/<x>/<y>` and the application answers, which is what makes four
 otherwise unrelated properties true at once:
 
-- **No credential ever reaches the browser.** A source that needs a key is fetched by the
+- **No key ever reaches the browser.** A source that needs one is fetched by the
   application, which holds the key. Nothing in the page, and nothing in the page's network
-  log, contains a secret. See [TSD](tsd.md#credentials).
+  log, contains a key. See [Key Store](key_store.md).
 - **Display and build share one cache.** Looking at a region at a zoom it will be built at
   puts those tiles in the cache the build will read. Nothing is fetched twice.
 - **The refusal to prefetch becomes observable.** One place counts and logs every outbound
@@ -257,7 +257,8 @@ matters and is far cheaper to provide.
 | class | example | consequence |
 | --- | --- | --- |
 | `rate_limited` | 429, or 503 with `Retry-After` | back off this source; obey `Retry-After` |
-| `auth` | 401, 403 | stop; retrying cannot supply a credential |
+| `auth` | 401, 403 | stop; retrying cannot supply a key |
+| `unresolved` | none - no request was made | stop; a {key_name} has no value, and this is NEVER cached |
 | `transport` | timeout, refused, TLS failure | retry a few times |
 | `server` | 5xx without `Retry-After` | retry a few times |
 | `garbage` | 200 that is not an image | do not retry; it will not become one |

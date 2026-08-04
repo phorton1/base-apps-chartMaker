@@ -332,6 +332,26 @@ sub _validateSources
 			return (0,undef);
 		}
 
+		# 4 - USABLE AT ALL.  A url with a key_name nothing is bound to
+		# cannot be substituted at any coordinate, so this is the last
+		# moment it can be said cheaply.  The alternative is finding out at
+		# tile four thousand, from a source that looks perfectly healthy in
+		# every other line of every other panel.
+		#
+		# It is a REFUSAL rather than a warning because there is no partial
+		# outcome available: not one tile of this source can be fetched.
+
+		if (my $bad = sourceUnresolved($src))
+		{
+			_refuse($report,'key',
+				"source '$src_id' needs a value for {$bad}",
+				"named by: $who",
+				"nothing in the key store is bound to that name",
+				"set it in Edit > Key Store, or this source cannot ".
+					"fetch a single tile");
+			return (0,undef);
+		}
+
 		$objects{$src_id} = $src;
 		display($dbg_build-1,1,"source '$src_id' ok ($src->{tile_format})");
 	}

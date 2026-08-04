@@ -8,6 +8,7 @@
 **[TSD](tsd.md)** --
 **[TSD Editor](tsd_editor.md)** --
 **[Catalog](catalog.md)** --
+**[Key Store](key_store.md)** --
 **[Build](build.md)** --
 **[MBTiles](mbtiles.md)** --
 **[RCT](rct.md)**
@@ -53,7 +54,7 @@ from without writing one.
 
 - **[TSD](tsd.md)** -
   The Tile Source Definition in full: every field, the closed placeholder set, the
-  validation rules, what credential slots are and are not, and how a source is authored,
+  validation rules, what key names are and are not, and how a source is authored,
   tested and evaluated.
 
 - **[TSD Editor](tsd_editor.md)** -

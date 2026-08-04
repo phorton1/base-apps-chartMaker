@@ -8,6 +8,7 @@
 **[TSD](tsd.md)** --
 **TSD Editor** --
 **[Catalog](catalog.md)** --
+**[Key Store](key_store.md)** --
 **[Build](build.md)** --
 **[MBTiles](mbtiles.md)** --
 **[RCT](rct.md)**
@@ -116,9 +117,10 @@ really serves, and it is the first thing they will want when they distrust one.
 
 ## What it does not touch
 
-`credentials` has no control - a list of slots, where a slot with no value in it is not
-something a text box can usefully offer - and is **carried through unchanged**. A file that
-lost it by passing through the editor would be a file quietly damaged by being looked at.
+`keys` has no control - it is a list of key_names, the VALUES live in
+[the key store](key_store.md) and belong to the machine rather than to the file - and is
+**carried through unchanged**. A file that lost its declaration by passing through the
+editor would be a file quietly damaged by being looked at.
 
 `tile_size` and `crs` have exactly one legal value each, so no control offers them: an
 editable one could only ever be used to make the file invalid.
@@ -156,7 +158,7 @@ Two halves, and only one of them has a place.
 
 **Unplaced, and it can only ever refute.** The file's own coherence, asked of `dm_source`
 because a second opinion about what a TSD may be is a second rulebook, plus the service's own
-metadata where it publishes any - which is `dm_meta`, unchanged and not reimplemented. This half settles a malformed url, a credential slot the file does not
+metadata where it publishes any - which is `dm_meta`, unchanged and not reimplemented. This half settles a malformed url, a key_name the file does not
 declare, the wrong grid, a scrambled row order, a ceiling below what is claimed. It never
 confirms imagery and is never worded as though it had.
 

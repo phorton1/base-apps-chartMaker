@@ -61,10 +61,8 @@ downloading tiles and looking at them.
 by walking into it is the behaviour that earns a permanent refusal, and no answer it
 produces is worth that.
 
-## The credential store
+## The key store
 
-Related, and unspecified in the same way: how a TSD's declared slot resolves to a stored
-value - the store's format, and what a slot is keyed by. The store's *location* is
-specified, in `docs/deployment.md`; only the binding mechanism is open. A credential matters
-when tiles are being fetched systematically, so this is worth settling alongside the fetch
-engine rather than ahead of it.
+SETTLED. What was open here - how a declared name resolves to a stored value, and what the
+store is keyed by - is now specified in `docs/design/key_store.md`. It is keyed by
+`key_name`, because one value serves every file that names it.

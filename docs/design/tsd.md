@@ -8,6 +8,7 @@
 **TSD** --
 **[TSD Editor](tsd_editor.md)** --
 **[Catalog](catalog.md)** --
+**[Key Store](key_store.md)** --
 **[Build](build.md)** --
 **[MBTiles](mbtiles.md)** --
 **[RCT](rct.md)**
@@ -45,7 +46,7 @@ sent you is a matter of putting the file in the folder.
     license:          a short identifier or description
     redistributable:  yes | no | unknown          (default unknown)
     uses:             any of ["display","build","overlay"]
-    credentials:      [ { slot, label, obtain_url } ]    SLOTS, never values
+    keys:             [ { key_name, label, obtain_url } ]   NAMES, never values
     policy:           { max_concurrency, min_interval_ms }
     absent_fingerprints:
                       [ { bytes, md5 } ]   a 200 that means 404
@@ -69,7 +70,7 @@ sent you is a matter of putting the file in the folder.
 | `absent_fingerprints` | The bytes a server sends INSTEAD of saying no. Read as absences.       |
 | `absent_headers`  | The same statement made in a header rather than in the bytes.              |
 | `displacement`    | A known displacement of the imagery. Recorded and shown, never acted on.   |
-| `credentials`     | Names of secrets the source needs. Never the secrets themselves.           |
+| `keys`            | The key_names this source's url contains. Never the values themselves.    |
 | `policy`          | Requested limits. The application clamps regardless of what is asked for.  |
 
 The fields land almost exactly on Leaflet's `L.TileLayer` options, arrived at independently
@@ -87,7 +88,7 @@ A URL template may contain these and nothing else:
 | `{-y}`      | Tile row, counting from the south - the TMS row flip.              |
 | `{s}`       | One of the declared `subdomains`.                                  |
 | `{q}`       | The quadkey - the same grid under a different encoding.            |
-| `{slot}`    | The value stored for a credential slot the file itself declares.   |
+| `{name}`    | The value stored for a key_name the file itself declares.          |
 
 `{-y}` is why there is no addressing-scheme enum: TMS is not a different grid, only a
 different row origin. `{q}` is there for the same reason.
@@ -110,8 +111,9 @@ Rules that cause a file to be rejected:
 
 - `attribution` missing or empty.
 - `tile_size` other than 256, or `crs` other than `EPSG:3857`.
-- A placeholder in `url` that is not in the closed set, or a credential placeholder for a
-  slot the file does not declare.
+- A placeholder in `url` that is not in the closed set, or a key placeholder for a
+  key_name the file does not declare.
+- A `key_value` anywhere in the file. Values live in the key store, never here.
 - Any field the format does not define.
 
 `notes` exists because JSON has no comments and these files are read by people.
@@ -284,20 +286,35 @@ that is quietly in the wrong place. Neither is a refusal.
 What it buys is that the one failure nothing else can catch stops being invisible. A user
 who would have discovered the displacement on the water reads it before the build instead.
 
-## Credentials
+## Keys
 
-**A TSD declares credential slots and never contains a credential value.** A slot names the
-secret a source needs and where to obtain one:
+**A TSD declares key names and never contains a key value.** A declaration names what the
+url needs and where to obtain one:
 
 ```
-    credentials: [ { slot: "api_key", label: "API key", obtain_url: "https://..." } ]
+    keys: [ { key_name: "linz_api_key",
+              label:    "LINZ API key",
+              obtain_url: "https://basemaps.linz.govt.nz" } ]
 ```
 
-The value lives in the credential store, whose location is specified in
-[Deployment](../deployment.md#the-credential-store). Two consequences follow, and
-both are structural rather than procedural: a TSD is safe to share by construction, and no
-secret can reach the browser, because the browser never contacts a tile server directly.
-See [Build](build.md#everything-goes-through-the-proxy).
+**A `key_value` in a TSD is refused at load**, naming the file and saying where a value
+belongs. That refusal is what makes "safe to share by construction" a property rather than
+a promise.
+
+The value lives in the [key store](key_store.md), whose location is specified in
+[Deployment](../deployment.md#the-key-store). Two consequences follow, and both are
+structural rather than procedural: a TSD is safe to share by construction, and no key can
+reach the browser, because the browser never contacts a tile server directly. See
+[Build](build.md#everything-goes-through-the-proxy).
+
+**A declared name is a legal placeholder and an undeclared `{token}` is not.** That
+asymmetry is the whole reason the declaration exists rather than being inferred from the
+url: a typo becomes a refusal at load rather than an unbound key that fails later against
+somebody else's server.
+
+**They are not called credentials, and the name matters.** An API key, a password, a
+subscription instance id and an archive release number are one mechanism, and only some of
+them are confidential. See [Key Store](key_store.md#it-is-a-named-substitution-not-a-credential-system).
 
 ## Asking the service what it is
 
@@ -308,7 +325,7 @@ GetCapabilities with the layer, the tile matrix set that names its ceiling, its 
 access constraints. Between them that covers most services worth probing.
 
 The probe settles, without fetching a tile: **is the url template right, is the row order
-flipped, is a credential needed, what format is really served, and how deep does the service
+flipped, is a key needed, what format is really served, and how deep does the service
 admit to going.**
 
 **The findings are shown beside what the file says, and disagreements are listed as

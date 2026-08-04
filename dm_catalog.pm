@@ -57,6 +57,12 @@ use JSON::PP;
 use Pub::Utils;
 use cm_defs;
 use cm_utils;
+use dm_keys;
+	# THE KEY STORE IS NOT A SOURCE, which is why this one is allowed where
+	# dm_source is not.  It holds key_name to key_value and knows nothing
+	# about what a TSD may be; the panel needs it to say whether a key an
+	# entry names has a value, and Expand needs it to take a live key back
+	# out of what a service handed us.
 
 
 BEGIN
@@ -112,7 +118,7 @@ my @INHERIT_NODE = qw( moniker region cost buildable requires canonical );
 my $NUM = qr/^-?\d+(?:\.\d+)?$/;
 
 my @INHERIT_TSD  = qw( tile_format attribution terms_url license
-					   redistributable uses policy subdomains credentials );
+					   redistributable uses policy subdomains keys );
 
 my @NEVER_INHERIT_TSD = qw( name cache_key url zoom notes
 							absent_fingerprints absent_headers displacement );
@@ -667,18 +673,27 @@ sub catalogLines
 				'NOT correct it');
 		}
 
-		# A CREDENTIAL SLOT IS SAID OUT LOUD, and so is the fact that
-		# nothing fills one yet.  A file written from a keyed entry is
-		# well formed and will load; it will not fetch, and finding that
-		# out from a failed build would be the worst place to learn it.
+		# A key_name IS SAID OUT LOUD, and so is whether anything is bound
+		# to it.  A file written from a keyed entry is well formed and will
+		# load; whether it will FETCH depends on the key store, and finding
+		# that out from a failed build would be the worst place to learn it.
 
-		if ($tsd->{credentials} && @{$tsd->{credentials}})
+		if ($tsd->{keys} && @{$tsd->{keys}})
 		{
-			_pair(\@out,'credentials',
-				join(',',map { $_->{slot} } @{$tsd->{credentials}}));
+			for my $key (@{$tsd->{keys}})
+			{
+				my $name = $key->{key_name} // '';
+				my $val  = getKeyValue($name);
+				_pair(\@out,'key',$name.(
+					(defined($val) && $val =~ /\S/) ? ' - set' : ' - NOT SET'));
+				_pair(\@out,'',"get one at $key->{obtain_url}")
+					if $key->{obtain_url} && !(defined($val) && $val =~ /\S/);
+			}
 			_pair(\@out,'',
-				'the credential store is not implemented - this source '.
-				'will load but not fetch');
+				'this source will load, and will not fetch until every key '.
+				'above has a value in the key store')
+				if grep { my $v = getKeyValue($_->{key_name} // '');
+						  !defined($v) || $v !~ /\S/ } @{$tsd->{keys}};
 		}
 
 		push @out,'';
@@ -823,14 +838,50 @@ sub _attachTo
 			next;
 		}
 
+		# THE STRIP-BACK, AND IT IS THE WHOLE REASON EXPAND CAN BE TRUSTED
+		# WITH A KEYED SERVICE.
+		#
+		# A keyed service's capabilities document hands back ResourceURL
+		# templates with the LIVE KEY BAKED INTO THEM -- not a placeholder,
+		# the value we just used to fetch it.  LINZ does exactly this.  So
+		# what comes off the wire must have every known key_value turned
+		# back into its {key_name} before it is written anywhere, or every
+		# entry Expand produced would carry a working secret in the one
+		# field the format promises is safe to hand to a stranger.
+		#
+		# keyRedact is the right instrument rather than a url-shaped one: it
+		# works on VALUES, so it does not need to know where in the template
+		# a service chose to put the key -- path, query, or somewhere nobody
+		# has thought of yet.
+
+		my $url = keyRedact($lay->{url});
+
 		my %tsd = %{ $node->{tsd} || {} };
 		$tsd{name}        = $node->{name}.' - '.$lay->{name};
 		$tsd{cache_key}   = $id;
-		$tsd{url}         = $lay->{url};
+		$tsd{url}         = $url;
 		$tsd{zoom}        = { min => $lay->{zmin} + 0, max => $lay->{zmax} + 0 };
 		$tsd{tile_format} = $lay->{tile_format} if $lay->{tile_format};
 		$tsd{notes}       = $lay->{notes};
-		delete $tsd{credentials};
+
+		# THE DECLARATION IS KEPT WHERE THE URL STILL NEEDS IT, and dropped
+		# where it does not.  It used to be deleted unconditionally, which
+		# was right when a fetched layer could not be keyed at all and is
+		# wrong now: a stripped url naming {linz_api_key} with no matching
+		# declaration is a file dm_source REFUSES to load.
+
+		# ASKED AS A LITERAL, WITHOUT dm_source.  Whether {linz_api_key} is
+		# in this string is a question about this string, and answering it
+		# by borrowing dm_source's placeholder list would be the first crack
+		# in the rule at the top of this file.
+
+		if (ref($tsd{keys}) eq 'ARRAY')
+		{
+			$tsd{keys} = [ grep {
+				my $n = $_->{key_name} // '';
+				length($n) && $url =~ /\{\Q$n\E\}/ } @{$tsd{keys}} ];
+			delete $tsd{keys} if !@{$tsd{keys}};
+		}
 
 		my $kid = {
 			id       => $id,

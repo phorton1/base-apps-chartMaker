@@ -159,10 +159,11 @@ sub new
 	$this->{rows}    = [];
 	$this->{proven}  = {};		# field => a web hit's refutation
 
-	# WHAT IS NOT EDITED IS STILL CARRIED.  credentials has no control - it
-	# is a list of slots, and a slot with no value in it is not a thing a
-	# text box can usefully offer - and a file that lost it by passing
-	# through the editor would be a file quietly damaged by being looked at.
+	# WHAT IS NOT EDITED IS STILL CARRIED.  'keys' has no control - it is a
+	# list of key_names, the VALUES live in the key store and belong to the
+	# machine rather than to the file, and a file that lost its declaration
+	# by passing through the editor would be a file quietly damaged by being
+	# looked at.
 	#
 	# THE TWO ABSENCE LISTS ARE NO LONGER CARRIED.  They are rows now, so
 	# they are visible, editable and DELETABLE, which is what a person needs
@@ -171,7 +172,7 @@ sub new
 	# fingerprint could not mark the dialog dirty.
 
 	$this->{carry} = {};
-	for my $k (qw( credentials ))
+	for my $k (qw( keys ))
 	{
 		$this->{carry}{$k} = $tsd->{$k} if defined $tsd->{$k};
 	}
@@ -486,13 +487,13 @@ sub repaint
 	{
 		my $now = $this->_valueOf($r->{kind},$r->{ctl});
 
-		# THE CARRIED credentials ARE PART OF THE QUESTION.  This dialog has
-		# no control for them and passes them through untouched, but a url
-		# may legally name a slot the file declares - so the field check has
+		# THE CARRIED keys ARE PART OF THE QUESTION.  This dialog has no
+		# control for them and passes them through untouched, but a url may
+		# legally name a key_name the file declares - so the field check has
 		# to be told what is carried or it refuses what the loader accepts.
 
 		my $bad = checkSourceField($r->{name},$now,
-			$this->{carry}{credentials});
+			$this->{carry}{keys});
 		my $col = $BLACK;
 		$url_bad = $bad ? 1 : 0 if $r->{name} eq 'url';
 

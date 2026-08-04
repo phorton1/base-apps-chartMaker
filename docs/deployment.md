@@ -42,7 +42,7 @@ regenerate:
   See [Design: Regions](design/regions.md).
 - **TSD files** - `sources/*.tsd`, the tile source definitions the application can build
   from. Found the same way, for the same reason. See [Design: TSD](design/tsd.md).
-- **The credential store** - the secrets for those sources that require one.
+- **The key store** - the values for those sources whose urls need one.
 
 There is deliberately **no index file** in `$data_dir`. What a scan cannot answer is which
 set and which source are *selected*, and those are per-machine facts that live in the
@@ -54,12 +54,12 @@ would want backed up, carried to another machine, or handed to another mariner. 
 anywhere else - buried in AppData, or inside the installation - would make all three of
 those harder and would misrepresent whose data it is.
 
-## The credential store
+## The key store
 
-A TSD declares credential **slots** and never contains a credential value, so the values
-themselves need somewhere to live. That somewhere is the credential store, which sits in
-`$data_dir` by default and is **relocatable by preference** to any folder the user
-nominates.
+A TSD declares **key names** and never contains a key value, so the values themselves need
+somewhere to live. That somewhere is `chartMaker.keys.json`, a flat JSON object of
+`key_name` to `key_value`, which sits in `$data_dir` by default and whose **folder is
+relocatable by preference**. See [Design: Key Store](design/key_store.md).
 
 The preference is the point. The default keeps a user's own keys with the rest of their own
 material, where they will not be lost or forgotten. But `$data_dir` is a backed-up and
@@ -69,10 +69,20 @@ volume - needs somewhere else to put them without giving up the default for ever
 else. Splitting the store's location from `$data_dir`'s costs one preference and settles
 the question for every user in either camp.
 
+**The preference names the folder and the file name is a constant**, so there is never a
+second setting for one thing. The name is namespaced by the application for a reason that
+only appears once the folder has been moved: an encrypted volume or a USB stick is exactly
+the sort of place something else has already left a `keys.json`.
+
+**It is plain text and the dialog says so.** A key this application uses unattended has to
+be recoverable by this application, so encrypting it under another key kept beside it would
+be theatre. The folder is the real answer.
+
 ## Every folder is a preference
 
-The five trees chartMaker reads and writes are each a preference, and each defaults to a
-leaf under `$data_dir`:
+The six trees chartMaker reads and writes are each a preference, and each defaults to a
+leaf under `$data_dir` - except the key store, whose default *is* `$data_dir`, because it
+is one file rather than a tree:
 
 ```
     SOURCES_DIR       $data_dir/sources          the .tsd files
@@ -80,6 +90,7 @@ leaf under `$data_dir`:
     MBTILES_DIR       $data_dir/mbtiles          built chartsets
     RASTER_DIR        $data_dir/raster           built cards, one folder per set
     CACHE_DIR         $data_dir/cache            fetched tiles
+    KEYS_DIR          $data_dir                 holds chartMaker.keys.json
 ```
 
 **`$data_dir` itself is deliberately not a preference.** The preferences file lives in it,
@@ -190,8 +201,8 @@ installed chartMaker run side by side without touching each other's files.
 The same has to hold for anything else the two would otherwise contend for, and the
 **HTTP server port** is the one that bites: two servers cannot bind the same port, so
 without an environment-keyed default the second application to start simply fails. The
-defaults are **9884 in development** and **9874 when installed**, and like the credential
-store location, the port is a preference and can be overridden.
+defaults are **9884 in development** and **9874 when installed**, and like the key store
+location, the port is a preference and can be overridden.
 
 ## Two of the same kind are refused
 
@@ -254,7 +265,7 @@ The division is the whole of what makes an uninstall safe:
 | Lives in | Holds | On uninstall |
 | -------- | ----- | ------------ |
 | the installation | the executables, the bundled Perl, `_res` | removed |
-| `$data_dir` | region sets, TSDs, the credential store, built output, the cache | **kept** |
+| `$data_dir` | region sets, TSDs, the key store, built output, the cache | **kept** |
 | `$temp_dir` | the ini, the per-source observation records | kept, and disposable |
 
 **Nothing the user authored is inside the installation**, which is why an upgrade is an

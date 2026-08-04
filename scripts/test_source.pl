@@ -409,16 +409,16 @@ ok(checkSourceField('attribution','Imagery (c) Nobody') eq '',
 	"and its downmapped spelling passes");
 
 ok(checkSourceField('url','https://e.com/{z}/{x}/{y}.png') eq '',"a good url passes");
-# A DECLARED SLOT IS A LEGAL PLACEHOLDER, and this field check has to be
-# told what the file declares or it refuses a url the LOADER accepts.  That
-# is not a cosmetic disagreement: the editor paints red and disables Save
-# from this answer, so a keyed source could be created and then never
+# A DECLARED key_name IS A LEGAL PLACEHOLDER, and this field check has to
+# be told what the file declares or it refuses a url the LOADER accepts.
+# That is not a cosmetic disagreement: the editor paints red and disables
+# Save from this answer, so a keyed source could be created and then never
 # saved again.
 {
 	my $keyed = 'https://e.com/{z}/{x}/{y}.png?api={my_key}';
-	my $creds = [ { slot => 'my_key' } ];
+	my $creds = [ { key_name => 'my_key' } ];
 	ok(checkSourceField('url',$keyed,$creds) eq '',
-		"a url naming a DECLARED credential slot passes");
+		"a url naming a DECLARED key_name passes");
 	ok(checkSourceField('url',$keyed),
 		"the same url with nothing declared fails");
 	ok(checkSourceField('url',$keyed,[ { slot => 'other_key' } ]),
