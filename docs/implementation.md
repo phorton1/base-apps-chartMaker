@@ -53,7 +53,7 @@ changes. Nothing outside the application should depend on them.
 | ------------------------- | ------- | ---------------------------------------------- |
 | `/api/command?cmd=<cmd>`  | drive   | Dispatch a command through `em_command`.       |
 | `/api/log?since=<seq>`    | drive   | Output-ring entries since a point.             |
-| `/poll`                   | applet  | A cheap version probe.                         |
+| `/poll?lat&lon&z`         | applet  | A cheap version probe, carrying where the map is looking. |
 | `/state`                  | applet  | Everything currently visible, as one document. |
 | `/coverage?z&w&s&e&n`     | applet  | Tiles in coverage at one zoom, in view.        |
 | `/preview?z&w&s&e&n`      | applet  | The same tiles, each named with the source it would be built from. |
@@ -83,6 +83,14 @@ stale answer.
 **`/poll` also records when it was last asked.** One timestamp, no session - see
 [Tree Editing](design/editing_tree.md). It answers whether a browser is there, which is what
 lets an edit left behind by a closed window be cleared instead of blocking the tree forever.
+
+**And where it is looking.** A leaflet map has a centre and this application does not, so
+anything asking a tile service about *somewhere* has nowhere to ask from - which is exactly
+what [Test](design/tsd_editor.md#the-place-is-never-derived) needs. It rides on the poll for
+the same reason the probe's sequence does: the poll is already the one message that says this
+map exists, and where it is looking is part of what that means. It is never persisted and it
+expires with the poll, because a remembered centre from a map since closed is a stale place
+presented as a current one.
 
 Three properties of the protocol are worth stating because each is easy to lose:
 

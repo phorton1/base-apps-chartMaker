@@ -44,12 +44,19 @@
 package w_source;
 use strict;
 use warnings;
+use threads;
+use threads::shared;
 use Wx qw(:everything);
 use Wx::Event qw( EVT_BUTTON EVT_TEXT EVT_CHOICE EVT_CHECKBOX EVT_CLOSE );
+use JSON;
 use Pub::Utils;
 use cm_defs;
+use cm_utils;
 use dm_source;
+use dm_verify;
 use w_ini;
+use w_progress;
+use w_verify;
 use base qw(Wx::Dialog);
 
 
@@ -554,17 +561,55 @@ sub clearProven
 
 
 sub onTest
-	# NOT IMPLEMENTED, AND SAYING SO IS THE HONEST STATE.  A button that
-	# silently did nothing would read as a test that passed, which is the
-	# one impression a verification control must never give.
+	# ASK THE SERVICE ABOUT THE VALUES IN THIS DIALOG, on a worker, under
+	# the progress dialog.
+	#
+	# THE FIELDS AS THEY ARE NOW, NOT AS THEY WERE SAVED.  Testing the file
+	# on disk would be testing something the user cannot see, and the whole
+	# reason to press this button is that a value in front of them has just
+	# been typed and they want to know whether it is true.
+	#
+	# EVERY PREVIOUS FINDING IS DROPPED FIRST.  Orange means the service
+	# disproved this value, and a mark left over from a run that is being
+	# replaced is a claim nothing currently supports.
+	#
+	# THE ANSWER LANDS TWICE, DELIBERATELY.  Fields it can name go orange
+	# here, where they are edited; ALL of it goes in the dialog, because a
+	# dialog is what somebody who pressed a button expects to be answered
+	# by, and because the same rendering has to serve the catalog, where
+	# there are no fields to paint.
 {
 	my ($this,$event) = @_;
-	Wx::MessageBox(
-		"Verifying a source against its service is not implemented yet.\n\n".
-		"When it is, this will ask the service about the values in this ".
-		"dialog, mark anything it can disprove, and change nothing here or ".
-		"on disk.",
-		'Test Source',wxOK | wxICON_INFORMATION,$this);
+
+	my $tsd = $this->tsd();
+	$this->clearProven();
+
+	my @places = verifyPlaces($tsd);
+
+	my $prog = newProgress(2,'');
+	$prog->{active} = 1;
+	$prog->{phase}  = 'Starting';
+
+	threads->create(\&dm_verify::verifyWorker,$prog,
+		[ encode_json($tsd),encode_json(\@places),($this->{leaf} || '') ]
+		)->detach();
+
+	my $dlg = w_progress->new($this,
+		'Test - '.($tsd->{name} || $tsd->{id} || 'source'),$prog);
+	$dlg->run();
+
+	# THE ANSWER CROSSES AS TEXT, decoded once here.  See verifyWorker.
+
+	my $out = eval { decode_json($prog->{json} || '{}') };
+	if (!$out || !$out->{verdict})
+	{
+		Wx::MessageBox('The test could not be completed.','Test',
+			wxOK | wxICON_ERROR,$this);
+		return;
+	}
+
+	$this->setProven($_->{field},$_->{why}) for @{$out->{refuted} || []};
+	w_verify->show($this,$out);
 }
 
 

@@ -895,7 +895,18 @@ function onConnected() {
 
 async function pollVersion() {
     try {
-        const poll = await fetchJson('/poll', POLL_TIMEOUT_MS);
+        // WHERE WE ARE LOOKING RIDES ON THE POLL.  The application has no
+        // notion of "here" -- a centre and a zoom are things a leaflet map
+        // has and a wx dialog does not -- and anything that asks a tile
+        // service about somewhere needs one.  Sent on the poll rather than
+        // through an endpoint of its own because the poll is already the
+        // one message that says this map exists.
+        const c = map.getCenter();
+        const q = '?lat=' + c.lat.toFixed(6) +
+                  '&lon=' + c.lng.toFixed(6) +
+                  '&z='   + map.getZoom();
+
+        const poll = await fetchJson('/poll' + q, POLL_TIMEOUT_MS);
         polledVersion = poll.version;
         onConnected();
 

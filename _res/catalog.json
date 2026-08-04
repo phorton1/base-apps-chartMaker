@@ -6,6 +6,11 @@
     {
       "id": "gibs",
       "name": "NASA GIBS",
+      "canonical": {
+        "where": "Government Cut, Miami",
+        "at": [25.76, -80.13],
+        "why": "Global, so anywhere would answer, and a global service is asked somewhere that reads as an answer rather than as a place a machine picked. GIBS is NASA, so the point is a busy United States port on the coast NASA flies from."
+      },
       "region": "global",
       "cost": "free, no key",
       "buildable": "yes, US Government work",
@@ -57,6 +62,11 @@
     {
       "id": "esri",
       "name": "Esri ArcGIS",
+      "canonical": {
+        "where": "Golden Gate, San Francisco",
+        "at": [37.81, -122.47],
+        "why": "Esri is a California company, so its own coast is the tip of the hat. Deliberately the SAME water as USGS Imagery Only, which makes the two directly comparable: one question a chart author actually has is which of them is deeper here."
+      },
       "region": "global",
       "cost": "Esri Master License Agreement; free noncommercial use is at Esri's determination",
       "buildable": "no - the item's own licenseInfo states the layer is not intended to be used to export tiles for offline, and Esri's general terms prohibit systematically harvesting a service. Viewing is a different matter and is expressly granted.",
@@ -126,6 +136,11 @@
     {
       "id": "usgs_imagery_only",
       "name": "USGS Imagery Only",
+      "canonical": {
+        "where": "Golden Gate, San Francisco",
+        "at": [37.81, -122.47],
+        "why": "Coastal, inside the United States, and one of the most heavily imaged harbour entrances anywhere. Note that this service also answers over Panama down to z8, so a point inside its stated region is the only one that tests what it claims to be."
+      },
       "brief": "z16   United States   free",
       "region": "United States",
       "cost": "free, no key",
@@ -151,6 +166,11 @@
     {
       "id": "gsi_seamlessphoto",
       "name": "Japan GSI seamlessphoto",
+      "canonical": {
+        "where": "Yokohama waterfront",
+        "at": [35.45, 139.65],
+        "why": "Coastal Japan and certain to have been flown. Measured over Tokyo this service answers z2 to z18 unbroken and refuses z0 and z1, which is its floor rather than a gap - and it serves real imagery over Panama at z3 and z8, so only a point inside Japan tests the thing it says it is."
+      },
       "brief": "z18   Japan   free",
       "region": "Japan",
       "cost": "free, no key",
@@ -176,6 +196,11 @@
     {
       "id": "ign_fr",
       "name": "IGN France",
+      "canonical": {
+        "where": "Marseille, Vieux-Port",
+        "at": [43.29, 5.37],
+        "why": "Metropolitan France on the coast. This service returns real imagery of Bocas del Toro at z12, so a point far outside France proves nothing about it; the region has to be asked inside the region."
+      },
       "region": "France, metropolitan and the overseas departments",
       "cost": "free, no key",
       "buildable": "yes, French open licence with attribution",
@@ -214,6 +239,11 @@
     {
       "id": "ign_es",
       "name": "Spain IGN",
+      "canonical": {
+        "where": "Barcelona",
+        "at": [41.383, 2.1734],
+        "why": "Coastal Spain, set on the city rather than out on the harbour mole: the mole tile is half nodata, and a half empty tile makes a poor thing to measure against. Outside Spain this service answers 200 with a blank JPEG rather than a 404, so the point matters more here than most."
+      },
       "region": "Spain",
       "cost": "free, no key",
       "buildable": "yes, CC BY 4.0 - the WMTS AccessConstraints field states 'CC BY 4.0 scne.es' and Fees states none",
@@ -251,6 +281,11 @@
     {
       "id": "nsw_imagery",
       "name": "NSW Spatial Services imagery",
+      "canonical": {
+        "where": "Sydney Harbour",
+        "at": [-33.85, 151.22],
+        "why": "The most heavily imaged water in New South Wales. Asked at z0 this service returns a 200 carrying a white world with one blue speck of NSW painted on it, which is exactly the kind of answer a canonical point exists to avoid."
+      },
       "brief": "z21   New South Wales   free",
       "region": "New South Wales, Australia",
       "cost": "free, no key",
@@ -276,6 +311,11 @@
     {
       "id": "linz_aerial",
       "name": "LINZ Basemaps aerial",
+      "canonical": {
+        "where": "Waitemata Harbour, Auckland",
+        "at": [-36.84, 174.78],
+        "why": "Coastal New Zealand at its busiest harbour. This service needs a key, so with an empty credential slot the answer here is the refusal rather than a tile, and seeing the refusal is the point."
+      },
       "brief": "z22   New Zealand   NEEDS A KEY",
       "region": "New Zealand",
       "cost": "free API key; standard access is capped at 1,000 tile requests per minute",
@@ -305,6 +345,11 @@
     {
       "id": "openseamap_seamarks",
       "name": "OpenSeaMap seamarks",
+      "canonical": {
+        "where": "Portsmouth and the Solent",
+        "at": [50.79, -1.11],
+        "why": "An overlay is mostly empty by design, so it has to be asked somewhere dense or a correct blank reads as a failure. The Solent approaches put buoyage, light sectors and anchorages in a single tile. Elsewhere this service answers 200 with a 334 byte transparent PNG, in region and out of it alike."
+      },
       "brief": "overlay   global   free",
       "region": "global",
       "cost": "free",
@@ -330,6 +375,11 @@
     {
       "id": "noaa_enc",
       "name": "NOAA Chart Display Service",
+      "canonical": {
+        "where": "Chesapeake Bay entrance",
+        "at": [36.95, -76.03],
+        "why": "Busy United States chart water with full ENC coverage, so anything other than a chart tile here is about the request and not about the place."
+      },
       "brief": "chart rendering   US waters   free",
       "region": "United States waters",
       "cost": "free, no key",
@@ -355,6 +405,11 @@
     {
       "id": "eox_s2cloudless",
       "name": "EOX Sentinel-2 cloudless",
+      "canonical": {
+        "where": "Trieste",
+        "at": [45.65, 13.76],
+        "why": "Global and cloud free everywhere, so the point is a tip of the hat rather than a constraint. EOX is Austrian and Austria has no coast, so the nearest real port stands in for it."
+      },
       "brief": "z13   global   free tier",
       "region": "global",
       "cost": "free under fair use; production use is a paid tier",
@@ -381,6 +436,11 @@
     {
       "id": "emodnet_bathymetry",
       "name": "EMODnet bathymetry",
+      "canonical": {
+        "where": "Dogger Bank, North Sea",
+        "at": [54.7, 2.5],
+        "why": "Bathymetry, so a coastal city is the wrong question: the data is the sea floor and the point belongs offshore. Dogger Bank is inside the stated European seas and is as well surveyed as anywhere in them."
+      },
       "brief": "coarse   European seas   free",
       "region": "European seas",
       "cost": "free",
@@ -406,6 +466,11 @@
     {
       "id": "gebco",
       "name": "GEBCO bathymetry",
+      "canonical": {
+        "where": "Colombia Basin, Caribbean",
+        "at": [14.0, -76.0],
+        "why": "Global bathymetry, asked in deep water for the same reason as EMODnet: what it holds is the sea floor, so the point has to be at sea rather than on a coast."
+      },
       "brief": "coarse   global   free",
       "region": "global",
       "cost": "free",
@@ -431,6 +496,11 @@
     {
       "id": "coral_atlas",
       "name": "Allen Coral Atlas",
+      "canonical": {
+        "where": "Cairns, Great Barrier Reef",
+        "at": [-16.7, 146.0],
+        "why": "Reef mapping, so it is asked over reef. The Great Barrier Reef is the densest thing this service holds, which makes an empty answer here a statement about the service rather than about the place."
+      },
       "brief": "benthic   global reefs   free",
       "region": "global reefs",
       "cost": "free",
@@ -456,13 +526,18 @@
     {
       "id": "qld_imagery",
       "name": "Queensland Government imagery",
-      "brief": "z19   Queensland   free",
+      "canonical": {
+        "where": "Moreton Bay, Brisbane",
+        "at": [-27.4, 153.15],
+        "why": "Coastal Queensland at the state's most imaged harbour."
+      },
+      "brief": "z19   Queensland   token",
       "region": "Queensland, Australia",
-      "cost": "free, no key",
+      "cost": "no charge, but a token is required. Measured 2026-08-04: every tile request at Moreton Bay answers HTTP 200 carrying {\"error\":{\"code\":499,\"message\":\"Token Required\"}}, at every level from z0 to z19. The survey recorded this as free with no key, which the service contradicts.",
       "buildable": "the licence varies per image between CC BY, CC BY-SA and public domain, so it must be checked per dataset rather than once",
       "depth": "tile cache built to 1:1129, which is level 19",
       "value": "Excellent on that coast. The whole-of-state satellite mosaic derives from Planet and is CC BY-SA, which imposes share-alike on anything built from it.",
-      "requires": "checking the licence of the particular dataset you are addressing, because it is not one licence",
+      "requires": "an ArcGIS token, pasted into the credential slot 'qld_token'. Also checking the licence of the particular dataset you are addressing, because it is not one licence",
       "tsd": {
         "name": "Queensland - latest state imagery program",
         "cache_key": "qld_imagery",
@@ -474,14 +549,22 @@
         "license": "Varies per image between CC BY 4.0, CC BY-SA 4.0 and public domain. The whole-of-state satellite mosaic derives from Planet and is CC BY-SA, whose share-alike condition attaches to anything built from it.",
         "redistributable": "unknown",
         "uses": ["display"],
+        "credentials": [
+          { "slot": "qld_token" }
+        ],
         "policy": { "max_concurrency": 4, "min_interval_ms": 0 },
-        "notes": "An ArcGIS ImageServer rather than a MapServer, and the tile path is the same shape: {z}/{y}/{x}, row before column."
+        "notes": "An ArcGIS ImageServer rather than a MapServer, and the tile path is the same shape: {z}/{y}/{x}, row before column. THE TOKEN IS A SLOT AND NOT A VALUE, like every credential here. Measured 2026-08-04: without one the service answers HTTP 200 with a JSON body saying 'Token Required', which is a refusal wearing a success code - a fetcher reading the status alone would cache it as imagery."
       }
     },
 
     {
       "id": "de_africa",
       "name": "Digital Earth Africa",
+      "canonical": {
+        "where": "Table Bay, Cape Town",
+        "at": [-33.9, 18.43],
+        "why": "Coastal Africa at a major port, well inside the stated region and well inside the z14 this service tops out at."
+      },
       "brief": "z14   Africa   free",
       "region": "Africa",
       "cost": "free",

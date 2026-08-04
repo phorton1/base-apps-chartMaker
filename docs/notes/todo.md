@@ -99,6 +99,13 @@ scheme ala the way that navMate is currently released.
 
 ## OTHER
 
+### Cache Cleanup utility
+
+to tiles only in some existing regionset
+
+tiles get accumulated in testing and I have no way to easily trim the cache back to the tiles
+I actually need.
+
 
 ### Overlay TSD's
 

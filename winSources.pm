@@ -130,6 +130,13 @@ sub new
 	$this->{ctl_catalog}->SetToolTip(
 		'The tile services chartMaker knows about - create sources from them');
 
+	# WHAT THE SELECTION IS, ON ITS OWN LINE UNDER THE BUTTONS.  It sat at
+	# the end of the button row, where it had whatever width was left over
+	# and ran off the right edge: 'this is the source the map is' with the
+	# word that carried the meaning cut off.  A line of prose in a row of
+	# fixed-width controls is always the thing that gets clipped, and the
+	# longest thing it says - what the probe put there - was the worst hit.
+
 	$this->{ctl_what} = Wx::StaticText->new($right,-1,'');
 
 	# WHY A FILE IS NOT A SOURCE, IN RED, AND UP HERE.  The properties
@@ -150,8 +157,6 @@ sub new
 	$row->Add($this->{ctl_edit},0,$CV,0);
 	$row->AddSpacer(10);
 	$row->Add($this->{ctl_catalog},0,$CV,0);
-	$row->AddSpacer(16);
-	$row->Add($this->{ctl_what},0,$CV,0);
 
 	$this->{props} = Wx::TextCtrl->new($right,-1,'',
 		wxDefaultPosition,wxDefaultSize,
@@ -163,6 +168,7 @@ sub new
 	$sizer->AddSpacer(8);
 	$sizer->Add($row,0,wxLEFT|wxRIGHT,8);
 	$sizer->AddSpacer(6);
+	$sizer->Add($this->{ctl_what},0,wxEXPAND|wxLEFT|wxRIGHT,8);
 	$sizer->Add($this->{ctl_why},0,wxEXPAND|wxLEFT|wxRIGHT,8);
 	$sizer->AddSpacer(6);
 	$sizer->Add($this->{props},1,wxEXPAND|wxALL,4);
@@ -682,8 +688,7 @@ sub showProperties
 	my $is_on  = ($active && $id eq $active) ? 1 : 0;
 	$this->{ctl_use}->Enable($is_on ? 0 : 1);
 	$this->{ctl_probe}->Enable(1);
-	$this->{ctl_what}->SetLabel($is_on ?
-		'this is the source the map is showing' : '');
+	$this->{ctl_what}->SetLabel($is_on ? 'shown on the map' : '');
 
 	# THE PROBE'S FINDINGS REPLACE THE PANEL RATHER THAN JOINING IT, and
 	# that is deliberate.  What the file declares and what the service

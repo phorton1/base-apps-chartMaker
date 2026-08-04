@@ -55,8 +55,10 @@ use cm_utils;
 use dm_source;
 use dm_catalog;
 use dm_probe;
+use dm_verify;
 use w_source;
 use w_progress;
+use w_verify;
 use w_ini;
 use base qw(Wx::Dialog);
 
@@ -71,6 +73,7 @@ my $ID_EDIT		= 8952;
 my $ID_CLOSE	= 8953;
 my $ID_FILTER	= 8954;
 my $ID_EXPAND	= 8955;
+my $ID_TEST		= 8956;
 
 my $BIG_GROUP = 40;
 	# Above this many children a group stays shut and says how many it has.
@@ -195,11 +198,27 @@ sub new
 	$this->{expand}->SetToolTip('Ask this service what layers it publishes '.
 		'today. One request, no imagery, and nothing is written.');
 
+	# TEST SITS BESIDE EXPAND for the same reason Expand sits apart: both
+	# go to the network, neither writes a file, and neither ends the
+	# dialog.
+	#
+	# IT TESTS AN ENTRY THAT DOES NOT EXIST YET, which is the whole value
+	# of it being here.  Judging twenty candidates by creating twenty files
+	# and testing each one is the long way round to a decision that can be
+	# made before anything is written.
+
+	$this->{test} = Wx::Button->new($this,$ID_TEST,'Test',
+		wxDefaultPosition,[100,26]);
+	$this->{test}->SetToolTip('Ask the service whether this entry is true, '.
+		'without creating it. Nothing is written.');
+
 	my $close = Wx::Button->new($this,$ID_CLOSE,'Close',
 		wxDefaultPosition,[100,26]);
 
 	my $brow = Wx::BoxSizer->new(wxHORIZONTAL);
 	$brow->Add($this->{expand},0,0,0);
+	$brow->AddSpacer(8);
+	$brow->Add($this->{test},0,0,0);
 	$brow->AddSpacer(24);
 	$brow->Add($this->{create},0,0,0);
 	$brow->AddSpacer(8);
@@ -220,6 +239,7 @@ sub new
 	EVT_BUTTON($this,$ID_CREATE,\&onCreate);
 	EVT_BUTTON($this,$ID_EDIT,  \&onEdit);
 	EVT_BUTTON($this,$ID_EXPAND,\&onExpand);
+	EVT_BUTTON($this,$ID_TEST,  \&onTest);
 	EVT_BUTTON($this,$ID_CLOSE, sub { $_[0]->done() });
 	EVT_CLOSE($this,sub { $_[0]->done() });
 
@@ -497,11 +517,21 @@ sub _expandable
 	return undef if !$n;
 	return $n if catalogExpander($n);
 
+	# WALKED UP RATHER THAN LOOKED UP ONCE.  A layer can sit inside the
+	# fold group its own service made for it, which puts a node with no
+	# expander between the layer and the service that has one.  Looking
+	# exactly one level up made Expand go dead for precisely the layers
+	# most likely to prompt somebody to press it.
+
 	my $up = $tree->GetItemParent($item);
-	return undef if !$up || !$up->IsOk() || $up == $tree->GetRootItem();
-	my $pd = $tree->GetItemData($up);
-	my $pn = $pd ? $pd->GetData() : undef;
-	return ($pn && catalogExpander($pn)) ? $pn : undef;
+	while ($up && $up->IsOk() && $up != $tree->GetRootItem())
+	{
+		my $pd = $tree->GetItemData($up);
+		my $pn = $pd ? $pd->GetData() : undef;
+		return $pn if $pn && catalogExpander($pn);
+		$up = $tree->GetItemParent($up);
+	}
+	return undef;
 }
 
 
@@ -513,6 +543,11 @@ sub _enable
 	$this->{create}->Enable(scalar(@sel) ? 1 : 0);
 	$this->{edit}->Enable(scalar(@sel) == 1 ? 1 : 0);
 	$this->{expand}->Enable($this->_expandable() ? 1 : 0);
+
+	# TEST TAKES EXACTLY ONE, because its answer is a column of levels at a
+	# place and there is no way to read twenty of those at once.
+
+	$this->{test}->Enable(scalar(@sel) == 1 ? 1 : 0);
 }
 
 
@@ -726,6 +761,64 @@ sub onExpand
 
 	$this->populate();
 	$this->_say(join(', ',@said),0);
+}
+
+
+#---------------------------------------------
+# test
+#---------------------------------------------
+
+sub onTest
+	# ASK THE SERVICE ABOUT AN ENTRY THAT HAS NEVER BEEN WRITTEN.
+	#
+	# THE SAME VERIFIER THE EDITOR USES, given the same kind of field hash.
+	# A catalog entry becomes one by exactly the path Create would take, so
+	# what is tested here is what would be written and not an approximation
+	# of it.
+	#
+	# THE ENTRY CARRIES ITS OWN CANONICAL POINT and hands it over, because
+	# nothing on disk names this entry yet - dm_verify finds a point by
+	# matching a saved source's url against the catalog, and there is no
+	# saved source to match.
+{
+	my ($this,$event) = @_;
+
+	my @sel = $this->_selected();
+	return $this->_say('select exactly one entry to test',1)
+		if scalar(@sel) != 1;
+
+	my $node   = $sel[0];
+	my $tsd    = catalogTsd($node);
+	my @places = verifyPlaces($tsd,$node->{canonical});
+
+	my $prog = newProgress(2,'');
+	$prog->{active} = 1;
+	$prog->{phase}  = 'Starting';
+
+	threads->create(\&dm_verify::verifyWorker,$prog,
+		[ encode_json($tsd),encode_json(\@places),catalogLeaf($node) ]
+		)->detach();
+
+	my $dlg = w_progress->new($this,"Test - $node->{name}",$prog);
+	$dlg->run();
+
+	my $out = eval { decode_json($prog->{json} || '{}') };
+	return $this->_say('the test could not be completed',1)
+		if !$out || !$out->{verdict};
+
+	w_verify->show($this,$out);
+
+	# AND SAID IN THE FOOT AS WELL, because the dialog is dismissed and the
+	# question 'which of these did I already try' outlives it.
+
+	my %said = (
+		verified  => 'it works',
+		unrefuted => 'nothing disproved, and little proved',
+		problems  => 'problems found',
+		cancelled => 'stopped',
+	);
+	$this->_say("$node->{name} - ".($said{$out->{verdict}} || ''),
+		$out->{verdict} eq 'problems' ? 1 : 0);
 }
 
 

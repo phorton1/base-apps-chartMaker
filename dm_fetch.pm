@@ -52,6 +52,7 @@ BEGIN
 		fetchTile
 		fetchStore
 		fetchCacheHit
+		fetchDeclaredAbsent
 		fetchUrl
 		getTile
 	);
@@ -200,6 +201,34 @@ sub _declaredAbsentHeader
 }
 
 
+sub _said
+	# WHAT THE SERVER SAID, WHEN WHAT IT SENT WAS NOT AN IMAGE.
+	#
+	# A 200 CARRYING TEXT IS THE ONE FAILURE THAT EXPLAINS ITSELF, and
+	# discarding it was costing exactly the sentence somebody needs:
+	# Queensland answers a tile request with 200 and
+	# {"error":{"code":499,"message":"Token Required"}}, which says in four
+	# words what 'not a recognised image' cannot say at all.
+	#
+	# MARKUP OUT, ONE LINE, AND SHORT.  An ArcGIS error is a whole HTML
+	# page whose useful part is its title, and a reason that pasted a page
+	# into a log would be worse than one that said nothing.
+{
+	my ($dataref) = @_;
+	my $t = substr($$dataref,0,4000);
+
+	$t =~ s{<script.*?</script>}{ }gsi;
+	$t =~ s{<style.*?</style>}{ }gsi;
+	$t =~ s{<[^>]*>}{ }gs;
+	$t =~ s/[^\x20-\x7E]/ /g;
+	$t =~ s/\s+/ /g;
+	$t =~ s/^\s+|\s+$//g;
+
+	return '' if $t !~ /\S/;
+	return length($t) > 150 ? substr($t,0,147).'...' : $t;
+}
+
+
 sub fetchTile
 	# The network, and nothing else.  No cache is consulted or written.
 	# Returns { status, format, bytes, http, reason, ms }.
@@ -252,9 +281,11 @@ sub fetchTile
 			# A 200 that is not an image is the failure mode that looks
 			# most like success.  It is usually an error page.
 
+			my $said = _said(\$data);
 			return { status => 'error', http => $code, ms => $ms,
 				class => 'garbage',
-				reason => 'response is not a recognised image' };
+				reason => 'response is not a recognised image',
+				($said ? ( said => $said ) : ()) };
 		}
 		if ($format ne 'jpeg' && $format ne 'png')
 		{
@@ -325,8 +356,18 @@ sub fetchTile
 		$code >= 500                                 ? 'server'       :
 		                                               'server';
 
+	# AND WHAT IT SAID, FOR THE SAME REASON AS ABOVE.  A 400 from an ArcGIS
+	# endpoint is an HTML page whose title is 'Error: Invalid URL', which
+	# is the difference between a malformed url and a service that is down.
+	# Not gathered for a 404: that is a definite absence and its body
+	# cannot tell a missing tile from a wrong path, which is a question the
+	# column answers by shape instead.
+
+	my $said = _said(\(my $body = $response->content() // ''));
+
 	return { status => 'error', http => $code, ms => $ms,
 		class => $class, reason => $reason,
+		($said ? ( said => $said ) : ()),
 		defined($retry_after) ? ( retry_after => $retry_after ) : () };
 }
 
@@ -352,6 +393,18 @@ sub _isDeclaredAbsent
 		return 1 if $md5 eq $fp->{md5};
 	}
 	return 0;
+}
+
+
+sub fetchDeclaredAbsent
+	# THE PUBLIC NAME FOR THE RULE ABOVE, and the reason there is one: the
+	# fingerprint test having two implementations is not a hypothetical
+	# fault, it is a bug this application has already had.  A reader that
+	# rolled its own would be free to disagree with the fetcher about
+	# whether the same bytes are a tile.
+{
+	my ($source,$dataref) = @_;
+	return _isDeclaredAbsent($source,$dataref);
 }
 
 

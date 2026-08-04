@@ -394,6 +394,58 @@ ok(scalar(grep { /^url\s+\S+$/ } @{catalogLines($esri)}) == 1,
 # this module does with the answer, which must not need a network to
 # check.
 
+#---------------------------------------------
+# the canonical point
+#---------------------------------------------
+# WHERE TO ASK A SERVICE ABOUT ITSELF, and the reason it is curated rather
+# than derived.  Measured against the live services: one labelled 'Japan'
+# serves real imagery over Panama at z3 and z8, one labelled 'France'
+# serves Bocas del Toro at z12, and 'Spain' answers outside Spain with a
+# 200 carrying a blank JPEG.  Region prose predicts nothing, and neither
+# does the middle of a bounding box.
+
+print "\n--- every service says where to ask it ---\n";
+
+my ($no_where,$no_why,$off_earth) = (0,0,0);
+for my $svc (@$root)
+{
+	my $c = $svc->{canonical};
+	if (!$c) { $no_where++; $no_why++; next; }
+	$no_where++ if !defined $c->{where} || $c->{where} !~ /\S/;
+	$no_why++   if !defined $c->{why}   || $c->{why}   !~ /\S/;
+	next if !$c->{at};
+	my ($lat,$lon) = @{$c->{at}};
+	$off_earth++ if $lat < -85 || $lat > 85 || $lon < -180 || $lon > 180;
+}
+ok(!$no_where,"every shipped service names a place ($no_where without)");
+ok(!$no_why,"and says why there ($no_why without)");
+ok(!$off_earth,"and every point is on the earth ($off_earth not)");
+
+# INHERITED, BECAUSE WHERE A SERVICE HAS IMAGERY IS A FACT ABOUT THE
+# SERVICE.  Every layer GIBS publishes covers the same ground, so asking
+# each of them to name its own place would be a thousand copies of one
+# answer, free to disagree.
+
+my ($gibs_svc) = grep { $_->{id} eq 'gibs' } @$root;
+my $bm = catalogEntry('gibs_bluemarble');
+
+# ASSERTED AGAINST THE SERVICE AND NOT AGAINST A CITY.  Which point is the
+# right one is a judgement that will move; that a layer carries its
+# service's is the rule, and naming the place here would make every future
+# change of mind break a test that is not about the place at all.
+
+ok($bm && $bm->{canonical} && $gibs_svc->{canonical} &&
+   $bm->{canonical}{where} eq $gibs_svc->{canonical}{where},
+	'a layer inherits the canonical point of its service');
+
+my $expect = sprintf("ask it at %s %.4f, %.4f",
+	$gibs_svc->{canonical}{where},@{$gibs_svc->{canonical}{at}});
+ok(says(catalogLines($bm),qr/\Q$expect\E/),
+	'the panel names the place and the position');
+ok(says(catalogLines($bm),qr/why there \S/),
+	'and gives the reason, which is the whole point of the point');
+
+
 print "\n--- expanding a provider ---\n";
 
 my $gibs = undef;
@@ -419,7 +471,63 @@ my ($added,$known) = catalogAttach($gibs,[
 	  tms => 'GoogleMapsCompatible_Level6', notes => 'read from the service' },
 ]);
 ok($added == 2,"two fetched layers attached (got $added)");
-ok(scalar(@{$gibs->{kids}}) == $before + 2,'and they hang under the group');
+
+# BOTH KINDS ARRIVED, SO THE PNG ONE IS FOLDED.  The service gains the jpeg
+# layer and ONE group holding the rest, and that group is an ordinary group
+# - which is the whole of the fold.  The tree, the filter and the big-group
+# rule all understand it already and were not told about it.
+
+ok(scalar(@{$gibs->{kids}}) == $before + 2,
+	'the jpeg layer and one fold group hang under the service');
+
+my ($fold) = grep { !$_->{is_entry} && $_->{id} eq 'gibs_png_only' }
+	@{$gibs->{kids}};
+ok($fold,'a fold group was made');
+ok(scalar(@{$fold->{kids}}) == 1 &&
+   $fold->{kids}[0]{id} eq 'gibs_another_layer',
+	'and the png layer is inside it');
+
+# A FOLDED LAYER IS NOT A LESSER ONE.  It is addressable, it inherits the
+# provider's terms from the SERVICE rather than from the fold, and it
+# creates a file exactly like an unfolded one.  A fold that changed what a
+# layer WAS would be a filter wearing a disguise.
+
+my $folded = catalogEntry('gibs_another_layer');
+ok($folded,'a folded layer is addressable by id like any other');
+ok(catalogTsd($folded)->{license} =~ /US Government work/,
+	'and inherits the provider licence through the fold');
+ok($folded->{canonical} &&
+   $folded->{canonical}{where} eq $gibs_svc->{canonical}{where},
+	'and the canonical point too, so a fetched layer knows where to be asked');
+ok(!checkSource(catalogLeaf($folded),catalogTsd($folded)),
+	'and still produces a file dm_source would load');
+ok($folded->{path} =~ /published only as PNG/,
+	'its path says which group it is in');
+
+# ONE KIND ONLY MEANS NO FOLD.  Esri Wayback's 195 releases are all jpeg,
+# and folding a list like that would hide everything while separating
+# nothing.  Tested on IGN France, which is expandable and is not the node
+# a later test needs to find empty.
+
+my $one = undef;
+for my $n (@$root) { $one = $n if $n->{id} eq 'ign_fr' }
+ok($one,'IGN France is an expandable group');
+
+my $one_before = scalar(@{$one->{kids}});
+catalogAttach($one,[
+	{ id => 'Ortho_A', name => 'ortho A',
+	  url => 'https://data.geopf.fr/a/{z}/{y}/{x}.jpeg',
+	  zmin => 0, zmax => 19, tile_format => 'jpeg',
+	  tms => 'PM', notes => '' },
+	{ id => 'Ortho_B', name => 'ortho B',
+	  url => 'https://data.geopf.fr/b/{z}/{y}/{x}.jpeg',
+	  zmin => 0, zmax => 19, tile_format => 'jpeg',
+	  tms => 'PM', notes => '' },
+]);
+ok(scalar(@{$one->{kids}}) == $one_before + 2,
+	'both layers hang directly under it');
+ok(!(grep { !$_->{is_entry} } @{$one->{kids}}),
+	'and no fold group was invented for a service publishing one kind');
 
 my $fetched = catalogEntry('gibs_modis_terra_x');
 ok($fetched,'a fetched layer is addressable by its derived id');
@@ -518,6 +626,25 @@ sub badCatalog
 ok(badCatalog('empty','{ "catalog_version": 1, "nodes": [ '.
 	'{ "id": "x", "name": "X", "nodes": [] } ] }') =~ /declares no expander/,
 	'an empty group with no expander is refused');
+
+my $ENT = '"tsd": { "url": "http://a/{z}/{x}/{y}", '.
+		  '"zoom": {"min":0,"max":1}, "attribution": "a" }';
+
+ok(badCatalog('can_obj','{ "catalog_version": 1, "nodes": [ '.
+	'{ "id": "x", "name": "X", "canonical": "Tokyo", '.$ENT.' } ] }')
+		=~ /canonical.*not an object/,
+	'a canonical that is not an object is refused');
+
+ok(badCatalog('can_why','{ "catalog_version": 1, "nodes": [ '.
+	'{ "id": "x", "name": "X", "canonical": { "where": "Tokyo" }, '.$ENT.
+	' } ] }') =~ /needs a 'where' and a 'why'/,
+	'a canonical place with no reason is refused - the reason IS the point');
+
+ok(badCatalog('can_lat','{ "catalog_version": 1, "nodes": [ '.
+	'{ "id": "x", "name": "X", "canonical": { "where": "Tokyo", '.
+	'"why": "because", "at": [ 95.0, 139.0 ] }, '.$ENT.' } ] }')
+		=~ /latitude.*between -85 and 85/,
+	'and a latitude off the mercator grid is refused where it was written');
 
 ok(badCatalog('kind','{ "catalog_version": 1, "nodes": [ '.
 	'{ "id": "x", "name": "X", "expander": { "kind": "soap", "url": "u" }, '.

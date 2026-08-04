@@ -86,6 +86,40 @@ is when a person can still decide about it. A panel that showed the field withou
 sentence would read as "handled", and one that omitted it - which this one did at first -
 lets somebody create a displaced source without ever being told.
 
+## Every service says where to ask it
+
+A service carries a **canonical point**: one place it is known to have imagery, named, given
+a position, and given the reason it was chosen. It is inherited exactly like the licence and
+the terms, because where a service holds imagery is a fact about the service and not about
+one of its layers.
+
+**A service cannot be asked about nowhere.** Every question worth putting to a tile service
+is placed - is this url right, how deep does it really go, is that a tile or a blank - and
+the answer is only ever as good as the place. The point exists so that the question has one.
+
+**Region prose does not predict where the tiles are, and neither does a bounding box.**
+Measured against the live services: the one labelled "Japan" serves real imagery over Bocas
+del Toro at z3 and z8 and nothing at z12; the one labelled "France" serves Bocas del Toro at
+z12, pixel for pixel the same ground as Esri World Imagery; and "Spain" answers outside Spain
+with a 200 carrying a blank JPEG rather than a refusal. A point in the middle of a declared
+extent is no better - an extent is where a service is *entitled* to have imagery, which is
+not where it has any.
+
+**It is chosen by a person, which is why it ships here.** The choice is a judgement -
+somewhere the service certainly flew, on a coast, because that is what this application is
+for - and judgements belong beside the terms and the licence rather than being derived at
+runtime from something that only correlates. Bathymetry is the instructive exception: what
+those services hold is the sea floor, so their points are offshore, and a coastal city would
+be the wrong question rather than a better one.
+
+**A service may have no good point, and saying so is an answer.** One whose imagery is
+nowhere near a coast is one this application cannot use, so the absence is a finding about
+its fit rather than a hole in the file. The position is what may be omitted; the place and
+the reason are not.
+
+**It carries no result.** What a service actually answers there changes with the weather and
+belongs to whatever asks; what is written here is only where to ask.
+
 ## Nothing it ships claims to be current
 
 Every entry carries the date it was surveyed, and the dialog says in as many words that a
@@ -171,12 +205,34 @@ holds is served as PNG on `GoogleMapsCompatible`, so aerosol angstrom exponent i
 addressable by this application and of no use whatever under a boat. The deepest layer on
 that endpoint is z13.
 
-**Nothing decides that for the user.** A usefulness filter would be the machine forming an
-opinion it is not entitled to, and it would do so on the one screen a person is looking at
-in order to form their own. So the list is **ordered deepest first**, where a chart author
-looks, and the filter box does the rest. A z6 climate product sorts to the bottom without
-being hidden. A group of more than forty stays shut and says how many it holds, because a
-tree that unrolled a thousand would bury every other service in the catalog.
+**No usefulness filter exists.** That would be the machine forming an opinion it is not
+entitled to, on the one screen a person is looking at in order to form their own. Two things
+are done instead, and neither is a judgement about worth.
+
+**The list is ordered deepest first**, where a chart author looks. A z6 climate product
+sorts to the bottom without being hidden.
+
+**Layers a service publishes only as PNG are folded into one group beneath it.** The format
+is not an opinion: a service publishing both photographs and data products publishes them in
+different formats because that is what the two formats are for. GIBS makes the point at
+scale - **58 of its 1132 readable layers serve JPEG**, and they are Blue Marble, Landsat,
+MODIS and VIIRS true colour, while the **1076** folded ones are aerosol depth, brightness
+temperature, soil moisture and rain rate. No GIBS layer offers both formats, so there is
+nothing here to choose between.
+
+**It folds rather than filters, because the proxy leaks both ways.** `Landsat_WELD_NDVI` is
+a JPEG vegetation index and `GOES-West_ABI_GeoColor` is a PNG photograph. A fold one click
+wide, with its rule written on the group it collapses into, survives being wrong about a
+layer; a filter would not. A folded layer is an ordinary entry in every other respect: it
+inherits the provider's terms from the service rather than from the fold, the filter box
+finds it, and it creates a file by the same path as any other.
+
+**The fold appears only when both kinds arrive.** A service publishing one kind has nothing
+to separate, and putting its whole list behind a "more" node would hide everything while
+distinguishing nothing. Esri Wayback's 195 releases are all JPEG and get no fold.
+
+A group of more than forty stays shut and says how many it holds, because a tree that
+unrolled a thousand would bury every other service in the catalog.
 
 ### What it costs, and why it is a worker
 
@@ -227,6 +283,26 @@ providers declare no expander. What that document offers instead is *refinement*
 already present - the real LODs, `maxScale`, format and tile size - which is a different
 verb, and is what [Probe](tsd.md#authoring-and-testing-a-source) already reports about an
 installed source.
+
+## Test, before anything is written
+
+**Test asks the service whether an entry is true, without creating it.** Judging twenty
+candidates by writing twenty files and testing each one is the long way round to a decision
+that can be made first, and it leaves twenty files behind.
+
+It is [the same verifier the editor uses](tsd_editor.md#what-a-test-actually-does), given the
+same kind of field hash: an entry becomes one by exactly the path Create would take, so what
+is tested is what would be written rather than an approximation of it. The entry hands over
+its own canonical point, because nothing on disk names it yet and the verifier finds a point
+by matching a saved source's url against this catalog.
+
+**The refuted fields are listed in the summary and not only painted.** The editor is not here,
+and a list of colours nobody can see is not a report, so the dialog names each field and says
+where it is fixed.
+
+It sits beside Expand rather than beside Create: both go to the network, neither writes a
+file, and neither ends the dialog. It takes exactly one entry, because its answer is a column
+of levels at a place and there is no way to read twenty of those at once.
 
 ## Two exits, and they are not alternatives
 

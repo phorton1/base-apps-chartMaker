@@ -54,7 +54,7 @@ services are national. The deep global services are commercial.
 | South Africa CD:NGI | South Africa | the imagery is open, but no official tile service was found | free, distributed on physical media | 25 cm source imagery | Only a community-hosted mirror exists on the web. Open data and a usable tile service are separate things, and a tile client needs the second one. |
 | LINZ Basemaps | New Zealand | yes, CC BY 4.0 | free API key; **standard access is capped at 1,000 tile requests per minute**, developer access is uncapped | **z0 to z22** in EPSG:3857, per LINZ documentation. 5 cm over urban areas down to 10 m satellite elsewhere | Excellent New Zealand coverage including the Chathams and the offshore islands. WebP, JPEG, PNG or Avif. **Standard access uses a rotating dynamic key and developer access a static one**, and only the static one can live in a credential slot. |
 | NSW Spatial Services (SIX) | New South Wales | yes, CC BY 4.0, with an added term asserting DCS Spatial Services as author of the original material | free, no key | declares LODs **0 to 23** with `maxScale` also at level 23, so the service states no real ceiling; 10 cm over towns above 500 people, 50 cm regional | Excellent on that coast. `format: MIXED`, so PNG can appear where JPEG is expected. Newer and higher-resolution coverage supersedes older below 1:150,000, so depth varies by place. |
-| Queensland Government | Queensland | yes, but the licence varies per image between CC BY, CC BY-SA and public domain, so it must be checked per dataset rather than once | free, no key | tile cache built to 1:1129, which is level 19 | Excellent on that coast. The whole-of-state satellite mosaic derives from Planet and is CC BY-SA, which imposes share-alike on anything built from it. |
+| Queensland Government | Queensland | yes, but the licence varies per image between CC BY, CC BY-SA and public domain, so it must be checked per dataset rather than once | **no charge, but a token is required** - see the measurements below | tile cache built to 1:1129, which is level 19 | Excellent on that coast. The whole-of-state satellite mosaic derives from Planet and is CC BY-SA, which imposes share-alike on anything built from it. |
 | Japan GSI, seamlessphoto | Japan | yes, subject to the conditions in the GSI tile terms | free, no key | z18, confirmed from the layer specification | Excellent in Japan. Returns 404 outside the country, so an absence is unambiguous. |
 | Tianditu | China | `indeterminate`. The service is marked noncommercial with registration required for commercial use; the operative terms are published only on `tianditu.gov.cn` and were not readable | free, but the key requires a mainland China (+86) mobile number to register | not yet checked | **The imagery is aligned to GCJ-02, not WGS 84**, as Chinese regulation requires, so it sits 300 to 500 m from the coordinates it is served at, varying with position. The tile grid itself is correct EPSG:3857, so nothing structural is wrong and no check detects it. Anything built from it is misregistered by that amount unless the consumer compensates. |
 
@@ -179,3 +179,37 @@ and Maxar withdrew its OpenStreetMap grant, and in both cases the superseded rec
 are still the ones most easily found. An endpoint with no published documentation has
 no deprecation notice either, so it fails as a 403, a redirect, or a placeholder image
 rather than as an announcement.
+
+---
+
+## What the endpoints actually answered
+
+Everything above is what the operators' documents say. On **2026-08-04** each catalogued
+endpoint was asked for a real tile at a place its own region prose covers. **Four of the
+sixteen did not answer with imagery**, and none of the four failures is visible in a
+licence document.
+
+| Service | Asked at | What came back |
+| --- | --- | --- |
+| Queensland Government | Moreton Bay | **HTTP 200** carrying `{"error":{"code":499,"message":"Token Required"}}`, at every level z0 to z19. Recorded above as free with no key, which the service contradicts. |
+| NOAA Chart Display Service | Chesapeake Bay entrance | **HTTP 400**, ArcGIS `Error: Invalid URL`, at every level. The catalogued url template is malformed rather than the service being down. |
+| Allen Coral Atlas | Cairns, Great Barrier Reef | **HTTP 404**, `404 page not found`, at every level, over the densest reef the service holds. |
+| Digital Earth Africa | Table Bay, Cape Town | **HTTP 404**, at every level, well inside the stated region and well inside its z14 ceiling. |
+
+**A 200 is not a yes.** Queensland's refusal arrives with a success code and a JSON body,
+so a client reading the status alone would cache a refusal as imagery. The same class of
+answer appears in three services that DO work: Spain IGN answers outside Spain with a 929
+byte blank JPEG, OpenSeaMap answers almost everywhere with a 334 byte transparent PNG, and
+NSW answers z0 with a white world carrying one blue speck of New South Wales.
+
+**Region prose does not say where the tiles are.** Japan GSI serves real imagery over Bocas
+del Toro at z3 and z8 and nothing at z12; IGN France serves Bocas del Toro at z12, the same
+ground as Esri World Imagery pixel for pixel; USGS serves Panama down to z8. Every one of
+those is a global low-zoom backdrop under a national label, and none of it is discoverable
+from a terms page.
+
+**And a column is not monotonic.** Japan GSI over Tokyo answers z2 to z18 unbroken and
+refuses z0 and z1, which is its cache floor rather than a gap; the catalogued `zoom` of
+`2..18` matches the measurement exactly. Esri World Imagery declares z23 and, at Singapore,
+returns the same 2521 byte JPEG at z20 through z23 - its declared blank, and its real
+ceiling there is z19.

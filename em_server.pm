@@ -147,7 +147,17 @@ sub handle_request
 		# so the applet goes straight to /probe without refetching a
 		# document that did not move.
 
+		# AND WHERE IT IS LOOKING, WHICH RIDES HERE FOR THE SAME REASON.
+		# This program has no notion of 'here' and a leaflet map has one,
+		# so the poll that says the map is alive carries the centre it is
+		# alive at.  Nothing acts on it until somebody asks a service
+		# about somewhere - see dm_verify.
+
 		notePoll();
+		my $pp = $request->{params} || {};
+		noteView($pp->{lat},$pp->{lon},$pp->{z})
+			if defined $pp->{lat} && defined $pp->{lon} && defined $pp->{z};
+
 		return $this->api_json_response($request,{
 			version		=> 0 + getStateSeq(),
 			probe_seq	=> 0 + probeSeq(),

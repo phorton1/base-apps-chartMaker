@@ -68,6 +68,8 @@ BEGIN
 
 		notePoll
 		mapIsOpen
+		noteView
+		getMapView
 
 		probeSetMode
 		probeIsOn
@@ -485,6 +487,50 @@ sub mapIsOpen
 {
 	return 0 if !$poll_ms;
 	return (int(Time::HiRes::time() * 1000) - $poll_ms) < $POLL_GRACE_MS ? 1 : 0;
+}
+
+
+#---------------------------------------------
+# where the map is looking
+#---------------------------------------------
+# THE ONE PLACE THIS APPLICATION HAS A NOTION OF 'HERE'.  A leaflet map has
+# a centre and this program does not, and everything that wants to ask a
+# service about somewhere wants that centre.
+#
+# IT RIDES ON /poll AND IS NOT A SECOND CHANNEL, which is the same
+# reasoning that put the probe's sequence there: /poll exists because the
+# map tells us it is alive three times a second, and where it is looking is
+# part of what 'alive' means.  A dedicated endpoint would be a second thing
+# to keep in step for no gain.
+#
+# IT IS NOT PERSISTED AND IT EXPIRES WITH THE POLL.  A remembered centre
+# from a map that has since been closed is a stale place presented as a
+# current one, and a place is the one thing here that must not be guessed.
+
+my $view_lat:shared	= 0;
+my $view_lon:shared	= 0;
+my $view_z:shared	= 0;
+my $view_ok:shared	= 0;
+
+
+sub noteView
+{
+	my ($lat,$lon,$z) = @_;
+	return 0 if !defined($lat) || !defined($lon) || !defined($z);
+	return 0 if $lat !~ /^-?\d+(\.\d+)?$/ || $lon !~ /^-?\d+(\.\d+)?$/;
+	return 0 if $z !~ /^\d+$/;
+	return 0 if $lat < -85 || $lat > 85 || $lon < -180 || $lon > 180;
+
+	($view_lat,$view_lon,$view_z,$view_ok) = ($lat,$lon,$z,1);
+	return 1;
+}
+
+
+sub getMapView
+	# (lat,lon,zoom), or the empty list if there is no map to ask.
+{
+	return () if !$view_ok || !mapIsOpen();
+	return ($view_lat,$view_lon,$view_z);
 }
 
 

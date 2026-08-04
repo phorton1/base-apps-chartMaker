@@ -84,9 +84,16 @@ our $dbg_catalog = 0;
 
 my $CATALOG_VERSION = 1;
 
-my @INHERIT_NODE = qw( region cost buildable requires surveyed );
+my @INHERIT_NODE = qw( region cost buildable requires surveyed canonical );
 	# THE PROVIDER-LEVEL STATEMENT.  Terms and reach belong to the service
 	# and not to one of its layers, so they are said once.
+	#
+	# canonical IS ON THIS LIST BECAUSE WHERE A SERVICE HAS IMAGERY IS A
+	# FACT ABOUT THE SERVICE.  Every layer NASA GIBS publishes covers the
+	# same ground; asking each of them to name its own place would be a
+	# thousand copies of one answer, free to disagree.
+
+my $NUM = qr/^-?\d+(?:\.\d+)?$/;
 
 my @INHERIT_TSD  = qw( tile_format attribution terms_url license
 					   redistributable uses policy subdomains credentials );
@@ -206,6 +213,57 @@ sub _resolve
 	{
 		$node->{$k} = defined $raw->{$k} ? $raw->{$k} :
 			($parent ? $parent->{$k} : undef);
+	}
+
+	# THE CANONICAL POINT: ONE PLACE THIS SERVICE IS KNOWN TO HAVE IMAGERY.
+	#
+	# A SERVICE CANNOT BE ASKED ABOUT NOWHERE.  Every question worth putting
+	# to a tile service is placed - is this url right, how deep does it go,
+	# is that a tile or a blank - and the answer is only as good as the
+	# place.  Measured: a service labelled 'Japan' serves real imagery over
+	# Panama at z3 and z8 and nothing at z12, and one labelled 'France'
+	# serves Bocas del Toro at z12, so the REGION prose predicts nothing and
+	# neither does the middle of a bounding box.
+	#
+	# CHOSEN BY A PERSON, WHICH IS WHY IT IS IN THE CATALOG.  A point is a
+	# judgement - somewhere this service certainly flew, on a coast, because
+	# that is what this application is for - and judgements ship beside the
+	# terms and the licence rather than being derived at runtime.
+	#
+	# 'at' MAY BE ABSENT, AND THAT IS AN ANSWER.  A service whose imagery is
+	# nowhere near a coast is one this application cannot use, so having no
+	# good point is a finding about its fit rather than a gap in the file.
+	# Saying so out loud beats an empty field that reads as an oversight.
+	#
+	# IT IS NOT A MEASUREMENT AND CARRIES NO RESULT.  What the service
+	# answers there is dm_verify's to find out and changes with the weather;
+	# what is written here is only WHERE TO ASK.
+
+	if (defined $raw->{canonical})
+	{
+		my $c = $raw->{canonical};
+		return "node '$id' has a 'canonical' that is not an object"
+			if ref($c) ne 'HASH';
+		return "node '$id' canonical needs a 'where' and a 'why'"
+			if !defined($c->{where}) || ref($c->{where}) ||
+			   $c->{where} !~ /\S/ ||
+			   !defined($c->{why}) || ref($c->{why}) || $c->{why} !~ /\S/;
+
+		if (defined $c->{at})
+		{
+			return "node '$id' canonical 'at' must be [ lat, lon ]"
+				if ref($c->{at}) ne 'ARRAY' || scalar(@{$c->{at}}) != 2;
+
+			my ($lat,$lon) = @{$c->{at}};
+			return "node '$id' canonical latitude '$lat' is not a number ".
+					"between -85 and 85"
+				if !defined($lat) || ref($lat) || $lat !~ $NUM ||
+				   $lat < -85 || $lat > 85;
+			return "node '$id' canonical longitude '$lon' is not a number ".
+					"between -180 and 180"
+				if !defined($lon) || ref($lon) || $lon !~ $NUM ||
+				   $lon < -180 || $lon > 180;
+		}
 	}
 
 	my %tsd;
@@ -549,6 +607,18 @@ sub catalogLines
 		_pair(\@out,$label,$node->{$key});
 	}
 
+	# WHERE TO ASK IT, AND WHY THERE.  The reason is shown rather than kept,
+	# because a bare pair of numbers in a list of licences reads as noise
+	# and the whole point of the point is the judgement behind it.
+
+	if (my $c = $node->{canonical})
+	{
+		_pair(\@out,'ask it at',defined $c->{at} ?
+			sprintf("%s   %.4f, %.4f",$c->{where},@{$c->{at}}) :
+			$c->{where});
+		_pair(\@out,'why there',$c->{why});
+	}
+
 	if (defined $node->{value} && $node->{value} =~ /\S/)
 	{
 		push @out,'';
@@ -658,20 +728,80 @@ sub catalogExpander
 }
 
 
-sub catalogAttach
-	# Hang a service's own layer list under the group that names it.
-	# ($node,$layers) -> (added,skipped).  $layers is what dm_probe's
-	# serviceLayers returned, and this module knows nothing about how it
-	# was obtained -- which is what keeps the protocol reader out of here.
+my $FOLD_ID   = 'png_only';
+my $FOLD_NAME = 'More - published only as PNG';
+
+
+sub _isImagery
+	# WHAT THE SERVICE ITSELF SAYS, RATHER THAN AN OPINION ABOUT WORTH.
 	#
-	# A SHIPPED ENTRY WINS OVER A FETCHED ONE OF THE SAME NAME.  The
-	# shipped one was curated: it carries a survey, a depth measured by a
-	# person and a sentence about what it is worth, none of which a
-	# capabilities document contains.  Replacing it with the machine's
-	# version would be a downgrade that looked like an update.
+	# A service that publishes both photographs and data products publishes
+	# them in different formats, because that is what the two formats are
+	# for: a photograph is jpeg and a palette is png.  GIBS makes the point
+	# at scale -- 56 of the 1151 layers this application can address serve
+	# jpeg, and they are BlueMarble, Landsat, MODIS and VIIRS true colour,
+	# while the other 1095 are aerosol depth, brightness temperature, soil
+	# moisture and rain rate.  No GIBS layer offers both formats, so there
+	# is nothing here to choose between.
+	#
+	# IT IS A PROXY AND IT LEAKS BOTH WAYS.  Landsat_WELD_NDVI is a jpeg
+	# vegetation index, and GOES-West_ABI_GeoColor is a png photograph.
+	# That is precisely why what follows FOLDS rather than filters: one
+	# click wide, with the rule stated on the node it collapses into, so
+	# being wrong about a layer costs the reader a click and never a
+	# source.  A usefulness filter would be this module forming an opinion
+	# it is not entitled to; reading the format the service published is
+	# not one.
 {
-	my ($node,$layers) = @_;
-	return (0,0) if !$node || ref($layers) ne 'ARRAY';
+	my ($lay) = @_;
+	return lc($lay->{tile_format} || '') eq 'jpeg' ? 1 : 0;
+}
+
+
+sub _foldNode
+	# The group the non-imagery layers hang under, made once and found
+	# again on a second expand.  It is a GROUP like any other, so the tree,
+	# the filter and the big-group rule need to know nothing about it.
+{
+	my ($node) = @_;
+	my $id = $node->{id}.'_'.$FOLD_ID;
+
+	for my $kid (@{$node->{kids}})
+	{
+		return $kid if !$kid->{is_entry} && $kid->{id} eq $id;
+	}
+
+	my $fold = {
+		id       => $id,
+		name     => $FOLD_NAME,
+		is_entry => 0,
+		fetched  => 1,
+		path     => $node->{path}.' / '.$FOLD_NAME,
+		kids     => [],
+	};
+	$fold->{$_} = $node->{$_} for @INHERIT_NODE;
+	$fold->{surveyed} = undef;
+	$fold->{value} =
+		'This service publishes these layers as PNG and its imagery as '.
+		'JPEG, so they are collected here rather than listed among the '.
+		'imagery. They are usually data products - a measurement drawn '.
+		'through a colour palette rather than a photograph. The format is '.
+		'the only thing separating them, and it is a good guide and not a '.
+		'verdict, so anything here can be created exactly like anything '.
+		'above it.';
+
+	push @{$node->{kids}},$fold;
+	return $fold;
+}
+
+
+sub _attachTo
+	# ($service,$parent,$layers).  Everything a layer inherits comes from
+	# the SERVICE and only where it hangs comes from the parent, so a
+	# folded layer carries the same terms and licence as an unfolded one.
+{
+	my ($service,$parent,$layers) = @_;
+	my $node = $service;
 
 	my ($added,$skipped) = (0,0);
 	for my $lay (@$layers)
@@ -700,7 +830,7 @@ sub catalogAttach
 			name     => $lay->{name},
 			is_entry => 1,
 			fetched  => 1,
-			path     => $node->{path}.' / '.$lay->{name},
+			path     => $parent->{path}.' / '.$lay->{name},
 			brief    => "z$lay->{zmax}   read from the service",
 			depth    => "z$lay->{zmax}, from the tile matrix set $lay->{tms}",
 			tsd      => \%tsd,
@@ -717,14 +847,55 @@ sub catalogAttach
 			'surveyed by a person, so nothing here says whether the '.
 			'imagery is any good. Probe it.';
 
-		push @{$node->{kids}},$kid;
+		push @{$parent->{kids}},$kid;
 		push @entries,$kid;
 		$by_id{$id} = $kid;
 		$added++;
 	}
+	return ($added,$skipped);
+}
+
+
+sub catalogAttach
+	# Hang a service's own layer list under the group that names it.
+	# ($node,$layers) -> (added,skipped).  $layers is what dm_probe's
+	# serviceLayers returned, and this module knows nothing about how it
+	# was obtained -- which is what keeps the protocol reader out of here.
+	#
+	# A SHIPPED ENTRY WINS OVER A FETCHED ONE OF THE SAME NAME.  The
+	# shipped one was curated: it carries a survey, a depth measured by a
+	# person and a sentence about what it is worth, none of which a
+	# capabilities document contains.  Replacing it with the machine's
+	# version would be a downgrade that looked like an update.
+	#
+	# BOTH KINDS OR NEITHER.  A service publishing only one sort of thing
+	# has nothing to fold, and putting its whole list behind a 'more' node
+	# would hide everything while separating nothing.  The fold says THESE
+	# ARE NOT THE SAME KIND OF THING, which is only worth saying when both
+	# kinds arrived.  Esri Wayback's 195 releases are all jpeg and get no
+	# fold; GIBS gets 56 layers and a fold holding 1095.
+{
+	my ($node,$layers) = @_;
+	return (0,0) if !$node || ref($layers) ne 'ARRAY';
+
+	my @img  = grep {  _isImagery($_) } @$layers;
+	my @rest = grep { !_isImagery($_) } @$layers;
+
+	my ($added,$skipped) = (0,0);
+	if (@img && @rest)
+	{
+		my ($a1,$s1) = _attachTo($node,$node,\@img);
+		my ($a2,$s2) = _attachTo($node,_foldNode($node),\@rest);
+		($added,$skipped) = ($a1 + $a2,$s1 + $s2);
+	}
+	else
+	{
+		($added,$skipped) = _attachTo($node,$node,$layers);
+	}
 
 	display($dbg_catalog,0,
-		"catalogAttach($node->{id}) $added added, $skipped already known");
+		"catalogAttach($node->{id}) $added added, $skipped already known".
+		((@img && @rest) ? ", ".scalar(@rest)." folded" : ''));
 	return ($added,$skipped);
 }
 
