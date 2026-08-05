@@ -30,8 +30,9 @@ Nothing below is modal until you ask for it. With nothing being edited the map i
 you can pan, with four pieces of furniture.
 
 - **left, under Leaflet's own zoom buttons** - the palette, one row each for the grid,
-  autozoom, shading the selection, the footprint and preview: a checkbox, a label, and a value
-  that is text on one row and a control on another. The whole row is the switch.
+  autozoom, shading the selection, the footprint, the tile grid and preview: a checkbox, a
+  label, and a value that is text on one row and a control on another. The whole row is the
+  switch.
 - **top right** - the info panel: the set and its total, then the selected region and the
   selected subregion, each naming its levels with a tile count and a size against every one.
   Nothing there is operable.
@@ -60,13 +61,18 @@ stacks under the zoom buttons by itself at any window size.
 ### A tile that is not there says so
 
 Leaving a failed tile transparent turns the map white where a service stops answering, which
-reads as the application having broken rather than as the imagery having run out. So the
-layer carries an `errorTileUrl` and the gap is drawn instead.
+reads as the application having broken rather than as the imagery having run out. So an
+absence is drawn.
+
+**The picture comes from the proxy, not from Leaflet.**
+[The tile proxy](build.md#present-absent-and-failed) answers an absence with HTTP 200 carrying
+the no-data tile and an `x-chartmaker-tile: absent` header. The applet sets no `errorTileUrl`
+at all, and that is what makes the picture mean exactly one thing.
 
 **Every "nothing here" looks the same, whatever the service did to say it.** Esri answers a
-grey placeholder, Japan GSI answers an honest 404, and [the tile proxy](build.md#present-absent-and-failed)
-turns both into a 404 before the applet sees either. One picture therefore covers a refusal
-and a declared sentinel alike, which is the right answer at a map. Telling those two apart is
+grey placeholder, Japan GSI answers an honest 404, and the proxy resolves both to the same
+answer before the applet sees either. One picture therefore covers a refusal and a declared
+sentinel alike, which is the right answer at a map. Telling those two apart is
 [the probe's](build.md#the-probe) job, and it still does.
 
 **The tile carries the application's name**, and that is the load-bearing part of it. It is
@@ -75,10 +81,14 @@ could tell chartMaker saying "there is nothing here" from a *new, unrecognised* 
 the fetcher is quietly baking into the output as though it were imagery. Finding one of those by
 eye is exactly how the Esri fingerprint was found.
 
-One case is folded in that strictly is not the same: a fetch that FAILED returns 502, and an
-image element does not expose a status to JavaScript, so `errorTileUrl` cannot distinguish it.
-"No data" overstates that one - the source may have it and we could not ask. The distinction
-survives where it matters, in the network log and in the observation record.
+**A failure is not an absence and does not draw like one.** An image element exposes no status
+to JavaScript, so an `errorTileUrl` cannot tell a 404 from the 502 of a fetch that failed -
+nor, far more often, from a request the *browser itself aborted* because the user panned away
+from it. Panning aborts requests constantly, and Leaflet keeps a tile once it has drawn one, so
+a transient abort persisted as a permanent "no data" over ground the service holds, on the
+surface a person uses to judge coverage by eye. A failed tile now loads no image, Leaflet
+leaves it alone, and the next pan asks again - which is self-healing rather than sticky, and
+is the honest rendering of an answer that never arrived.
 
 ## Right-click is the whole of the interface
 
@@ -320,6 +330,37 @@ has its own colour - at three deep the word "subregion" has stopped telling them
 still through an edit without a rule saying so, and it is recomputed when the regions
 document or the selection changes - not on every poll. Recomputing coverage under the hand
 would cost far more than it tells anybody.
+
+### The tile grid is the question underneath the footprint
+
+A third row, **`tile grid`**, with a level of its own: where that level's tile edges actually
+fall, over the whole view, belonging to nobody.
+
+**It has to be answerable before a region exists**, which is exactly when it is wanted. A
+service's coverage boundary, a bay, a pass, a tile that is half imagery: none of them can be
+read against a lattice that only appears where somebody has already drawn a polygon. So its
+spinner runs the **protocol** range rather than the work range, and that is the whole
+difference from the footprint's spinner beside it - the footprint is bounded by what the
+regions hold because a level they do not reach answers zero, and this one is just as
+meaningful over water nobody has drawn anything on.
+
+**The same red as the footprint, lighter.** The footprint's rectangles ARE tiles on this
+lattice, so their edges lie exactly on these lines and the two read as one continuous grid.
+A second colour would invent a distinction that is not there; the lighter weight keeps the
+built set the figure and the lattice the ground.
+
+**Lines, not rectangles**, one meridian the full height of the view and one parallel its full
+width. A view forty tiles across is seventy objects rather than twelve hundred for a
+pixel-identical picture, which is what lets it be left on while zooming out. Past four
+hundred lines it stops and the panel says why, because a switch that silently draws nothing
+reads as a broken switch.
+
+**It asks the server nothing.** Pure arithmetic against the viewport, so unlike every other
+overlay it is still correct when the application is not answering.
+
+**It is not the [snap grid](#showing-the-grid)**, which draws dots at the level a vertex
+would land on and thins them as you zoom away. That one is about editing and follows the
+selection; this one is about the ground and follows nothing.
 
 ## What the map refuses
 

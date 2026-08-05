@@ -237,7 +237,10 @@
             "url": "https://data.geopf.fr/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=ORTHOIMAGERY.ORTHOPHOTOS&STYLE=normal&TILEMATRIXSET=PM&FORMAT=image/jpeg&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}",
             "attribution": "IGN France - ORTHOIMAGERY.ORTHOPHOTOS",
             "zoom": { "min": 0, "max": 19 },
-            "notes": "A WMTS KVP endpoint rather than a REST tile path, so the whole request is in the query string and {z}/{y}/{x} appear as TILEMATRIX, TILEROW and TILECOL. The service moved to data.geopf.fr and dropped its key requirement; recipes pointing at wxs.ign.fr are still widely published and no longer work. This entry names the PM tile matrix set, which is IGN's own; expanding the provider reports what it publishes on GoogleMapsCompatible instead."
+            "absent_fingerprints": [
+              { "bytes": 1651, "md5": "cb33c7debb71738617c005e666ba5db4" }
+            ],
+            "notes": "A WMTS KVP endpoint rather than a REST tile path, so the whole request is in the query string and {z}/{y}/{x} appear as TILEMATRIX, TILEROW and TILECOL. The service moved to data.geopf.fr and dropped its key requirement; recipes pointing at wxs.ign.fr are still widely published and no longer work. This entry names the PM tile matrix set, which is IGN's own; expanding the provider reports what it publishes on GoogleMapsCompatible instead. WHERE IT HOLDS NOTHING IT SAYS SO THREE DIFFERENT WAYS: a flat navy sea fill at z10 to z12, the flat white JPEG declared above at z13 to z16, and honest 404s appearing from about z14. The white is 1651 bytes and one md5, confirmed byte identical offshore of Guadeloupe and offshore of Corsica. The navy is deliberately not declared - over water it reads as water, and it has not been confirmed on unrelated ground. Coverage is a coastal buffer about one z15 tile wide whose edge follows a metric delivery grid rather than a tile boundary, so it closes over bays and inlets completely, leaves open coast marginal, and leaves part-imagery part-white tiles all along its edge that no fingerprint can reach."
           }
         }
       ]
@@ -272,15 +275,15 @@
         {
           "id": "ign_es_pnoa",
           "name": "PNOA orthoimagery",
-          "brief": "z20   Spain   free",
-          "depth": "z0 to z20 in EPSG:3857, confirmed from the WMTS capabilities. 25 cm and 50 cm mosaics, updated several times a year",
-          "value": "Chart depth over Spanish waters, reachable today with no registration.",
+          "brief": "z18 real   Spain   free",
+          "depth": "z0 to z20 in EPSG:3857, confirmed from the WMTS capabilities. Measured over north Ibiza the imagery holds real detail flat through z18, falls at z19 and is marginal at z20. 25 cm and 50 cm mosaics, updated several times a year",
+          "value": "Chart depth over Spanish waters, reachable today with no registration. Where its coverage stops it fills with a dark backdrop rather than white, which over water is far kinder to a composited chart.",
           "tsd": {
             "name": "Spain IGN - PNOA orthoimagery",
             "cache_key": "ign_es_pnoa",
             "url": "https://www.ign.es/wmts/pnoa-ma?service=WMTS&request=GetTile&version=1.0.0&layer=OI.OrthoimageCoverage&style=default&tilematrixset=GoogleMapsCompatible&format=image/jpeg&TileMatrix={z}&TileRow={y}&TileCol={x}",
             "zoom": { "min": 0, "max": 20 },
-            "notes": "A WMTS KVP endpoint, so the address is in the query string. The service publishes several tile matrix sets; GoogleMapsCompatible is the one this application can read."
+            "notes": "A WMTS KVP endpoint, so the address is in the query string. The service publishes several tile matrix sets; GoogleMapsCompatible is the one this application can read, and its own set declares z0 to z20. IT NEVER REFUSES A TILE, at any level, in Spain or far outside it. Beyond its orthophoto footprint it serves an upsampled global backdrop rather than a refusal or a fixed 'no data' body, and at fine zoom that backdrop averages down to a single flat colour that varies with the ground beneath it - dark blue over deep water, dark green over forest - so repeated bodies here are a property of the backdrop and not a marker the service is sending. Real detail measured over north Ibiza reads flat at about 4.0 from z14 through z18, falls to 2.5 at z19 and 1.9 at z20, so the ortho holds solidly to z18 and z20 is marginal. The coastal footprint reaches roughly one z15 tile beyond the shore."
           }
         }
       ]

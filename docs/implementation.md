@@ -92,6 +92,19 @@ map exists, and where it is looking is part of what that means. It is never pers
 expires with the poll, because a remembered centre from a map since closed is a stale place
 presented as a current one.
 
+**And where it is being sent**, which is the same channel in the other direction and the
+whole of the `view` command. A place is the one thing this application's own windows cannot
+name - every other verb names an object - so reaching a coordinate read off a chart meant
+dragging the map until it appeared. The reply carries a **sequence** and the coordinates
+that came with it, and the applet acts on the sequence: asking twice for the same place has
+to move the map twice, which comparing coordinates would not do. It is refused while no map
+is open rather than held for one, for the same reason the centre above expires.
+
+**With no arguments it reports rather than moves**, and that is the same verb rather than a
+second one because it is one question asked in the two directions a place can travel. The
+map is the only thing here that knows where it is, so without this a console session, a
+script, or anyone who cannot see the screen had no way to ask.
+
 Three properties of the protocol are worth stating because each is easy to lose:
 
 - **The server has no notion of a connected browser.** It answers questions. That is what

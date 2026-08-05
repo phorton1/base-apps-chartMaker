@@ -238,16 +238,32 @@ sub onTimer
 	# sequence need not move at the moment it ends, and gating on it would
 	# mean the offer arrived on the next run or never.
 	#
-	# ONLY WHAT THIS PANE STARTED.  A run driven from the console has no
-	# record here and reports 0, which is correct: nobody is looking at a
-	# dialog they did not ask for.
+	# THE MODE'S FLAG, NOT THIS PANE'S PROGRESS RECORD, for the reason
+	# cm_state gives about Stop: a run started from the console or the map
+	# has a progress record this pane has never seen, so an edge detected
+	# from runInFlight() is an edge that only the menu can produce.
+	#
+	# IT GATED THE OFFER ON WHO STARTED THE RUN, and that was wrong in the
+	# one case it mattered.  A console 'sample' over Guadeloupe learned two
+	# fingerprints -- IGN's white fill and its navy sea fill, 159 and 168
+	# sightings -- put both in the observation record, and then asked
+	# nobody, because the pane that offers had never been handed a progress
+	# record.  The evidence was gathered and thrown away at the one moment
+	# somebody was looking at it.
+	#
+	# NOBODY IS ASKED A QUESTION THEY DID NOT ASK FOR, which is what the old
+	# gate was really protecting.  This pane exists only inside probe mode,
+	# and w_frame's idle handler opens it for a console run precisely so the
+	# mode has a surface -- so if this is ticking at all, somebody entered
+	# probe mode and is looking at the table a run just filled in.
 
-	if ($this->{was_running} && !$this->runInFlight())
+	my $running = probeRunning();
+	if ($this->{was_running} && !$running)
 	{
 		$this->{was_running} = 0;
 		$this->offerBlanks();
 	}
-	$this->{was_running} = 1 if $this->runInFlight();
+	$this->{was_running} = 1 if $running;
 
 	my $seq = probeSeq();
 	return if $seq == $this->{seen};

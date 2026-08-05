@@ -34,6 +34,17 @@ asked before the first request goes out.**
 **One - what, and where.** A checkbox list of the set's regions, and for a build, the output
 folder. It is the *build configuration*, and it persists: `region_sets/<set>/build.json`.
 
+**Then any candidate blank, before anything is counted.** A source that answers with a
+uniform fill instead of refusing puts that body in the observation record as a
+[candidate](tsd_editor.md#every-fetch-teaches), and this is the last moment at which
+declaring it can keep those tiles out of the run rather than out of the next one. It is
+asked before the analysis rather than between the analysis and the second dialog, because
+declaring a fingerprint reclassifies what is already on disk, which moves the cached and
+to-fetch counts the second dialog exists to state truthfully. Every installed source is
+asked about, not only the ones this act will use: a candidate is a fact about a service, and
+one learned by a probe an hour ago is exactly the one worth showing now. In the ordinary
+case there is nothing to ask and nothing appears.
+
 **Two - what it will cost.** Tiles to fetch, already cached, and recorded absences, grouped
 by source; the estimated time; the size of the output; which files will be replaced; which
 files are in that folder and are *not* part of this build; and whether the build would

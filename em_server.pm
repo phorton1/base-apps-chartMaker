@@ -153,15 +153,27 @@ sub handle_request
 		# alive at.  Nothing acts on it until somebody asks a service
 		# about somewhere - see dm_verify.
 
+		# AND WHERE IT IS BEING SENT, which is the same channel in the
+		# other direction.  'view' is a console verb because a place is
+		# the one thing this application's own windows cannot name, and
+		# the applet acts on the SEQUENCE rather than the coordinates -
+		# see cm_state.
+
 		notePoll();
 		my $pp = $request->{params} || {};
 		noteView($pp->{lat},$pp->{lon},$pp->{z})
 			if defined $pp->{lat} && defined $pp->{lon} && defined $pp->{z};
 
+		my ($want_seq,$want_lat,$want_lon,$want_z) = getViewRequest();
+
 		return $this->api_json_response($request,{
 			version		=> 0 + getStateSeq(),
 			probe_seq	=> 0 + probeSeq(),
 			probe_on	=> probeIsOn() ? 1 : 0,
+			view_seq	=> 0 + $want_seq,
+			view_lat	=> 0 + $want_lat,
+			view_lon	=> 0 + $want_lon,
+			view_z		=> 0 + $want_z,
 		})
 	}
 	elsif ($uri eq '/state')
@@ -794,14 +806,67 @@ sub applet_counts
 }
 
 
+my $no_data_jpeg;
+	# Read once, and once per server thread, which is four small reads in
+	# the life of a run.
+
+sub _noDataTile
+	# THE PICTURE FOR 'THIS SOURCE HAS NOTHING HERE'.
+	#
+	# It is the same file the applet used to name in errorTileUrl, served
+	# from the same place - so nothing about what a user sees changed, only
+	# WHEN they see it.
+{
+	return $no_data_jpeg if defined $no_data_jpeg;
+
+	my $path = "$resource_dir/site/images/no_data.jpg";
+	if (open(my $fh,'<',$path))
+	{
+		binmode $fh;
+		local $/;
+		$no_data_jpeg = <$fh>;
+		close $fh;
+	}
+	else
+	{
+		# SAID ONCE, AND THEN AN ABSENCE SIMPLY DRAWS AS NOTHING.  A missing
+		# resource file must not turn every absence into a broken tile
+		# request, and it must not be silent either.
+		error("could not read $path - absences will draw as nothing");
+		$no_data_jpeg = '';
+	}
+	return $no_data_jpeg;
+}
+
+
 sub applet_tile
 	# GET /tile/<source>/<z>/<x>/<y> - the tile proxy.
 	#
 	# Every tile the application displays comes through here, and it is
-	# the same path the build will use.  An absence is a 404 because that
-	# is what a tile client expects; an error is a 502, so that "the
-	# source does not have it" and "we could not ask" are distinguishable
-	# in the browser's network log without reading the app's output.
+	# the same path the build will use.
+	#
+	# AN ABSENCE IS A PICTURE AND NOT A FAILURE, and that distinction is the
+	# whole of what this does.
+	#
+	# It used to answer 404, on the reasoning that a 404 is what a tile
+	# client expects, and the applet turned that into the no_data picture
+	# with Leaflet's errorTileUrl.  But an <img> load failure carries NO
+	# STATUS CODE, so that one picture also covered the 502 'we could not
+	# ask' and - far more often - a request the BROWSER ABORTED because the
+	# user panned.  Rapid panning therefore branded good tiles as missing;
+	# and Leaflet keeps a tile once it has drawn it, so a transient abort
+	# persisted as a permanent looking lie.  On the surface somebody uses to
+	# judge a service's coverage by eye, which is the worst possible place
+	# for it: measured over Ibiza with a cache holding not one recorded
+	# absence for that source.
+	#
+	# Served as a 200 the picture is deterministic.  It appears when, and
+	# only when, the source said it has nothing.  A real failure now loads
+	# no image at all, which Leaflet leaves alone and re-requests on the
+	# next pan - the correct treatment of an answer that never arrived.
+	#
+	# THE STATUS NO LONGER SAYS WHICH, so a header does, for whoever is
+	# reading a network log rather than the application's own output.
 {
 	my ($this,$request,$id,$z,$x,$y) = @_;
 
@@ -824,7 +889,8 @@ sub applet_tile
 			${$result->{bytes}},200,"image/$result->{format}")
 		if $result->{status} eq 'ok';
 
-	return Pub::HTTP::Response->new($request,'',404,'text/plain')
+	return Pub::HTTP::Response->new($request,_noDataTile(),200,'image/jpeg',
+			{ 'x-chartmaker-tile' => 'absent' })
 		if $result->{status} eq 'absent';
 
 	return Pub::HTTP::Response->new($request,

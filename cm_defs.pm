@@ -65,14 +65,35 @@ our $app_dir = $^O eq 'MSWin32' ?
 # THE OFFICIAL DEFAULT TSD.  When nothing has been selected, or what was
 # selected is gone, this is what the map opens on.
 #
-# It is the Landsat WELD global annual mosaic, and it beats the other
-# shipped source (Blue Marble) for two reasons that are about what this
-# application is FOR.  Blue Marble reaches z8, which is BELOW the overview
-# floor a conventional build uses, so it cannot participate in a
-# build at all.  WELD reaches z12, and where WELD has no data is the open
-# ocean -- it covers coastlines, which is the only place aerial raster
-# charting means anything.  "Not truly global" is a non-cost when the
-# missing part is the middle of the Pacific.
+# IT MUST BE ONE THAT CAN BUILD.  Two of the four shipped files are
+# display-only by their operators' terms, so a new region born naming either
+# of them would name something no build could ever read.  That narrows it to
+# the two national orthophoto services, and between those it is decided by
+# what a FIRST chartset looks like.
+#
+# SPAIN, BECAUSE OF WHAT EACH ONE DOES WHERE IT STOPS.  Both are national
+# land products whose coverage reaches about one z15 tile past the shore,
+# and neither footprint follows a tile boundary, so both leave partly filled
+# tiles all along their edge.  What they fill them WITH is the whole
+# difference.  IGN France sends flat white - the brightest thing on a
+# composited chart, glaring against the imagery beside it, and impossible to
+# trim because a partial tile is unique bytes that no fingerprint can catch.
+# Spain sends its upsampled global backdrop, which over water is a dark blue
+# that simply reads as water.  A first build wants the forgiving edge.
+#
+# Spain also measures deeper where it matters: real detail flat at about 4.0
+# from z14 through z18 over north Ibiza, against a declared z20.
+#
+# IGN FRANCE STILL SHIPS, AND IS STILL THE ANSWER OVER FRENCH WATER -
+# including the overseas departments, where nothing else open reaches chart
+# depth at all.  This decides which imagery a NEW REGION is born naming; it
+# is not a ranking of the two.
+#
+# BOTH REPLACED THE LANDSAT WELD MOSAIC, which was global and buildable but
+# only to z12.  That combination read well and meant little: z12 is far
+# below anything worth carrying to sea, so nothing was ever going to be
+# built from it.  A default that can produce a real chartset somewhere
+# beats one that can produce a useless chartset anywhere.
 #
 # A PREFERENCE, NOT A REQUIREMENT.  Sources are found by scanning, so this
 # id may name nothing; whoever resolves it falls through to the first
@@ -80,7 +101,7 @@ our $app_dir = $^O eq 'MSWin32' ?
 # was rejected: two files could claim it and it would need this same
 # tiebreak anyway.
 
-our $DEFAULT_SOURCE_ID = 'gibs_weld_annual';
+our $DEFAULT_SOURCE_ID = 'ign_es_pnoa';
 
 # THE SOURCE A REGION DID NOT CHOOSE.  A region or subregion names the
 # source it is to be built from; this is the value meaning "not my

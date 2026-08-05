@@ -54,6 +54,7 @@ my $ID_ALL_TSD		= 8854;
 my $ID_ALL_CACHE	= 8855;
 my $ID_GO			= 8856;
 my $ID_CANCEL		= 8857;
+my $ID_SWEEP_NONE	= 8858;
 
 my $COL_TSD		= 0;
 my $COL_CACHE	= 1;
@@ -113,6 +114,64 @@ sub _cleanWorker
 #---------------------------------------------
 # entry
 #---------------------------------------------
+
+sub reaffirmOne
+	# ($parent,$key,$leaf).  The right-click on ONE source: survey just its
+	# cache, say how many absences it holds, ask, and re-ask them.
+	#
+	# A SEPARATE ENTRY RATHER THAN A THIRD MODE OF THE TABLE.  The table
+	# exists so somebody can choose among caches, and there is nothing to
+	# choose here - they pointed at the source.  What is needed is a count,
+	# a question and a progress bar, and the dialog's two existing modes are
+	# already a delete confirmation and a whole-cache sweep.
+	#
+	# A CACHE AND A .tsd ARE NEARLY THE SAME THING IN PRACTICE, which is why
+	# this can hang off a source at all: cache_key defaults to the leaf name
+	# of the file.  Where two files deliberately share one key, re-asking
+	# from either acts on the tiles both address, and the question says so.
+{
+	my ($class,$parent,$key,$leaf) = @_;
+
+	my $prog = w_progress->runWorker($parent,'Surveying the cache',
+		\&_surveyWorker,[],{ trim => 0, keys => [$key] });
+	return 0 if $prog->{cancelled};
+
+	my @rows  = map { { %$_ } } @{$prog->{rows} || []};
+	my $row   = $rows[0];
+	my $marks = $row ? $row->{misses} : 0;
+
+	if (!$marks)
+	{
+		Wx::MessageBox("Nothing is recorded as missing for '$leaf'.",
+			'Re-ask About Missing Tiles',wxOK | wxICON_INFORMATION,$parent);
+		return 0;
+	}
+
+	my @others = grep { $_ ne $leaf } split(/ /,$row->{leaves} || '');
+	my $shared = @others ?
+		"\n\nThis cache is also addressed by: ".join(', ',@others)."." : '';
+
+	# THE COUNT IS THE PRICE, and it is said before the question is asked.
+	# This is the only thing in the application that goes to somebody's
+	# server on the user's behalf without them having asked to see imagery.
+
+	return 0 if Wx::MessageBox(
+		"'$leaf' has $marks tile(s) recorded as missing.$shared\n\n".
+		"Re-asking costs one request each, and two on any that is still ".
+		"missing, because a refusal is confirmed before it is believed.\n\n".
+		"Absences that are real are kept. Ones that were wrong are cleared.",
+		'Re-ask About Missing Tiles',wxYES_NO | wxICON_QUESTION,$parent)
+		!= wxYES;
+
+	$prog = w_progress->runWorker($parent,"Re-asking '$leaf'",
+		\&_cleanWorker,[$key],{ reaffirm => 1 });
+
+	w_report->show($parent,'re-asked',[ @{$prog->{lines} || []} ])
+		if $prog->{lines} && @{$prog->{lines}};
+
+	return 1;
+}
+
 
 sub show
 	# ($parent,$opts).  Survey, table, confirm, act, report.
@@ -219,13 +278,14 @@ sub _build
 
 	# ---- the two sweeps, above the list, only in the whole-cache mode
 
-	my ($sent_tiles,$sent_bytes,$trim_tiles,$trim_bytes) = (0,0,0,0);
+	my ($sent_tiles,$sent_bytes,$trim_tiles,$trim_bytes,$none_marks) = (0,0,0,0,0);
 	for my $row (@$rows)
 	{
 		$sent_tiles += $row->{sent_tiles};
 		$sent_bytes += $row->{sent_bytes};
 		$trim_tiles += $row->{trim_tiles};
 		$trim_bytes += $row->{trim_bytes};
+		$none_marks += $row->{misses};
 	}
 
 	if ($whole)
@@ -244,11 +304,29 @@ sub _build
 		$this->{trim}->SetToolTip('Absence markers are kept: they cost a '.
 			'request each to learn and they are nine bytes');
 
+		# THE THIRD SWEEP IS THE ONLY ONE THAT GOES TO THE NETWORK, and it
+		# is a checkbox beside the other two rather than a button because
+		# the button bar has no room left and this is a sweep, not a verb.
+		#
+		# THE COUNT IS IN THE LABEL because it is also the price: one
+		# request per marker, and two on any that is still missing, since
+		# the fetcher confirms a refusal before believing it.
+
+		$this->{none} = Wx::CheckBox->new($this,$ID_SWEEP_NONE,
+			sprintf("Re-ask the sources about tiles recorded as missing".
+				"  (%d marker%s)",$none_marks,$none_marks == 1 ? '' : 's'));
+		$this->{none}->Enable($none_marks ? 1 : 0);
+		$this->{none}->SetToolTip('A service that refused once leaves a hole '.
+			'nothing asks about again - this asks, keeps the absences that '.
+			'are real, and clears the ones that were not');
+
 		EVT_CHECKBOX($this,$ID_SWEEP_SENT,\&_onTick);
 		EVT_CHECKBOX($this,$ID_SWEEP_TRIM,\&_onTick);
+		EVT_CHECKBOX($this,$ID_SWEEP_NONE,\&_onTick);
 
 		$main->Add($this->{sent},0,wxLEFT | wxRIGHT | wxTOP,16);
 		$main->Add($this->{trim},0,wxLEFT | wxRIGHT | wxTOP,16);
+		$main->Add($this->{none},0,wxLEFT | wxRIGHT | wxTOP,16);
 	}
 	else
 	{
@@ -600,17 +678,35 @@ sub _onTick
 		}
 	}
 
+	# THE RE-ASK IS COUNTED SEPARATELY AND SAID SEPARATELY, because it does
+	# not remove anything and folding it into a "will remove" sentence would
+	# be the dialog misdescribing its own act.
+
+	my $ask = 0;
+	if ($this->{whole} && $this->{none}->GetValue())
+	{
+		for my $r (0..$#$rows)
+		{
+			next if $grid->GetCellValue($r,$COL_CACHE);
+			$ask += $rows->[$r]{misses};
+		}
+	}
+
 	my @say;
 	push @say,"$tsds source file(s)" if $tsds;
 	push @say,_num($files)." cached file(s)" if $files;
 	push @say,_num($sent)." blank(s) to reclassify" if $sent;
 	push @say,_num($trim)." outside every region" if $trim;
 
-	$this->{total}->SetLabel(@say ?
-		"Will remove ".join(', ',@say).", freeing ".prettyBytes($bytes) :
-		"Nothing is ticked.");
+	my @lines;
+	push @lines,"Will remove ".join(', ',@say).", freeing ".prettyBytes($bytes)
+		if @say;
+	push @lines,"Will re-ask the source(s) about "._num($ask)." recorded absence(s)"
+		if $ask;
 
-	$this->{go}->Enable(@say ? 1 : 0);
+	$this->{total}->SetLabel(@lines ? join('.  ',@lines) : "Nothing is ticked.");
+
+	$this->{go}->Enable(@lines ? 1 : 0);
 }
 
 
@@ -649,11 +745,13 @@ sub _onGo
 		my $sent = $this->{whole} && $this->{sent}->GetValue() && $row->{sent_tiles};
 		my $trim = $this->{whole} && $this->{trim}->GetValue() &&
 				   $row->{trim_tiles} && !$row->{trim_all};
-		push @ids,$key if $sent || $trim;
+		my $none = $this->{whole} && $this->{none}->GetValue() && $row->{misses};
+		push @ids,$key if $sent || $trim || $none;
 	}
 
 	my $sweep_sent = $this->{whole} && $this->{sent}->GetValue() ? 1 : 0;
 	my $sweep_trim = $this->{whole} && $this->{trim}->GetValue() ? 1 : 0;
+	my $sweep_none = $this->{whole} && $this->{none}->GetValue() ? 1 : 0;
 
 	my $what = $this->{total}->GetLabel();
 	$what =~ s/^Will remove/This will remove/;
@@ -667,6 +765,7 @@ sub _onGo
 		del_tsd		=> \%del_tsd,
 		sentinels	=> $sweep_sent,
 		trim		=> $sweep_trim,
+		reaffirm	=> $sweep_none,
 	};
 	$this->EndModal(wxID_OK);
 }

@@ -193,9 +193,9 @@ recipient to supply their own - the right conversation to force at exactly that 
 ## The Tile Proxy
 
 chartMaker has exactly one path from a tile coordinate to bytes, and everything uses it -
-the map in the browser, the preview, the source evaluator and the build engine. **The
-browser never contacts a tile server directly.** It asks the application, and the
-application answers.
+the map in the browser, the preview, the source evaluator and the build engine. **No
+*source* is ever fetched by the browser.** It asks the application, and the application
+answers. There is one exception, and it is stated at the end of this section.
 
 That single decision is load-bearing for four things that otherwise have nothing to do with
 one another:
@@ -212,6 +212,33 @@ one another:
 
 It also collapses most of the build engine into something already written: **the build is
 the same path driven by the coverage model instead of by a viewport.**
+
+### The one exception: shipped overlay chrome
+
+The map palette carries two switches - **labels** and **seamarks** - that draw somebody
+else's map over the imagery. Those two layers are declared in the applet and fetched by the
+browser directly, which is the only traffic in the application that does not pass through
+the proxy.
+
+The exception is narrow by construction, and it is worth being exact about which of the
+four properties above it spends. **Two are untouched:** both layers are keyless, so no
+secret can reach the browser by this route, and neither is ever built, so nothing about the
+shared cache changes. **Two are qualified:** the outbound count no longer sees every
+request, and these two layers sit outside the one home rate limiting otherwise has.
+
+What it buys is the absence of a mechanism. An overlay is chrome rather than a source -
+nobody chose it, nobody may name it in a region, and nothing exports it - so routing it
+through the proxy would have meant application-owned source ids, a proxy that resolves two
+kinds of source, and a Sources window listing two files the user never asked for. That is a
+substantial amount of machinery, all of it hidden, to hold a line that these particular
+layers do not threaten.
+
+**The endpoints are a table in one file** rather than urls scattered through the map code,
+because the argument against hardcoding a service was always that services rot. Kept this
+way, a move is one line, repairable in an installed copy with a text editor.
+
+The line, stated so it can be held: **anything a region may name goes through the proxy.**
+Chrome does not.
 
 ## Deliberate Boundaries
 
@@ -248,9 +275,11 @@ removes a source that stopped being used: both would act on a region drawn tomor
 some services a re-request is not free. Removing anything is something a person asks for
 while looking at what it would do - see [Cleanup](design/cleanup.md).
 
-**The browser never contacts a tile server.** Every request goes through the application,
-which is what makes "no key can reach the browser" structural rather than merely
-careful.
+**The browser never fetches a source.** Every request for anything a region may name goes
+through the application, which is what makes "no key can reach the browser" structural
+rather than merely careful. Two shipped overlay layers - labels and seamarks - are drawn by
+the browser directly, and that exception and its cost are stated in
+[The Tile Proxy](#the-one-exception-shipped-overlay-chrome).
 
 **Nothing is editable in two places.** Lists, names, structure and status are edited in the
 native windows; geometry and imagery are edited on the map. Both surfaces show both kinds

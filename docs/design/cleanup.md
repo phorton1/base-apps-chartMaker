@@ -70,9 +70,9 @@ installation in one click, every one of whose sources is unused until a region n
 A subregion that inherits counts against the source it inherits, so a detail area keeps its
 parent's tiles alive.
 
-## The two sweeps
+## The three sweeps
 
-Neither is a deletion in the sense the two tick columns are, and both apply across every row
+None is a deletion in the sense the two tick columns are, and each applies across every row
 rather than to one, so they are stated above the list with the counts the survey found.
 
 **Reclassify cached blanks.** A service that answers a request for ground it does not hold
@@ -93,6 +93,56 @@ A trim over a cache **no region anywhere uses** is refused rather than performed
 in it is outside every region, so the trim would empty the folder under a name that does not
 say so. Deleting that cache outright is a legitimate thing to want and it is the column
 beside it.
+
+**Re-ask about tiles recorded as missing.** The third sweep, and **the only act in this
+document that touches the network.**
+
+An absence is cached and nothing expires it, which is right almost always and wrong in one
+case: a service that refused once when it should not have. A blink, a deploy, or load shed
+under the burst of requests a pan or a zoom generates all arrive as a 404, and a 404 is
+written as a permanent fact. Nothing asks again, so the hole is in every chartset built
+from that ground thereafter. Measured on IGN France: **3 of 64 recorded absences were
+false**, all three scattered singles rather than one contiguous block, which is the shape of
+a service blinking rather than of an outage.
+
+The fetcher now confirms a refusal once before believing it, which stops new false absences.
+This sweep is for the ones already on disk.
+
+**It re-asks rather than forgets**, and that choice is the whole design. Deleting the
+markers would fix the same three, and would throw away the sixty-one that were true - each
+of which cost a request to learn and would be bought again on the next look. Re-asking keeps
+what was right and corrects what was wrong.
+
+**The marker is removed and the tile is then asked for normally.** There is no private
+re-check path that could re-decide what an absence means: the cache is consulted first by
+everything, so the marker has to go before anything will look, and after that every rule
+applies unchanged - the engine's pacing, the confirm-on-refusal, the declared fingerprints
+and the cache write. A tile that is still missing gets its new marker from the same code
+that wrote the first one.
+
+**An error leaves nothing behind**, and that is the honest outcome rather than a hole: the
+source could not be reached, so what was known is now *unknown* rather than *wrong*, and
+whoever looks next asks again.
+
+It runs **before** the blank sweep in any run where both are ticked. The other order would
+re-ask every marker that sweep had just written, which is two requests to arrive back where
+the tick started.
+
+**The count is the price, and it is shown before the question.** One request per marker, and
+two on any still missing. The report says which way each went - cleared, confirmed, or
+unreachable - because those mean different things to whoever reads them.
+
+### Reached from a source as well as from here
+
+A recorded absence is a fact about one source's tiles, so the gesture that names one is a
+**right-click on that source** in the Sources window. The whole-cache dialog makes somebody
+survey every cache to fix one, which is the wrong shape for a suspicion that is almost
+always about a single service.
+
+It is the same survey and the same act, scoped by `cache_key`. A cache and a `.tsd` are
+nearly the same thing in practice - `cache_key` defaults to the leaf name of the file,
+deliberately - and where two files share one key the question says so before it is answered,
+the way the delete confirmation already does.
 
 ## The two deletions
 

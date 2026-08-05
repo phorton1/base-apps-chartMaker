@@ -321,12 +321,24 @@ the dialog goes dirty by the ordinary mechanism.
 
 Never in the middle of anything. A build is thousands of tiles over hours and a probe is
 hundreds, and a modal question arriving inside either is what this application refuses
-everywhere else. An offer waits for the **end** of an act, when the work is over and the
-person is standing in front of a report:
+everywhere else. An offer sits at the **edge** of an act, before it starts or after it is
+over, and never inside it:
 
 - **after a Test**, in the editor
+- **before a build or a fetch**, in the [preflight](build.md#nothing-starts-without-a-preflight)
 - **after a build or a fetch**, once the report is dismissed
 - **after a probe run stops**, in the probe pane
+
+**Before and after a build are both right, and for different reasons.** Only the offer
+before it can keep a known blank out of the output; only the offer after it can put what
+those thousands of tiles just taught in front of anybody.
+
+**The probe pane offers for any run, whoever started one.** The run may have come from the
+tree, the map, or `sample` typed at the console, and the pane reads the mode's own running
+flag rather than a progress record it was handed - the same reason Halt is a property of the
+mode. Gating the offer on who started the run meant a console probe learned fingerprints,
+recorded them, and asked nobody, at the one moment somebody was looking at the table those
+tiles had just filled in.
 
 One driver serves all three, because the only difference between them is **who is holding the
 file**. With an editor open the pair goes into its visible row and Save writes it; with no

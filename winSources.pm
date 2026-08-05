@@ -51,6 +51,7 @@ my $MENU_NEW	= 10521;
 my $MENU_EDIT	= 10522;
 my $MENU_DELETE	= 10523;
 my $MENU_CATALOG = 10524;
+my $MENU_REAFFIRM = 10525;
 
 my $RED = Wx::Colour->new(200,0,0);
 
@@ -189,7 +190,8 @@ sub new
 	EVT_LEFT_DOWN($this->{tree},sub { $this->onTreeLeftDown($_[1]) });
 	EVT_RIGHT_DOWN($this->{tree},sub { $this->onTreeRightDown($_[1]) });
 	EVT_MENU($this,$_,\&onTreeMenu)
-		for ($MENU_NEW, $MENU_CATALOG, $MENU_EDIT, $MENU_DELETE);
+		for ($MENU_NEW, $MENU_CATALOG, $MENU_EDIT, $MENU_DELETE,
+			 $MENU_REAFFIRM);
 	EVT_BUTTON($this,$this->{ctl_use},\&onUse);
 	EVT_BUTTON($this,$this->{ctl_rescan},\&onRescan);
 	EVT_BUTTON($this,$this->{ctl_meta},\&onMeta);
@@ -454,6 +456,13 @@ sub onTreeRightDown
 	{
 		$menu->AppendSeparator();
 		$menu->Append($MENU_EDIT,"Edit '$node->{leaf}'...");
+
+		# WHERE IT IS REACHED FROM.  A recorded absence is a fact about one
+		# source's tiles, so the gesture that names it is a right-click on
+		# that source - not a trip through the whole-cache cleanup, which
+		# makes somebody survey five caches to fix one.
+
+		$menu->Append($MENU_REAFFIRM,"Re-ask '$node->{leaf}' about missing tiles...");
 		$menu->Append($MENU_DELETE,"Delete '$node->{leaf}'...");
 	}
 	$this->PopupMenu($menu,$event->GetPosition());
@@ -468,6 +477,50 @@ sub onTreeMenu
 	return $this->catalogDialog() if $id == $MENU_CATALOG;
 	return $this->editSelected() if $id == $MENU_EDIT;
 	return $this->deleteSelected() if $id == $MENU_DELETE;
+	return $this->reaffirmSelected() if $id == $MENU_REAFFIRM;
+}
+
+
+sub _selectedCacheKey
+	# The cache_key a node's tiles are filed under, and the leaf.
+	#
+	# A REFUSED FILE HAS NO LOADED SOURCE and therefore no cache_key from
+	# the model.  dm_source's own default - the leaf without its extension -
+	# is what its tiles would have been filed under, and dm_clean applies
+	# the same rule, so the row it lands on is the one holding them.
+{
+	my ($this) = @_;
+	my $node = $this->selectedNode() or return ();
+
+	my $src = $node->{id} ? getSource($node->{id}) : undef;
+	my $key = $src ? $src->{cache_key} : undef;
+
+	if (!$key)
+	{
+		$key = lc($node->{leaf});
+		$key =~ s/\.tsd$//i;
+	}
+	return ($key,$node->{leaf});
+}
+
+
+sub reaffirmSelected
+	# RE-ASK ONE SOURCE ABOUT ITS RECORDED ABSENCES.
+	#
+	# An absence is cached and nothing expires it, so a service that
+	# refused once - a blink, or load shed under the burst of requests a
+	# pan generates - leaves a hole that no later look ever asks about
+	# again.  This is how a person says "ask again".
+	#
+	# IT DOES NOT DELETE THE MARKERS, which was the other way to fix the
+	# same thing.  Most of them are true, they cost a request each to
+	# learn, and throwing them away buys them back on the next look.
+{
+	my ($this) = @_;
+	my ($key,$leaf) = $this->_selectedCacheKey();
+	return if !$key;
+
+	w_clean->reaffirmOne($this,$key,$leaf);
 }
 
 

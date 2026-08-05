@@ -746,6 +746,37 @@ sub onLongAct
 		my $cfg = $chosen->{cfg};
 		my $ids = $chosen->{ids};
 
+		# THE BLANKS FIRST, BEFORE ANYTHING IS COUNTED OR FETCHED.
+		#
+		# This dialog chain's own rule is that everything is asked before the
+		# work starts, and a candidate blank belongs to it: a fingerprint
+		# declared here removes those tiles from the fetch and from the
+		# output, and one declared afterwards removes them from the NEXT
+		# build while this one carries them.  IGN over Guadeloupe is the
+		# case that showed it - a solid white fill and a solid navy sea fill
+		# across a large part of the region, and a build of 21,511 tiles
+		# that would have stored every one of them as imagery.
+		#
+		# BEFORE THE ANALYSIS AND NOT BETWEEN IT AND THE PREFLIGHT.
+		# Declaring a fingerprint reclassifies what is already on disk - see
+		# dm_fetch::fetchCacheHit - so the cached and to-fetch counts change
+		# underneath it, and the preflight's whole job is to be the true
+		# statement of what the run will cost.
+		#
+		# EVERY INSTALLED SOURCE, for the reason the end-of-run offer gives:
+		# a candidate is a fact about a service rather than about this act,
+		# and one learned by an earlier probe and never shown is exactly the
+		# one worth showing now.  Nothing repeats - a decline is remembered
+		# and a declared fingerprint stops being a candidate - so the
+		# ordinary case is that this asks nothing and costs a hash lookup
+		# per source.
+		#
+		# THE OFFER AT THE END OF THE RUN STAYS.  A build fetches thousands
+		# of tiles and is the richest teacher of these there is, and what it
+		# learns has nowhere else to be put in front of anybody.
+
+		w_blank->offerFor($this,[ map { getSource($_) } getSourceIds() ]);
+
 		# TWO DIFFERENT THINGS, and conflating them was a real bug.
 		#
 		#   $out_dir  the RESOLVED path - for showing, and for surveying

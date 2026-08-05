@@ -70,6 +70,8 @@ BEGIN
 		mapIsOpen
 		noteView
 		getMapView
+		requestView
+		getViewRequest
 
 		probeSetMode
 		probeIsOn
@@ -519,7 +521,22 @@ sub noteView
 	return 0 if !defined($lat) || !defined($lon) || !defined($z);
 	return 0 if $lat !~ /^-?\d+(\.\d+)?$/ || $lon !~ /^-?\d+(\.\d+)?$/;
 	return 0 if $z !~ /^\d+$/;
-	return 0 if $lat < -85 || $lat > 85 || $lon < -180 || $lon > 180;
+	return 0 if $lat < -85 || $lat > 85;
+
+	# LONGITUDE IS MODULAR, SO IT IS NORMALISED RATHER THAN REFUSED.  A map
+	# panned east around the world reports 368.9 for 8.9 - the same meridian,
+	# counted from where the user started rather than from Greenwich.
+	#
+	# THIS USED TO REFUSE IT, and that was the worst available answer: the
+	# last in-range centre stayed standing, nothing was reported, and the
+	# application went on confidently naming a place the user had left an
+	# ocean ago.  A frozen value that looks live is worse than no value.
+	# The applet wraps before sending; this is the boundary agreeing rather
+	# than trusting.
+
+	my $turns = ($lon + 180) / 360;
+	$turns = int($turns) - (($turns < 0 && $turns != int($turns)) ? 1 : 0);
+	$lon -= 360 * $turns;
 
 	($view_lat,$view_lon,$view_z,$view_ok) = ($lat,$lon,$z,1);
 	return 1;
@@ -531,6 +548,47 @@ sub getMapView
 {
 	return () if !$view_ok || !mapIsOpen();
 	return ($view_lat,$view_lon,$view_z);
+}
+
+
+#---------------------------------------------
+# telling the map where to look
+#---------------------------------------------
+# THE OTHER DIRECTION, AND IT IS A REQUEST RATHER THAN A STATE.  Where the
+# map IS looking is a fact, and it is read above.  Where it is being SENT is
+# an event, and the difference is load bearing for one reason: somebody may
+# ask for the same place twice.  Coordinates held as a state would be
+# identical the second time and the map would not move, so what the applet
+# watches is the SEQUENCE and the coordinates are merely what came with it.
+#
+# IT RIDES ON /poll for the same reason the incoming centre does, and needs
+# an endpoint of its own for none of the same reasons.
+#
+# IT IS NOT PERSISTED AND IT IS NOT QUEUED.  A request made while no map is
+# open is refused by the caller rather than held: arriving at a place
+# somebody asked for minutes ago, on a map they have since taken somewhere
+# else, is exactly the stale-place problem the section above refuses.
+
+my $want_seq:shared	= 0;
+my $want_lat:shared	= 0;
+my $want_lon:shared	= 0;
+my $want_z:shared	= 0;
+
+
+sub requestView
+	# The caller validates a place.  This only records one.
+{
+	my ($lat,$lon,$z) = @_;
+	($want_lat,$want_lon,$want_z) = ($lat,$lon,$z);
+	$want_seq++;
+	return 1;
+}
+
+
+sub getViewRequest
+	# (seq,lat,lon,zoom).  A seq of 0 means none has ever been made.
+{
+	return ($want_seq,$want_lat,$want_lon,$want_z);
 }
 
 

@@ -345,6 +345,13 @@ sub _said
 }
 
 
+# Long enough that a service shedding load has stopped, short enough that a
+# fill over genuinely empty ocean is not paced by it.  Paid only on tiles
+# about to be recorded absent - see the note inside fetchTile.
+
+my $CONFIRM_PAUSE = 0.4;
+
+
 sub fetchTile
 	# The network, and nothing else.  No cache is consulted or written.
 	# Returns { status, format, bytes, http, reason, ms }.
@@ -374,12 +381,40 @@ sub fetchTile
 		return { status => 'absent', reason => 'outside the declared protocol range' };
 	}
 
-	my $started  = time();
-	my $response = _ua()->get($url);
-	my $ms       = int((time() - $started) * 1000);
-	my $code     = $response->code();
+	# A 404 IS ONE SAMPLE, AND ONE SAMPLE IS NOT A RESULT.  An absence is
+	# cached and nothing expires it, so a service that sheds load by refusing
+	# - which is exactly what the burst of requests a pan or a zoom generates
+	# provokes - writes a permanent hole into a chartset over ground it
+	# actually holds, and no later look ever asks again.
+	#
+	# MEASURED, on IGN France: 3 of 64 recorded absences were false, and all
+	# three answered 200 the moment they were asked a second time.  The three
+	# were scattered singles at three zooms rather than one contiguous block,
+	# which is the shape of a service blinking rather than of an outage.
+	#
+	# SO A REFUSAL IS CONFIRMED ONCE BEFORE IT IS BELIEVED.  The second
+	# request is paid only on tiles about to be recorded absent, and only
+	# once per tile ever, because the answer is cached either way.  Errors
+	# are deliberately NOT retried here: they are never cached, so they are
+	# already asked again by whoever asks next.
 
-	display($dbg_fetch+1,0,"fetchTile $source->{id} $z/$x/$y -> $code (${ms}ms) $url");
+	my ($response,$ms,$code);
+	for my $attempt (1,2)
+	{
+		my $started = time();
+		$response = _ua()->get($url);
+		$ms       = int((time() - $started) * 1000);
+		$code     = $response->code();
+
+		display($dbg_fetch+1,0,"fetchTile $source->{id} $z/$x/$y -> $code (${ms}ms) $url");
+
+		last if $code != 404 && $code != 204;
+		last if $attempt == 2;
+
+		display($dbg_fetch,0,"$source->{id} $z/$x/$y - $code, asking once more ".
+			"before recording an absence");
+		Time::HiRes::sleep($CONFIRM_PAUSE);
+	}
 
 	if ($code == 200)
 	{

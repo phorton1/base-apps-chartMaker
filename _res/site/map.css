@@ -64,6 +64,14 @@ html, body {
     gap: 6px;
 }
 
+/* The rule between what draws the model and what draws somebody else's map. */
+
+.cm-pal-sep {
+    height: 1px;
+    background: #ccc;
+    margin: 4px 0 3px 0;
+}
+
 .cm-pal-box {
     margin: 0;
     width: 13px;

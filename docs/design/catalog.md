@@ -42,6 +42,27 @@ become ordinary editable files. The catalog is a list of what the application kn
 A source can be in either, both, or neither, and `google.tsd` is deliberately in the first
 and not the second.
 
+**Four files ship, in two pairs.** `esri.tsd` and `google.tsd` are the viewers - global,
+deep, and display only, which is what their operators' terms permit. `ign_es_pnoa.tsd` and
+`ign_fr_ortho.tsd` are the ones that can **build**: national orthophoto at chart depth, an
+open licence with attribution, and no key. That combination is what makes a new
+installation able to produce a chartset without visiting the catalog first, which is the
+difference between "not turnkey" and "no starting point at all".
+
+**Two buildable sources rather than one, because one country is not a starting point.**
+Spain reaches real detail to z18 over its own ground and is the
+[default](tsd.md#what-chartmaker-ships); France reaches z19 and is the only open imagery at
+chart depth over the overseas departments, which is Caribbean and Indian Ocean cruising
+water that nothing else in the catalog covers. Neither is a subset of the other, and a
+shipped set that had to pick one would be picking somebody's ocean.
+
+**Two backdrops were shipped and no longer are.** NASA GIBS Blue Marble and Landsat WELD
+are catalogued rather than installed. WELD's one distinguishing property was that it is
+global *and* buildable, and that turned out to be theoretical: z12 is far below anything
+worth carrying to sea, so nothing was ever going to be built from it. Removing them costs
+a user who wants either one two clicks, and it keeps the shipped set to files that answer
+a question somebody actually has.
+
 ## A node is a group or an entry
 
 A node carrying `nodes` is a group and a node carrying `tsd` is an entry. The tree nests to

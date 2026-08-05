@@ -47,8 +47,8 @@ author's document rather than a set of exchangeable pieces.
     zauthor:          15
     zmin:             10
     zmax:             16
-    source:           gibs_weld_annual
-    source_name:      NASA GIBS - Landsat WELD True Colour (global annual)
+    source:           ign_fr_ortho
+    source_name:      IGN France - ORTHOIMAGERY.ORTHOPHOTOS
     geometry:         [ <polygon>, <polygon>, ... ]
     subregions:
       - id:           Popa00

@@ -125,6 +125,7 @@ sub commandHelp
 		[ 'region zmax <id> <z> [sub]',	'set how deep a region or subregion goes'			],
 		[ 'region count [id|all] [zmax]','how many tiles a region would build, by zoom'		],
 		[ 'select <id|none>',	'select a region or subregion, on every surface at once'	],
+		[ 'view [<lat> <lon> [z]]','move the open map to a place, or say where it is'	],
 		[ 'edit [mode] [id] [dirty]','what the map is doing: browse, shape, draw, end'	],
 		[ 'region geometry <id> [sub]',	'replace polygons - /edit only, the map supplies them'],
 		[ 'region delete <id>',			'delete a region from the document'						],
@@ -1123,6 +1124,71 @@ sub _selectCommand
 }
 
 
+sub _viewCommand
+	# view [<lat> <lon> [<zoom>]]
+	#
+	# THE ONE THING THE CONSOLE COULD NOT SAY.  Every other verb names an
+	# object, and a place is not an object - so the only way to get the map
+	# somewhere was to drag it there, which is no way to reach a coordinate
+	# read off a chart or a pilot book.
+	#
+	# THE ZOOM IS OPTIONAL AND DEFAULTS TO WHERE THE MAP ALREADY IS, because
+	# "go here" and "go here at this scale" are different requests and the
+	# first one is the common one.
+	#
+	# IT REFUSES WHEN NO MAP IS OPEN rather than holding the request for one.
+	# See cm_state: a place is the one thing in this application that must
+	# not be delivered stale.
+	#
+	# WITH NO ARGUMENTS IT REPORTS INSTEAD OF MOVING, which is the same verb
+	# rather than a second one because it is the same question in the two
+	# directions a place can travel.  The map is the only thing here that
+	# knows where it is, and anybody who cannot see the screen - a console
+	# session, a script, somebody being shown something - otherwise has no
+	# way at all to ask.
+{
+	my ($rpart) = @_;
+	my @args = grep { $_ ne '' } split(/\s+/,$rpart || '');
+	my ($lat,$lon,$z) = @args;
+
+	return _fail("view: the map is not open")
+		if !mapIsOpen();
+
+	if (!@args)
+	{
+		my ($at_lat,$at_lon,$at_z) = getMapView();
+		return _fail("view: the map has not said where it is yet")
+			if !defined($at_z);
+		display(0,0,"view: at $at_lat,$at_lon z$at_z");
+		return;
+	}
+
+	return _fail("view: usage - view [<lat> <lon> [z]]")
+		if @args < 2 || @args > 3;
+
+	# 85 is the mercator limit and is the same bound noteView applies to
+	# what comes back the other way; 22 is the applet's MAP_MAX_ZOOM.
+
+	return _fail("view: '$lat' is not a latitude")
+		if $lat !~ /^-?\d+(\.\d+)?$/ || $lat < -85 || $lat > 85;
+	return _fail("view: '$lon' is not a longitude")
+		if $lon !~ /^-?\d+(\.\d+)?$/ || $lon < -180 || $lon > 180;
+	return _fail("view: '$z' is not a zoom level")
+		if defined($z) && ($z !~ /^\d+$/ || $z > 22);
+
+	if (!defined($z))
+	{
+		my (undef,undef,$at_z) = getMapView();
+		return _fail("view: the map has not said where it is yet")
+			if !defined($at_z);
+		$z = $at_z;
+	}
+
+	requestView($lat,$lon,$z);
+	display(0,0,"view: $lat,$lon at z$z");
+}
+
+
 sub _editCommand
 	# edit <browse|shape|draw> [<id>] [dirty]
 	# edit end
@@ -1727,6 +1793,10 @@ sub dispatchCommand
 	elsif ($lpart eq 'select')
 	{
 		_selectCommand($rpart);
+	}
+	elsif ($lpart eq 'view')
+	{
+		_viewCommand($rpart);
 	}
 	elsif ($lpart eq 'edit')
 	{

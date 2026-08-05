@@ -155,16 +155,22 @@ ok($bm->{path} eq 'NASA GIBS / Blue Marble shaded relief and bathymetry',
 #---------------------------------------------
 # the shipped .tsd files and the catalog agree
 #---------------------------------------------
-# THE THREE FILES THAT SHIP ARE ALSO CATALOG ENTRIES, which is two hand
+# THE FILES THAT SHIP AND ARE ALSO CATALOG ENTRIES, which is two hand
 # maintained statements of one thing.  They will drift unless something
 # compares them, and the place a drift bites is a user who installs the
 # app, then opens the catalog and is offered what they already have under
 # a url that no longer matches.
+#
+# THE TWO GIBS BACKDROPS NO LONGER SHIP and are catalogued only.  Blue
+# Marble was a first-run backdrop nothing else needed, and WELD's one
+# distinguishing property - a global source that may be BUILT - turned out
+# to be theoretical, since a z12 chartset is far below anything worth
+# carrying to sea.  Both remain two clicks away in the catalog.
 
 print "\n--- the shipped .tsd files agree with the catalog ---\n";
 
-for my $pair ( [ 'bluemarble.tsd','gibs_bluemarble' ],
-			   [ 'weld_annual.tsd','gibs_weld_annual' ],
+for my $pair ( [ 'ign_es_pnoa.tsd','ign_es_pnoa' ],
+			   [ 'ign_fr_ortho.tsd','ign_fr_ortho' ],
 			   [ 'esri.tsd','esri_world_imagery' ] )
 {
 	my ($leaf,$id) = @$pair;
@@ -200,6 +206,45 @@ for my $pair ( [ 'bluemarble.tsd','gibs_bluemarble' ],
 ok(-f "$app_dir/_res/user_data/google.tsd",'google.tsd still ships');
 ok(!catalogEntry('google_satellite'),
 	'google is deliberately NOT a catalog entry');
+
+# AND THE SHIPPED SET IS EXACTLY FOUR, which is the decision rather than an
+# accident of what happens to be in the folder.  Two viewers and two
+# national orthophoto services that can build, because one country is not a
+# starting point: Spain is the default and reaches the ground the user
+# manual walks through, and France is the only open imagery at chart depth
+# over the overseas departments.  A new install can do the whole tutorial
+# without visiting the catalog first.
+
+my @shipped = sort map { my $l = $_; $l =~ s{.*/}{}; $l }
+	glob("$app_dir/_res/user_data/*.tsd");
+ok(scalar(@shipped) == 4,"exactly four .tsd files ship (got ".scalar(@shipped).")");
+ok(join(' ',@shipped) eq
+		'esri.tsd google.tsd ign_es_pnoa.tsd ign_fr_ortho.tsd',
+	"and they are the expected four: ".join(' ',@shipped));
+
+# THE DEFAULT MUST BE ONE THAT CAN BUILD, and it is the one thing in this
+# set that a later edit could quietly break: moving the default to a viewer
+# would make every new region name a source no build can read.
+
+my $def = "$app_dir/_res/user_data/$DEFAULT_SOURCE_ID.tsd";
+ok(-f $def,"the default source '$DEFAULT_SOURCE_ID' is one of the shipped files");
+if (-f $def)
+{
+	open(my $dh,'<',$def);
+	binmode $dh;
+	local $/ = undef;
+	my $d = eval { JSON::PP::decode_json(<$dh>) };
+	close $dh;
+	ok($d && grep({ $_ eq 'build' } @{$d->{uses} || []}),
+		"and it declares 'build'");
+	ok($d && ($d->{redistributable} // '') eq 'yes',
+		"and it is redistributable");
+}
+
+ok(!-f "$app_dir/_res/user_data/bluemarble.tsd",'bluemarble no longer ships');
+ok(!-f "$app_dir/_res/user_data/weld_annual.tsd",'weld_annual no longer ships');
+ok(catalogEntry('gibs_bluemarble') && catalogEntry('gibs_weld_annual'),
+	'and both are still catalogued, so they are two clicks away');
 
 
 #---------------------------------------------

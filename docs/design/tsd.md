@@ -434,20 +434,57 @@ alongside it that could drift out of agreement with it.
 
 ## What chartMaker ships
 
-Four sources, with **`gibs_weld_annual` as the official default** - it is the imagery a new
-region is born naming, and the source the tutorial and the demonstrations are built on.
+Four sources, with **`ign_es_pnoa` as the official default** - it is the imagery a new
+region is born naming, and the source the user manual is built on.
 
 | id | reaches | `uses` |
 | ------------------- | ------------------------------------- | ---------------- |
-| `gibs_bluemarble`   | z8                                    | display, build   |
-| `gibs_weld_annual`  | z12                                   | display, build   |
+| `ign_es_pnoa`       | z18 real over Spain, declared z20     | display, build   |
+| `ign_fr_ortho`      | z19 over France and the DOM           | display, build   |
 | `esri_world_imagery`| answers to z23, real detail varies    | display          |
 | `google_satellite`  | answers to z21, real detail varies    | display          |
 
-The two GIBS sources satisfy the rule that chartMaker ships no source it is not entitled to
-ship: both are US Government works, and their URL templates are verified by a test rather
-than assumed. `gibs_weld_annual` is the default rather than Blue Marble because it reaches
-z12 against z8, and depth is the whole point of a chartset.
+**Two of the four can build, and both are national orthophoto services.** A new region born
+naming a display-only source would name something no build could ever read, so the default
+has to be one of these two. Both carry an open licence with attribution and need no key,
+which satisfies the rule that chartMaker ships no source it is not entitled to ship, and
+both URL templates are verified by a test rather than assumed.
+
+**The default is decided by what each one does where it STOPS.** Both are land products
+whose coverage reaches roughly one z15 tile past the shore, and neither footprint follows a
+tile boundary, so both leave partly filled tiles along their whole edge - a tile that is
+half imagery and half nothing, which is unique bytes and therefore beyond the reach of any
+[fingerprint](#a-200-that-means-404). What they fill the other half with is the difference.
+IGN France sends flat white, the brightest thing on a composited chart. Spain sends its
+upsampled global backdrop, which over water is a dark blue that reads as water. A first
+chartset wants the forgiving edge, and every chartset wants it at the coast.
+
+**A fingerprint clears the whole tiles and cannot touch the partial ones**, which is what
+makes that difference structural rather than cosmetic. IGN France's white is declared in its
+shipped file - 1,651 bytes, one md5, confirmed identical offshore of Guadeloupe and offshore
+of Corsica - so every wholly blank tile becomes a recorded absence and never reaches an
+output. The fringe of half-filled tiles along the coverage edge survives that, in both files,
+and always will.
+
+**Neither of them can be bounded by an absence, and Spain says so in its own file.** It
+never refuses a tile anywhere, in Spain or far outside it, and it sends no fixed no-data
+body: past its orthophoto footprint it serves the global backdrop, which at fine zoom
+averages to a flat colour that varies with the ground beneath it. Bodies repeat there
+because the sea is one colour, not because the service is marking anything, so
+`ign_es_pnoa` ships with **no `absent_fingerprints` at all** and that is the correct file
+rather than an unfinished one.
+
+**IGN France is still the answer over French water**, including Guadeloupe, Martinique,
+Guyane, Reunion and Mayotte, where nothing else with an open licence reaches chart depth.
+That is why it ships rather than being catalogued, and the change of default is not a
+ranking of the two.
+
+**Two GIBS backdrops used to ship and now only appear in the catalog.** Blue Marble reaches
+z8, below the overview floor a build uses, so it could never participate in one. Landsat
+WELD reached z12 and was global *and* buildable - a combination that reads well and means
+little, because z12 is far below anything worth carrying to sea. Neither answered a
+question a user actually has, and both are two clicks away in the
+[catalog](catalog.md) for anyone who wants them.
 
 **The other two ship for display only, and that split is the whole reason they can ship at
 all.** Esri's terms grant anyone the right to view, download and copy their published

@@ -67,8 +67,8 @@ worth documenting and not worth shipping, and most of them are.
 | --- | --- | --- | --- | --- | --- | --- |
 | `gibs` | NASA GIBS | global | yes, US Government work | free, no key | Blue Marble z8, Landsat WELD z12 | Backdrops. Far below chart depth, and complete everywhere, which is what makes them the sane thing to open on. |
 | `usgs` | USGS Imagery Only | United States | yes, US Government work | free, no key | z16, from the service metadata | The best free option in US waters. Declares `format: MIXED`, so PNG can appear where JPEG is expected. |
-| `ign_fr` | IGN France Geoplateforme | France and the overseas departments | yes, French open licence with attribution | free, no key | z19, from the tile matrix set `PM_0_19` | The deepest open imagery found anywhere, and the only open source at chart depth over Caribbean cruising ground. |
-| `ign_es` | Spain IGN PNOA | Spain | yes, CC BY 4.0 | free, no key | z20, from the WMTS capabilities | 25 cm and 50 cm mosaics updated several times a year. |
+| `ign_fr` | IGN France Geoplateforme | France and the overseas departments | yes, French open licence with attribution | free, no key | z19, from the tile matrix set `PM_0_19` | The deepest open imagery found anywhere, and the only open source at chart depth over Caribbean cruising ground. Says "nothing here" three ways over one build range - navy fill z10-12, a declared white fingerprint z13-16, honest 404s from z14. Its coastal footprint runs about one z15 tile offshore, so it closes over bays completely and leaves open coast marginal. |
+| `ign_es` | Spain IGN PNOA | Spain | yes, CC BY 4.0 | free, no key | z20 declared; **z18 measured**, falling at z19 and marginal at z20 | 25 cm and 50 cm mosaics updated several times a year. Never refuses and sends no fixed no-data body, so nothing bounds it by absence. Its coastal footprint runs about one z15 tile offshore and fills beyond that with a dark blue backdrop rather than white, which is what makes its edge liveable on a chart. |
 | `gsi` | Japan GSI seamlessphoto | Japan | yes, under the GSI tile terms | free, no key | z18, from the layer specification | Excellent in Japan. Returns 404 outside the country, so an absence is unambiguous. |
 | `nsw` | NSW Spatial Services (SIX) | New South Wales | yes, CC BY 4.0 with an authorship term | free, no key | declares LODs 0 to 23 with `maxScale` also at 23, so it states no real ceiling; 10 cm over towns, 50 cm regional | Excellent on that coast. `format: MIXED`. Newer coverage supersedes older below 1:150,000, so depth varies by place. |
 | `qld` | Queensland Government imagery | Queensland | licence varies per image between CC BY, CC BY-SA and public domain | free, no key | 21 levels with `maxScale` 1:564, which is z20 | Excellent on that coast. The whole-of-state satellite mosaic derives from Planet and is CC BY-SA, which imposes share-alike on anything built from it. |
@@ -231,10 +231,17 @@ says for a service that is not there, or not visible to you, on a secured direct
 that server's 404. Reading it as "get a token" is how a catalog entry acquired a credential
 slot it never needed, and how a wrong hostname acquired a confident sentence.
 
-**A 200 is not a yes.** Beside that refusal, three services that genuinely work answer with
-something that is not imagery: Spain IGN sends a 929 byte blank JPEG outside Spain,
-OpenSeaMap sends a 334 byte transparent PNG almost everywhere, and NSW answers z0 with a
-white world carrying one blue speck of New South Wales.
+**A 200 is not a yes.** Beside that refusal, services that genuinely work answer with
+something that is not imagery: OpenSeaMap sends a 334 byte transparent PNG almost
+everywhere, and NSW answers z0 with a white world carrying one blue speck of New South
+Wales.
+
+**A repeated small body is not a sentinel either.** Spain IGN was recorded here as sending
+a 929 byte blank outside Spain. Probed in three unrelated places it sends several different
+small bodies at several different lengths, because what it serves past its own coverage is
+an upsampled global backdrop that averages down to a flat colour - blue over ocean, green
+over forest. A sentinel is byte identical across ground that has nothing in common; a
+backdrop only repeats within one patch. Two distant samples separate them.
 
 **The row-order trap is real and it is silent.** Asked with a northward row, Allen Coral
 Atlas answers HTTP 200 with a 1,784 byte empty tile rather than an error. Every tile arrives,
@@ -243,7 +250,23 @@ nothing reports a problem, and the map is scrambled. That is what `{-y}` is for.
 **Where a service holds nothing it often says so in bytes rather than in a status.** Allen
 Coral Atlas sends one fixed empty PNG, byte identical at 1,784 bytes across three levels and
 three places, which is now declared as an `absent_fingerprint`. Esri sends a fixed 2,521 byte
-grey image past its real depth, which is declared as another.
+grey image past its real depth, which is declared as another. IGN France sends a 1,651 byte
+flat white, confirmed identical offshore of Guadeloupe and offshore of Corsica, which is
+declared as a third.
+
+**One service can say it several ways at once, and the ways are banded by zoom.** IGN France
+over one region's build range returns a flat navy sea fill at z10-z12, that white at
+z13-z16, and honest 404s from about z14, with the proportions shifting by place. So the
+absent column alone never bounds such a service, and a fingerprint found at one level says
+nothing about the level above it.
+
+**A fingerprint is not the whole answer where coverage ends on a metric grid.** IGN France's
+footprint is a coastal buffer about one z15 tile wide whose edge follows a projected delivery
+grid - Lambert-93 in metropolitan France, UTM in the overseas departments - so it can never
+align with a tile boundary. Tiles along that edge are part imagery and part fill, which is
+unique bytes and beyond the reach of any fingerprint. The consolation is geometric: a
+distance-from-land buffer closes over CONCAVE water completely, so bays, calas and inlets are
+solid while open coast is marginal - and concave water is where a photograph beats a chart.
 
 **Region prose does not say where the tiles are.** Japan GSI serves real imagery over Bocas
 del Toro at z3 and z8 and nothing at z12; IGN France serves Bocas del Toro at z12, the same

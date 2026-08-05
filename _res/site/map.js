@@ -57,9 +57,20 @@ L.control.scale({ imperial: true, metric: true }).addTo(map);
 const VIEW_KEY   = 'chartMaker.view';
 const WORLD_VIEW = { lat: 0, lon: 0, zoom: 2 };
 
+// LONGITUDE COMES OUT OF LEAFLET UNWRAPPED.  Pan east around the world and
+// getCenter() reports 368.9 rather than 8.9 -- the same meridian, counted
+// from where the user started rather than from Greenwich.  Every place a
+// coordinate LEAVES the map has to wrap it, because everything downstream
+// reasonably believes a longitude is a longitude: the application refused
+// the out-of-range value and silently kept showing the last good one, the
+// remembered view stored a number that grew every lap, and the readout
+// showed a coordinate that is on no chart.
+
+function wrapped(ll) { return ll.wrap(); }
+
 function saveView() {
     try {
-        const c = map.getCenter();
+        const c = wrapped(map.getCenter());
         localStorage.setItem(VIEW_KEY, JSON.stringify({
             lat: c.lat, lon: c.lng, zoom: map.getZoom(),
         }));
@@ -134,19 +145,26 @@ function setImagerySource(src) {
         maxZoom:       MAP_MAX_ZOOM,
         tileSize:      src.tile_size,
 
-        // NOTHING THERE LOOKS LIKE SOMETHING, rather than like a hole in
-        // the page. Leaflet leaves a failed tile transparent, so a service
-        // that stops answering deep in its range turns the map white and
-        // says nothing about why - which reads as the application having
-        // broken rather than as the imagery having run out.
+        // NO errorTileUrl, DELIBERATELY, and this is the correction of a
+        // real defect rather than a tidying.
         //
-        // EVERY 'NOTHING HERE' NOW LOOKS THE SAME, whatever the service
-        // did to say it. Esri answers a grey placeholder, Japan GSI
-        // answers an honest 404, and the tile proxy turns both into a 404
-        // before this ever sees them - so one picture covers a refusal and
-        // a declared sentinel alike, which is the right answer at a map.
-        // Telling those two apart is the probe's job and it still does.
-        errorTileUrl:  '/images/no_data.jpg',
+        // Nothing there still looks like something: the no_data picture is
+        // served BY THE PROXY, as a 200, for an absence and for nothing
+        // else - see em_server::applet_tile.  Every 'nothing here' still
+        // looks the same whatever the service did to say it, because the
+        // proxy resolves a refusal and a declared sentinel to the same
+        // answer before this ever sees one.
+        //
+        // What errorTileUrl added on top of that was a LIE.  An <img> load
+        // failure carries no status code, so it painted that same picture
+        // for a 502 and for any request the browser aborted mid-flight -
+        // which is what panning does, constantly.  Leaflet keeps a tile
+        // once drawn, so a tile that failed because the user moved kept
+        // saying 'no data' about ground the service holds.
+        //
+        // Now a failure loads no image, Leaflet leaves the tile alone, and
+        // the next pan asks again.  That is the honest rendering of an
+        // answer that never arrived, and it is self-healing.
     });
     imageryLayer.addTo(map);
     applyContextDim();
@@ -332,7 +350,14 @@ window.cmRedrawRegions = cmRedrawRegions;
 // Rows are added by whichever file owns the thing being switched, and they
 // appear in the order named here rather than the order they were added.
 
-const PALETTE_ROWS = ['grid', 'autozoom', 'shade', 'footprint', 'preview'];
+// THE OVERLAYS SIT BELOW A RULE, and the rule is an entry in this list like
+// anything else -- because order here is what decides where a thing lands,
+// and a separator that floated would be worse than none.  Everything above
+// the rule switches how the MODEL is drawn; everything below it turns on
+// somebody else's map.  That is a real difference and it is worth a line.
+
+const PALETTE_ROWS = ['grid', 'autozoom', 'shade', 'footprint', 'tilegrid',
+                      'preview', 'sep_overlays', 'labels', 'seamarks'];
 
 const paletteBox = L.control({ position: 'topleft' });
 let paletteDiv = null;
@@ -383,16 +408,38 @@ function paletteRow(key, label, opts) {
         if (opts.onToggle) opts.onToggle();
     };
 
-    const want = PALETTE_ROWS.indexOf(key);
-    let before = null;
-    for (const el of paletteDiv.children) {
-        if (PALETTE_ROWS.indexOf(el.dataset.key) > want) { before = el; break; }
-    }
-    paletteDiv.insertBefore(row, before);
+    insertPaletteEl(row, key);
 
     return { row: row, box: box, label: lab, value: val };
 }
 window.cmPaletteRow = paletteRow;
+
+
+// Rows arrive from four files in whatever order those files load, so where
+// something goes is decided by PALETTE_ROWS and never by when it was added.
+
+function insertPaletteEl(el, key) {
+    const want = PALETTE_ROWS.indexOf(key);
+    let before = null;
+    for (const c of paletteDiv.children) {
+        if (PALETTE_ROWS.indexOf(c.dataset.key) > want) { before = c; break; }
+    }
+    paletteDiv.insertBefore(el, before);
+}
+
+
+// A separator is ordered exactly like a row, and carries a key for that
+// reason alone -- an element with no key sorts as -1 and would jump to the
+// top of the palette the moment anything was added after it.
+
+function paletteSeparator(key) {
+    const sep = document.createElement('div');
+    sep.className = 'cm-pal-sep';
+    sep.dataset.key = key;
+    insertPaletteEl(sep, key);
+    return sep;
+}
+window.cmPaletteSeparator = paletteSeparator;
 
 
 // ============================================================================
@@ -418,6 +465,7 @@ function cmActiveSourceId() {
 }
 window.cmActiveSourceId = cmActiveSourceId;
 let infoCount  = '';
+let infoGrid   = '';
 let counts     = null;
 let countsKey  = null;
 
@@ -572,6 +620,14 @@ function drawInfo() {
     if (infoCount) {
         infoRow('footprint', infoCount);
         infoDiv.lastChild.title = 'tiles in view / tiles in the whole set';
+    }
+
+    // BELOW THE FOOTPRINT, because it is the question underneath it: which
+    // tiles get built, and then where that level's edges actually fall.
+
+    if (infoGrid) {
+        infoRow('tile grid', infoGrid);
+        infoDiv.lastChild.title = 'the level drawn, and tiles across the view';
     }
 }
 
@@ -798,6 +854,175 @@ map.on('moveend zoomend', refreshCoverage);
 
 
 // ============================================================================
+// The bare tile grid
+// ============================================================================
+// WHERE A LEVEL'S TILE EDGES FALL, over the whole view and belonging to
+// nobody.
+//
+// The footprint answers "which tiles would be BUILT", so it is clipped to
+// the region set and its count is against that set.  This answers the
+// question underneath it, and that question has to be answerable BEFORE a
+// region exists - which is exactly when it is wanted.  A service's coverage
+// boundary, a bay, a pass, a partly filled tile: none of them can be read
+// against a lattice that only appears where somebody already drew a polygon.
+//
+// THE SAME RED AS THE FOOTPRINT, deliberately.  The footprint's rectangles
+// ARE tiles on this lattice, so their edges lie exactly on these lines and
+// the two read as one continuous grid rather than as two overlays
+// disagreeing.  A second colour would invent a distinction that is not
+// there.  It is drawn lighter only so that the built set still reads as the
+// figure and the lattice as the ground.
+//
+// LINES, NOT RECTANGLES.  A view forty tiles across is seventy polylines or
+// twelve hundred rectangles for a pixel-identical picture, and the sum
+// rather than the product is what lets this be left switched on while
+// zooming out.
+//
+// IT ASKS NOBODY.  Pure arithmetic against the viewport, no /coverage, no
+// round trip - so unlike every other overlay here it is still right when the
+// application is not answering, which is why the disconnect handler leaves
+// it alone.
+
+const tileGridLayer = L.layerGroup();
+let tileGridOn  = false;
+let tileGridZ   = null;     // chosen, never inherited from the view
+let tileGridSig = null;
+
+const TILEGRID_STYLE = {
+    color: '#ff3b30', weight: 1, opacity: 0.45,
+    fill: false, interactive: false,
+};
+
+// PAST THIS IT IS A WASH AND NOT A GRID.  A level fine enough to put a
+// thousand lines across the view draws a solid red rectangle, says nothing,
+// and costs real time to say it.  So it stops - and the panel says WHY,
+// because a switch that silently draws nothing reads as a broken switch.
+
+const TILEGRID_MAX_LINES = 400;
+
+function tileYOf(lat, n) {
+    const r = lat * Math.PI / 180;
+    return Math.floor((1 - Math.log(Math.tan(r) + 1 / Math.cos(r)) / Math.PI)
+                      / 2 * n);
+}
+
+function refreshTileGrid() {
+    if (!tileGridOn) return;
+
+    const z = tileGridZ === null ? Math.round(map.getZoom()) : tileGridZ;
+    const b = map.getBounds();
+
+    // CLAMPED TO WHAT MERCATOR HOLDS.  A world view reports latitudes past
+    // the projection's own limit, and the tile row of 90 degrees is an
+    // infinity that becomes a NaN line a long way from anywhere.
+    //
+    // The LONGITUDES are deliberately not clamped.  Leaflet reports bounds
+    // past 180 once the map has been panned across the meridian, and the
+    // tile column arithmetic carries straight through - clamping them would
+    // reintroduce the wrap the map layer already had to have fixed.
+
+    const north = Math.min(b.getNorth(),  85.05112878);
+    const south = Math.max(b.getSouth(), -85.05112878);
+    const west  = b.getWest();
+    const east  = b.getEast();
+
+    const sig = [z, west, south, east, north].join(',');
+    if (sig === tileGridSig) return;
+    tileGridSig = sig;
+
+    tileGridLayer.clearLayers();
+
+    const n  = 1 << z;
+    const x0 = Math.floor((west + 180) / 360 * n);
+    const x1 = Math.floor((east + 180) / 360 * n);
+    const y0 = tileYOf(north, n);
+    const y1 = tileYOf(south, n);
+
+    const across = x1 - x0 + 1;
+    const down   = y1 - y0 + 1;
+
+    if (across + down + 2 > TILEGRID_MAX_LINES) {
+        infoGrid = 'z' + z + '   too fine to draw here';
+        drawInfo();
+        return;
+    }
+
+    // MERIDIANS THE FULL HEIGHT OF THE VIEW AND PARALLELS THE FULL WIDTH,
+    // rather than closing each cell.  Same picture, and the object count is
+    // the sum of the two rather than their product.
+
+    for (let x = x0; x <= x1 + 1; x++) {
+        const lon = x / n * 360 - 180;
+        L.polyline([[south, lon], [north, lon]], TILEGRID_STYLE)
+            .addTo(tileGridLayer);
+    }
+    for (let y = y0; y <= y1 + 1; y++) {
+        const lat = tileLat(y, n);
+        L.polyline([[lat, west], [lat, east]], TILEGRID_STYLE)
+            .addTo(tileGridLayer);
+    }
+
+    infoGrid = 'z' + z + '   ' + across + ' x ' + down;
+    drawInfo();
+}
+
+const tileGridRow = paletteRow('tilegrid', 'tile grid',
+    { checked: false, onToggle: toggleTileGrid });
+
+// THE PROTOCOL RANGE, NOT THE WORK RANGE, and that is the whole difference
+// from the footprint's spinner beside it.  The footprint is bounded by what
+// the regions hold because a level they do not reach would answer zero; this
+// one is about the ground and is just as meaningful over water nobody has
+// drawn anything on yet.
+
+const tileGridSpin = document.createElement('input');
+tileGridSpin.type      = 'number';
+tileGridSpin.min       = 1;
+tileGridSpin.max       = MAP_MAX_ZOOM;
+tileGridSpin.className = 'cm-pal-spin';
+tileGridSpin.value     = Math.round(map.getZoom());
+tileGridRow.value.appendChild(tileGridSpin);
+
+tileGridSpin.addEventListener('change', () => {
+    const z = Math.max(+tileGridSpin.min,
+              Math.min(+tileGridSpin.max, Math.round(+tileGridSpin.value)));
+    tileGridSpin.value = z;
+    tileGridZ   = z;
+    tileGridSig = null;
+    refreshTileGrid();
+});
+
+function toggleTileGrid() {
+    tileGridOn = !tileGridOn;
+    tileGridRow.box.checked = tileGridOn;
+
+    if (!tileGridOn) {
+        map.removeLayer(tileGridLayer);
+        tileGridLayer.clearLayers();
+        infoGrid = '';
+        drawInfo();
+        return;
+    }
+
+    // IT OPENS ON WHAT THE FOOTPRINT IS SHOWING when the footprint is on,
+    // because the two are then answering one question at one level and a
+    // lattice at some other level would only be in the way.  Otherwise the
+    // level being looked at, which is the only other defensible guess.
+
+    if (tileGridZ === null)
+        tileGridZ = (coverageOn && coverageZ !== null) ? coverageZ :
+                    Math.round(map.getZoom());
+
+    tileGridSpin.value = tileGridZ;
+    tileGridLayer.addTo(map);
+    tileGridSig = null;
+    refreshTileGrid();
+}
+
+map.on('moveend zoomend', refreshTileGrid);
+
+
+// ============================================================================
 // The poll loop
 // ============================================================================
 // The application holds the truth.  /poll returns a cheap version number;
@@ -893,6 +1118,42 @@ function onConnected() {
     dark = false;
 }
 
+// BEING SENT SOMEWHERE.  A place is the one thing the application's own
+// windows cannot name, so 'view' is a console verb, and this is where it
+// lands.  What is watched is the SEQUENCE and not the coordinates: asking
+// twice for the same place has to move the map twice, and comparing
+// coordinates would move it once.
+//
+// THE FIRST POLL ADOPTS THE SEQUENCE WITHOUT MOVING.  A request made before
+// this page existed was not made of this page, and replaying it on every
+// reload would take a reopened map away from wherever it was left.
+
+let seenViewSeq = null;
+
+function applyViewRequest(poll) {
+    if (poll.view_seq === undefined) return;
+
+    // SEQUENCE ZERO MEANS NONE HAS EVER BEEN MADE, and it is re-adopted
+    // rather than acted on.  The counter lives in the application, so
+    // restarting it sends the sequence BACKWARDS to zero while this page
+    // goes on running with a higher number remembered -- and "it changed"
+    // would then be true of a request that does not exist, whose
+    // coordinates are the zeroes the variables were declared with.  That
+    // put the map on 0,0 at z0 every time chartMaker was restarted.
+    if (!poll.view_seq) { seenViewSeq = poll.view_seq; return; }
+
+    if (seenViewSeq === null) { seenViewSeq = poll.view_seq; return; }
+    if (poll.view_seq === seenViewSeq) return;
+    seenViewSeq = poll.view_seq;
+
+    // Counts as the user's own view from here on, so the fit-to-regions
+    // that a session with nothing remembered still owes cannot pull the
+    // map back off the place that was just asked for.
+    viewIsFromStorage = true;
+
+    map.setView([poll.view_lat, poll.view_lon], poll.view_z);
+}
+
 async function pollVersion() {
     try {
         // WHERE WE ARE LOOKING RIDES ON THE POLL.  The application has no
@@ -901,7 +1162,7 @@ async function pollVersion() {
         // service about somewhere needs one.  Sent on the poll rather than
         // through an endpoint of its own because the poll is already the
         // one message that says this map exists.
-        const c = map.getCenter();
+        const c = wrapped(map.getCenter());
         const q = '?lat=' + c.lat.toFixed(6) +
                   '&lon=' + c.lng.toFixed(6) +
                   '&z='   + map.getZoom();
@@ -917,6 +1178,7 @@ async function pollVersion() {
         // marks never arrived.  Asked here because /poll is where "has
         // anything changed" is already answered.
         if (window.cmProbeOnPoll) cmProbeOnPoll(poll);
+        applyViewRequest(poll);
     } catch (e) {
         onDisconnected('poll', e);
     }
@@ -1034,7 +1296,7 @@ function showCoords() {
         'zoom ' + map.getZoom();
 }
 
-map.on('mousemove', e => { lastLatLng = e.latlng; showCoords(); });
+map.on('mousemove', e => { lastLatLng = wrapped(e.latlng); showCoords(); });
 map.on('mouseout',  ()  => { lastLatLng = null;   showCoords(); });
 map.on('zoomend',   showCoords);
 showCoords();

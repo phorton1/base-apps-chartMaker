@@ -592,6 +592,10 @@ sub _newReport
 		sent_bytes	=> 0,
 		trim_tiles	=> 0,
 		trim_bytes	=> 0,
+		none_asked	=> 0,
+		none_cleared	=> 0,
+		none_kept	=> 0,
+		none_lost	=> 0,
 		tsds		=> [],
 		refused		=> [],
 	};
@@ -669,6 +673,14 @@ sub cleanAct
 		}
 		else
 		{
+			# RE-AFFIRM FIRST.  It removes markers and may cache tiles, so
+			# running it after the blank sweep would re-ask every marker that
+			# sweep had just written - two requests to arrive back where the
+			# tick started.
+
+			_reaffirmKey($prog,$report,$key,_keySource($key))
+				if $opts->{reaffirm};
+
 			_sweepKey($prog,$report,$key,$keep->{$key},$opts);
 		}
 
@@ -695,8 +707,106 @@ sub cleanAct
 
 	$report->{ok} = $report->{errors} ? 0 : 1;
 	display($dbg_clean,0,"cleanAct() removed $report->{files_removed} file(s), ".
-		"reclassified $report->{sent_tiles}, trimmed $report->{trim_tiles}");
+		"reclassified $report->{sent_tiles}, trimmed $report->{trim_tiles}, ".
+		"re-asked $report->{none_asked} absence(s) - ".
+		"$report->{none_cleared} were wrong, $report->{none_kept} confirmed, ".
+		"$report->{none_lost} unreachable");
 	return $report;
+}
+
+
+sub _keySource
+	# The loaded source that addresses one cache_key, or undef.  Any of them
+	# will do: dm_source only permits two files to share a cache_key when
+	# their urls are identical.
+{
+	my ($key) = @_;
+	for my $id (getSourceIds())
+	{
+		my $s = getSource($id);
+		return $s if $s && $s->{cache_key} eq $key;
+	}
+	return undef;
+}
+
+
+sub _reaffirmKey
+	# RE-ASK EVERY RECORDED ABSENCE FOR ONE SOURCE, and keep whatever comes
+	# back.  The only act in this file that touches the network.
+	#
+	# IT EXISTS BECAUSE AN ABSENCE IS CACHED AND NOTHING EXPIRES IT.  A
+	# service that refused once - a blink, a shed load under a burst of
+	# viewport requests - leaves a hole that no later look ever asks about
+	# again.  Measured on IGN France: 3 of 64 markers were false.
+	#
+	# AND IT IS NOT 'FORGET THE ABSENCES', which was the other way to fix
+	# the same 3.  The other 61 were true, they cost a request each to
+	# learn, and throwing them away would buy them again on the next look.
+	# Re-asking keeps what was right and corrects what was wrong.
+	#
+	# THE MARKER IS REMOVED AND THE TILE IS THEN ASKED FOR NORMALLY, rather
+	# than through a private path that would re-decide what an absence
+	# means.  getTile is cache-first, so the marker has to go before
+	# anything will look; after that every rule in the fetcher applies
+	# unchanged - the engine's pacing, the confirm-retry on a refusal, the
+	# declared fingerprints, and the cache write.  A tile that is still
+	# missing gets its new marker from the same code that wrote the first.
+	#
+	# AN ERROR LEAVES NOTHING BEHIND, and that is the honest outcome rather
+	# than a hole: the source could not be reached, so what we knew is now
+	# unknown rather than wrong, and the next look asks again.
+	#
+	# EVERY COORDINATE IS COLLECTED BEFORE ANY OF THEM IS ASKED, because the
+	# walk is over the very directories this is about to write into.
+{
+	my ($prog,$report,$key,$src) = @_;
+
+	if (!$src)
+	{
+		push @{$report->{refused}},
+			"'$key' - no loaded source addresses this cache, so its ".
+			"recorded absences cannot be re-asked";
+		return;
+	}
+
+	my @marks;
+	cacheWalk($key,sub {
+		my ($z,$x,$y,$ext,$path,$size) = @_;
+		push @marks,[$z,$x,$y,$path] if $ext eq 'none';
+	});
+	return if !@marks;
+
+	if ($prog)
+	{
+		$prog->{sub_total} = scalar(@marks);
+		$prog->{sub_done}  = 0;
+	}
+
+	my $n = 0;
+	for my $mark (@marks)
+	{
+		my ($z,$x,$y,$path) = @$mark;
+
+		if (progressCancelled($prog))
+		{
+			$report->{cancelled} = 1;
+			last;
+		}
+
+		$prog->{sub_label} = "re-asking $z/$x/$y" if $prog;
+
+		next if !cacheRemoveFile($path);
+
+		my $result = getTile($src,$z,$x,$y,{ priority => 'bulk' });
+		$report->{none_asked}++;
+
+		if    ($result->{status} eq 'ok')     { $report->{none_cleared}++ }
+		elsif ($result->{status} eq 'absent') { $report->{none_kept}++    }
+		else                                  { $report->{none_lost}++    }
+
+		$n++;
+		$prog->{sub_done} = $n if $prog;
+	}
 }
 
 
@@ -722,15 +832,7 @@ sub _sweepKey
 		$do_trim = 0;
 	}
 
-	my $src = undef;
-	for my $id (getSourceIds())
-	{
-		my $s = getSource($id);
-		next if !$s || $s->{cache_key} ne $key;
-		$src = $s;
-		last;
-	}
-
+	my $src   = _keySource($key);
 	my $sizes = _fingerprintSizes($src);
 	$do_sent = 0 if !$src || !keys %$sizes;
 	return if !$do_sent && !$do_trim;
@@ -814,6 +916,24 @@ sub cleanReportLines
 		if $report->{sent_tiles};
 	push @lines,sprintf("  %-26s %d",'tiles trimmed',$report->{trim_tiles})
 		if $report->{trim_tiles};
+
+	# THE RE-ASK IS THREE NUMBERS, NOT ONE, because they mean different
+	# things to the person reading them.  'Cleared' is what was wrong and is
+	# now fixed; 'confirmed' is what was right and cost a request to prove;
+	# 'unreachable' is what is now unknown rather than either, and will be
+	# asked again by whoever looks next.
+
+	if ($report->{none_asked})
+	{
+		push @lines,sprintf("  %-26s %d",'absences re-asked',$report->{none_asked});
+		push @lines,sprintf("  %-26s %d",'  were wrong, now cleared',
+			$report->{none_cleared});
+		push @lines,sprintf("  %-26s %d",'  confirmed still missing',
+			$report->{none_kept});
+		push @lines,sprintf("  %-26s %d",'  could not be reached',
+			$report->{none_lost})
+			if $report->{none_lost};
+	}
 	push @lines,sprintf("  %-26s %d",'files removed',$report->{files_removed});
 	push @lines,sprintf("  %-26s %s",'space freed',
 		prettyBytes($report->{bytes_removed} + $report->{sent_bytes}));

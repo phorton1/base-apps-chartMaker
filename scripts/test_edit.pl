@@ -269,6 +269,85 @@ ok(dispatchCommand('select','none'),"select none");
 ($sr,$ss) = getSelection();
 ok($sr eq '' && $ss eq '',"and nothing is selected");
 
+#---------------------------------------------
+# view
+#---------------------------------------------
+# THE VERB THAT NAMES A PLACE, and its whole contract is the sequence: two
+# requests for the same coordinates have to BE two requests, because a map
+# the user has since dragged away has to come back to it.
+#
+# IT RUNS BEFORE THE EDIT STATE SECTION because it is the only thing here
+# that needs a map which is NOT open, and that section opens one.
+
+print "\n=== view ===\n";
+
+ok(!dispatchCommand('view','15.8667 -61.5833 19'),
+	"view is REFUSED while no map is open");
+
+notePoll();
+
+ok(!dispatchCommand('view','95 -61.5833 19'),
+	"a latitude past the mercator limit is refused");
+ok(!dispatchCommand('view','15.8667 -200 19'),
+	"a longitude off the world is refused");
+ok(!dispatchCommand('view','15.8667 -61.5833 23'),
+	"a zoom past the map's ceiling is refused");
+ok(!dispatchCommand('view','15.8667'),
+	"a place with no longitude is refused");
+ok(!dispatchCommand('view','15.8667 -61.5833 19 extra'),
+	"a trailing argument is refused");
+
+my ($seq0) = getViewRequest();
+ok(dispatchCommand('view','15.8667 -61.5833 19'),"a good place is accepted");
+
+my ($seq1,$vlat,$vlon,$vz) = getViewRequest();
+ok($seq1 == $seq0 + 1,"and it moves the sequence");
+ok(abs($vlat - 15.8667) < 1e-9 && abs($vlon + 61.5833) < 1e-9 && $vz == 19,
+	"carrying the place that was asked for");
+
+ok(dispatchCommand('view','15.8667 -61.5833 19'),"the SAME place again is accepted");
+my ($seq2) = getViewRequest();
+ok($seq2 == $seq1 + 1,"and moves the sequence again - the map has to move twice");
+
+ok(!dispatchCommand('view','15.8667 -61.5833'),
+	"an omitted zoom is refused while the map has not said where it is");
+
+ok(!dispatchCommand('view',''),
+	"and so is the bare readout - there is nothing to report yet");
+
+noteView(9.1952,-81.9685,12);
+ok(dispatchCommand('view','15.8667 -61.5833'),"and is accepted once it has");
+my (undef,undef,undef,$vz2) = getViewRequest();
+ok($vz2 == 12,"taking the zoom the map is already at");
+
+# The readout is the same verb in the other direction, and it must not move
+# the map: a caller asking where it is has not asked it to go anywhere.
+
+my ($seq3) = getViewRequest();
+ok(dispatchCommand('view',''),"a bare view reports where the map is");
+ok(dispatchCommand('view','   '),"whitespace is the same as nothing");
+my ($seq4) = getViewRequest();
+ok($seq4 == $seq3,"and reporting does NOT move the map");
+
+# A LONGITUDE PANNED ROUND THE WORLD.  Leaflet counts from where the user
+# started, so a map dragged east past the antimeridian reports 368.9 for
+# 8.9.  Refusing that froze the stored centre at the last in-range value and
+# said nothing, which is how the application came to name New Zealand while
+# the user was looking at Corsica.
+
+ok(noteView(41.677,368.902,19),"a longitude past 180 is ACCEPTED, not refused");
+my (undef,$wlon) = getMapView();
+ok(abs($wlon - 8.902) < 1e-9,"and is wrapped onto the meridian it names ($wlon)");
+
+ok(noteView(41.677,-351.098,19),"a full turn the other way is accepted too");
+(undef,$wlon) = getMapView();
+ok(abs($wlon - 8.902) < 1e-9,"and lands on the same meridian ($wlon)");
+
+ok(noteView(41.677,8.902,19),"and an ordinary longitude is untouched");
+(undef,$wlon) = getMapView();
+ok(abs($wlon - 8.902) < 1e-9,"still 8.902");
+
+
 print "\n=== edit state ===\n";
 
 # AN EDIT BELONGS TO A BROWSER.  editLocks() reports nothing when no map has
