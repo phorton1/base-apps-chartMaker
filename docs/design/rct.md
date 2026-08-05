@@ -11,7 +11,8 @@
 **[Key Store](key_store.md)** --
 **[Build](build.md)** --
 **[MBTiles](mbtiles.md)** --
-**RCT**
+**RCT** --
+**[Cleanup](cleanup.md)**
 
 folders: **[Home](../readme.md)** --
 **[Architecture](../architecture.md)** --
@@ -204,4 +205,4 @@ from one set of tiles. Building shallow after building deep fetches nothing at a
 
 ---
 
-**Next:** [Implementation](../implementation.md)
+**Next:** [Cleanup](cleanup.md)

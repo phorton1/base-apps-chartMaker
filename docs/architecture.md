@@ -243,6 +243,11 @@ Enforced by the validator rather than by trust.
 
 **The editor never prefetches.** The line between displaying and building stays real.
 
+**Nothing expires a cache on its own.** There is no policy that trims tiles on exit or
+removes a source that stopped being used: both would act on a region drawn tomorrow, and for
+some services a re-request is not free. Removing anything is something a person asks for
+while looking at what it would do - see [Cleanup](design/cleanup.md).
+
 **The browser never contacts a tile server.** Every request goes through the application,
 which is what makes "no key can reach the browser" structural rather than merely
 careful.

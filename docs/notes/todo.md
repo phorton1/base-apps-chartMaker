@@ -35,22 +35,12 @@ structure of it may be changed at anytime by Patrick, and only by Patrick.
 
 
 
-
-
-## initital implementation Phase R - CACHE CLEANUP utility
-
-Checkboxes:
-
-- remove tiles that have been identified as sentinal blanks
-- remove all tiles and caches that are not part of an existing region_set
-- remove tsds that are not the defualts or part of an existing region set.
-
-
-
-
 ## Initital implementation Phase S - USER MANUAL
 
-Tutorial
+Reference-Like Tutorial
+
+The attitude, voice, and basic structure of the user manual would be very similar to that of the
+navMate /user_manual
 
 The repo will include a User Manual of a tutorial nature that will onboaand rd users through
 the entire process of creating region sets and doing builds within the constraints of the

@@ -11,7 +11,8 @@
 **[Key Store](key_store.md)** --
 **[Build](build.md)** --
 **[MBTiles](mbtiles.md)** --
-**[RCT](rct.md)**
+**[RCT](rct.md)** --
+**[Cleanup](cleanup.md)**
 
 folders: **[Home](../readme.md)** --
 **[Architecture](../architecture.md)** --
@@ -26,10 +27,11 @@ check.
 
 Two of them describe things a user can hold in their hand and hand to somebody else - a
 **region** and a **source**. Two describe things chartMaker writes - an **mbtiles** file and
-**RCT files**. One describes what happens in between. The remaining five are about
-changing the model: the rules both coverage-authoring surfaces obey, then each of those
-surfaces, then the editor for a source, and then the shipped list a source can be created
-from without writing one.
+**RCT files**. One describes what happens in between, and one what happens afterwards, when
+what a build and a season of browsing left behind has to be reckoned with. The remaining
+five are about changing the model: the rules both coverage-authoring surfaces obey, then
+each of those surfaces, then the editor for a source, and then the shipped list a source can
+be created from without writing one.
 
 ## The documents
 
@@ -81,6 +83,11 @@ from without writing one.
 - **[RCT](rct.md)** -
   The E-Series raster format: what chartMaker guarantees a reader, the nested coverage the
   format depends on, and the two constraints only the producer can see.
+
+- **[Cleanup](cleanup.md)** -
+  What accumulates and how it is removed: the four things that count as using a source, why
+  a declared blank is reclassified rather than deleted, why a trim keeps the absence markers
+  and refuses a cache no region uses, and why none of it ever happens on its own.
 
 ---
 

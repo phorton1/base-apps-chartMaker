@@ -37,10 +37,12 @@
 package w_progress;
 use strict;
 use warnings;
+use threads;
 use Wx qw(:everything);
 use Wx::Event qw( EVT_BUTTON EVT_TIMER EVT_CLOSE );
 use Pub::Utils;
 use cm_defs;
+use cm_utils;
 use base qw(Wx::Dialog);
 
 
@@ -112,6 +114,33 @@ sub run
 	$this->ShowModal();
 	$this->{timer}->Stop() if $this->{timer};
 	$this->Destroy();
+}
+
+
+sub runWorker
+	# SPAWN ONE, WATCH IT, HAND BACK THE RECORD.  The whole of the pattern
+	# and nothing about what the work was: no report is shown here, because
+	# what to say afterwards differs per caller and a survey has nothing to
+	# say at all.
+	#
+	# It lives on this class because this is the module that owns the
+	# watching half of the contract.  It was inline in w_frame::runLongAct
+	# until a second surface needed a worker of its own; two copies of a
+	# detached-thread launch is exactly the thing that ends up differing in
+	# whether it detaches.
+{
+	my ($class,$parent,$title,$fn,$ids,$opts) = @_;
+
+	my $prog = newProgress(scalar(@{$ids || []}),'');
+	$prog->{active} = 1;
+	$prog->{phase}  = 'Starting';
+
+	threads->create($fn,$prog,$ids,$opts)->detach();
+
+	my $dlg = $class->new($parent,$title,$prog);
+	$dlg->run();
+
+	return $prog;
 }
 
 

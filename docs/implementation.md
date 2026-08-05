@@ -122,9 +122,10 @@ old geometry back mid-drag and fight the user.
 
 ## Threads, and why nothing calls back
 
-chartMaker runs the HTTP server and the console on their own threads, and the build on a
-third. One rule covers all of them: **a callback firing on another thread must not touch a
-wx widget**, so nothing calls back and every surface asks instead.
+chartMaker runs the HTTP server and the console on their own threads, and anything that
+walks the whole cache - a fetch, a build, a cleanup - on a worker. One rule covers all of
+them: **a callback firing on another thread must not touch a wx widget**, so nothing calls
+back and every surface asks instead.
 
 **Nothing observes; everything polls a counter.** Keeping the native panes and the browser
 agreeing about what is checked looks like a job for an observer, and it is not one. The
@@ -149,9 +150,18 @@ interpreter with no widgets in it. A worker launched from a menu cannot do that.
 precedent outside this application - the same shared-record-and-detached-worker shape drives
 an `.rct` write from navMate's GUI - and none inside it, which is the reason to say so here.
 
-**Fetch and build are one piece of machinery.** They differ only in which function the
-worker calls and what the report says; building it twice is how the two end up behaving
-differently.
+**Every long act is one piece of machinery.** Fetch, build, the cleanup and the survey in
+front of it differ only in which function the worker calls and what the report says. Spawn,
+watch and hand back the record is one routine on the progress dialog itself, which is the
+module that owns the watching half of the contract; building it twice is how two acts end up
+disagreeing about something like whether the thread is detached.
+
+**A worker returns text, not structures.** A report is a nest of hashes that cannot cross a
+thread boundary as a reference, so the worker renders it with the same function the console
+calls. Where a caller genuinely needs data back rather than a report - the cleanup survey,
+whose whole product is a table - what crosses is **flat**: one shared record per row, every
+value a scalar, lists joined. A shared hash refuses an ordinary reference put into it, which
+makes that constraint enforced rather than remembered.
 
 ---
 

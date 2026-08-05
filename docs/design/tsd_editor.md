@@ -11,7 +11,8 @@
 **[Key Store](key_store.md)** --
 **[Build](build.md)** --
 **[MBTiles](mbtiles.md)** --
-**[RCT](rct.md)**
+**[RCT](rct.md)** --
+**[Cleanup](cleanup.md)**
 
 folders: **[Home](../readme.md)** --
 **[Architecture](../architecture.md)** --
@@ -95,9 +96,11 @@ would break the one that was working a moment ago.
 
 - **Changing `id`** is a region-reference question. The cache is untouched.
 - **Save As** takes a new file name, and the `id` has to be new as well.
-- **Delete** removes the `.tsd` and never the cache. Tiles are keyed by `cache_key`, another
-  file may address them deliberately, and deleting a definition says nothing about imagery.
-  It warns first, and names the regions that will stop resolving.
+- **Delete** opens [Cleanup](cleanup.md) filtered to this source's `cache_key`, with the
+  file already ticked. The cache is a separate tick and starts off, because tiles are keyed
+  by `cache_key` and another file may address them deliberately - where one does, they are
+  kept and the dialog names the file they are shared with. It shows the tile count and the
+  size before either is removed, and names the regions in every set that will stop resolving.
 
 ## The two absence lists are rows
 

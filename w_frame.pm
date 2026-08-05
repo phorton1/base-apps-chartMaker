@@ -39,6 +39,7 @@ use dm_sample;
 use w_resources;
 use w_ini;
 use w_keys;
+use w_clean;
 use w_prefs;
 use w_progress;
 use w_probe;
@@ -81,6 +82,7 @@ sub new
 	EVT_MENU($this, $COMMAND_NEW_SOURCE,  \&onCommand);
 	EVT_MENU($this, $COMMAND_CATALOG,     \&onCommand);
 	EVT_MENU($this, $COMMAND_KEYS,        \&onCommand);
+	EVT_MENU($this, $COMMAND_CLEAN,       \&onCommand);
 	EVT_MENU($this, $COMMAND_PREFS,       \&onCommand);
 	EVT_MENU($this, $COMMAND_FETCH,       \&onCommand);
 	EVT_MENU($this, $COMMAND_BUILD_RCT,   \&onCommand);
@@ -457,14 +459,7 @@ sub runLongAct
 {
 	my ($this,$what,$fn,$ids,$opts) = @_;
 
-	my $prog = newProgress(scalar(@$ids),'');
-	$prog->{active} = 1;
-	$prog->{phase}  = 'Starting';
-
-	threads->create($fn,$prog,$ids,$opts)->detach();
-
-	my $dlg = w_progress->new($this,$what,$prog);
-	$dlg->run();
+	my $prog = w_progress->runWorker($this,$what,$fn,$ids,$opts);
 
 	# THE WORKER MAY STILL BE FINISHING.  run() returns when {finished} is
 	# set, so by here it is done -- but a cancel returns as soon as the
@@ -635,6 +630,16 @@ sub onCommand
 
 		my $pane = $this->findPane($WIN_SOURCES);
 		$pane->populate() if $pane && $pane->can('populate');
+	}
+	elsif ($id == $COMMAND_CLEAN)
+	{
+		# NOT THROUGH THE PANE EITHER, and for a reason of its own: the
+		# cleanup may delete .tsd files, so the pane has to catch up
+		# afterwards - but it must also be reachable with no Sources pane
+		# open at all.  It bumps the state counter itself, which is what
+		# every pane already watches, so there is nothing to do here.
+
+		w_clean->show($this,{});
 	}
 	elsif ($id == $COMMAND_FETCH || $id == $COMMAND_BUILD_RCT ||
 		   $id == $COMMAND_BUILD_MBTILES)

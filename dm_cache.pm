@@ -42,6 +42,19 @@
 # This module holds no policy.  It does not decide when to fetch, when to
 # expire, or how long anything lives; it reads and writes what it is told
 # to and reports what it has.
+#
+# THAT INCLUDES REMOVING THINGS.  cacheRemoveFile and cacheRemoveKey are
+# here because this module is the only one that knows the layout, and
+# dm_clean is what decides which of them to call and on what.  A cleanup
+# that composed its own paths would be a second statement of where a tile
+# lives, and the first thing it would do wrong is delete somebody else's.
+#
+# AND ONE ENUMERATOR, cacheWalk.  cacheStats used to be the only thing
+# that read the tree and it counted as it went, so anything wanting a
+# different question - which tiles are outside a region, which are a
+# fingerprinted blank - had to walk it again, in its own words, with its
+# own idea of what a .tmp file is.  Now there is one walk and the callers
+# differ in what they do per file.
 
 package dm_cache;
 use strict;
@@ -64,6 +77,12 @@ BEGIN
 		cachePutTile
 		cachePutMiss
 		cacheStats
+
+		cacheKeysOnDisk
+		cacheWalk
+		cacheCount
+		cacheRemoveFile
+		cacheRemoveKey
 	);
 }
 
@@ -236,50 +255,172 @@ sub cachePutMiss
 }
 
 
-sub cacheStats
-	# Walk one source's cache and count what is in it, by zoom.  Returns
-	# { total_tiles, total_misses, total_bytes, zooms => { z => {...} } }.
+sub cacheKeysOnDisk
+	# Every cache_key with a folder, whether or not a source still names
+	# it.  The ones nothing names are exactly what a cleanup is looking
+	# for, so this asks the DISK and not the source list.
 {
-	my ($source) = @_;
-	my $root = cacheDir()."/$source->{cache_key}";
-	my $stats = { total_tiles => 0, total_misses => 0, total_bytes => 0, zooms => {} };
-	return $stats if !-d $root;
+	my $root = cacheDir();
+	my $dh;
+	return () if !-d $root || !opendir($dh,$root);
+	my @keys = sort grep { !/^\./ && -d "$root/$_" } readdir($dh);
+	closedir $dh;
+	return @keys;
+}
+
+
+sub cacheWalk
+	# Every file in one cache_key's tree, oldest question first: what is
+	# in here.  Calls $fn->($z,$x,$y,$ext,$path,$size) per file and returns
+	# how many times it did.
+	#
+	# $ext is 'none' for a marker and the image extension otherwise, which
+	# is the one distinction every caller makes.  $size is the file's, and
+	# is taken here because the walk has the path in hand and a caller
+	# that wanted it would have to stat it a second time.
+	#
+	# A .tmp IS SKIPPED AND SO IS ANYTHING UNPARSEABLE.  A tmp file is a
+	# write in flight on another thread - possibly this instant - and a
+	# name that is not <x>_<y>.<ext> was not written by this application.
+	# Neither is ours to count and neither is ours to delete.
+	#
+	# opts: no_size    do not stat the files; $size arrives as 0.  Reading
+	#                  a directory is cheap and stat'ing every file in it
+	#                  is not, so a caller that only wants to know HOW MANY
+	#                  - to size a progress bar before the real walk - says
+	#                  so rather than paying for the answer twice.
+{
+	my ($key,$fn,$opts) = @_;
+	$opts ||= {};
+	my $root = cacheDir()."/$key";
+	return 0 if !-d $root;
 
 	my $dh;
 	if (!opendir($dh,$root))
 	{
-		error("cacheStats could not read $root: $!");
-		return $stats;
+		error("cacheWalk could not read $root: $!");
+		return 0;
 	}
 	my @zooms = sort { $a <=> $b } grep { /^\d+$/ && -d "$root/$_" } readdir($dh);
 	closedir $dh;
 
+	my $count = 0;
 	for my $z (@zooms)
 	{
 		my $zh;
 		next if !opendir($zh,"$root/$z");
-		my @files = grep { !/^\./ && !/\.tmp$/ } readdir($zh);
+		my @files = sort grep { !/^\./ && !/\.tmp$/ } readdir($zh);
 		closedir $zh;
 
-		my $zs = { tiles => 0, misses => 0, bytes => 0 };
 		for my $f (@files)
 		{
-			if ($f =~ /\.none$/)
-			{
-				$zs->{misses}++;
-			}
-			elsif ($f =~ /\.(\w+)$/)
-			{
-				$zs->{tiles}++;
-				$zs->{bytes} += -s "$root/$z/$f";
-			}
+			next if $f !~ /^(\d+)_(\d+)\.(\w+)$/;
+			my ($x,$y,$ext) = ($1,$2,$3);
+			my $path = "$root/$z/$f";
+			$count++;
+			$fn->($z,$x,$y,$ext,$path,
+				$opts->{no_size} ? 0 : ((-s $path) || 0));
 		}
-		$stats->{zooms}{$z} = $zs;
-		$stats->{total_tiles}  += $zs->{tiles};
-		$stats->{total_misses} += $zs->{misses};
-		$stats->{total_bytes}  += $zs->{bytes};
 	}
+	return $count;
+}
+
+
+sub cacheCount
+	# How many files are in one cache_key's tree.  No stat, so this is the
+	# directory read and nothing else - it exists to give a progress bar a
+	# total before the walk that does the work.
+{
+	my ($key) = @_;
+	return cacheWalk($key,sub {},{ no_size => 1 });
+}
+
+
+sub cacheStats
+	# Walk one source's cache and count what is in it, by zoom.  Returns
+	# { total_tiles, total_misses, total_bytes, zooms => { z => {...} } }.
+	#
+	# ABSENCES ARE COUNTED AND NOT SIZED, deliberately.  A marker is nine
+	# bytes or none, and adding them to a total that is read as "what this
+	# source has cost" would be noise in the one number somebody is
+	# actually looking at.
+{
+	my ($source) = @_;
+	my $stats = { total_tiles => 0, total_misses => 0, total_bytes => 0, zooms => {} };
+
+	cacheWalk($source->{cache_key},sub {
+		my ($z,$x,$y,$ext,$path,$size) = @_;
+		my $zs = $stats->{zooms}{$z} ||= { tiles => 0, misses => 0, bytes => 0 };
+		if ($ext eq 'none')
+		{
+			$zs->{misses}++;
+			$stats->{total_misses}++;
+			return;
+		}
+		$zs->{tiles}++;
+		$zs->{bytes} += $size;
+		$stats->{total_tiles}++;
+		$stats->{total_bytes} += $size;
+	});
+
 	return $stats;
+}
+
+
+sub cacheRemoveFile
+	# One file, by the path cacheWalk gave out.  Returns 1 or 0, and says
+	# why when it is 0 - a cleanup that reported a thousand removals when
+	# nine hundred were refused by a read-only attribute would be worse
+	# than one that did nothing.
+{
+	my ($path) = @_;
+	return 1 if !-f $path;
+	if (!unlink($path))
+	{
+		error("could not delete $path: $!");
+		return 0;
+	}
+	display($dbg_cache,0,"removed $path");
+	return 1;
+}
+
+
+sub cacheRemoveKey
+	# One cache_key's whole tree.  Returns ($files,$bytes,$errors).
+	#
+	# WHAT IT WALKED AND NOTHING ELSE.  The zoom folders and the key
+	# folder itself are removed only if they empty out, so a .tmp mid
+	# write, or anything a person put in there by hand, survives along
+	# with the folder holding it rather than being taken silently.
+{
+	my ($key) = @_;
+	my ($files,$bytes,$errors) = (0,0,0);
+
+	cacheWalk($key,sub {
+		my ($z,$x,$y,$ext,$path,$size) = @_;
+		if (cacheRemoveFile($path))
+		{
+			$files++;
+			$bytes += $size if $ext ne 'none';
+		}
+		else
+		{
+			$errors++;
+		}
+	});
+
+	my $root = cacheDir()."/$key";
+	my $dh;
+	if (-d $root && opendir($dh,$root))
+	{
+		my @zooms = grep { /^\d+$/ && -d "$root/$_" } readdir($dh);
+		closedir $dh;
+		rmdir("$root/$_") for @zooms;
+		rmdir($root);
+	}
+
+	display($dbg_cache,0,"cacheRemoveKey($key) removed $files files");
+	return ($files,$bytes,$errors);
 }
 
 

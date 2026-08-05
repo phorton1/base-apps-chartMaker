@@ -8,9 +8,11 @@
 **[TSD](tsd.md)** --
 **[TSD Editor](tsd_editor.md)** --
 **[Catalog](catalog.md)** --
+**[Key Store](key_store.md)** --
 **Build** --
 **[MBTiles](mbtiles.md)** --
-**[RCT](rct.md)**
+**[RCT](rct.md)** --
+**[Cleanup](cleanup.md)**
 
 folders: **[Home](../readme.md)** --
 **[Architecture](../architecture.md)** --
@@ -306,6 +308,9 @@ why coverage never has to be declared in a source.
 not have with a uniform blank image and HTTP 200. Hashing tiles catches that case, which
 matters because the alternative is a chartset full of grey squares that the application
 believed were imagery.
+
+Nothing here ever removes anything. What a build leaves behind, and what browsing to find a
+region leaves beside it, is dealt with by [Cleanup](cleanup.md) and only when asked.
 
 ## Rasterisation has two entry points
 

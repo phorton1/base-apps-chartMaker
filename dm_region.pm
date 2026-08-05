@@ -96,6 +96,8 @@ BEGIN
 		commitRegion
 		revertRegion
 
+		readRegionFile
+
 		findAnywhere
 		getRegionIds
 		getRegion
@@ -624,12 +626,30 @@ sub _checkContainment
 #---------------------------------------------
 
 
-sub _loadFile
+sub readRegionFile
+	# ONE .region FILE, PARSED AND VALIDATED, TOUCHING NO DOCUMENT.
+	#
+	# Reading a region and OPENING a set were the same act until something
+	# needed to know what is in a set other than the open one - the cache
+	# cleanup, which has to ask every set whether it wants a tile before it
+	# removes one.  Opening each set in turn to find out would close the
+	# user's document underneath them.
+	#
+	# So the parse and the validation are here, and _loadFile is what adds
+	# the result to the open document.  There is still one reader of the
+	# format, which is the part that matters: a second one would be free to
+	# accept a file this one rejects, and the cleanup would then keep - or
+	# remove - tiles on a reading of a region that no build shares.
 {
 	my ($path,$leaf) = @_;
+	if (!defined($leaf))
+	{
+		$leaf = $path;
+		$leaf =~ s{^.*[/\\]}{};
+	}
 
 	my $text = _readFile($path);
-	return if !defined $text;
+	return undef if !defined $text;
 
 	my $reg = eval { JSON::PP->new->decode($text) };
 	if ($@)
@@ -637,10 +657,18 @@ sub _loadFile
 		my $why = $@;
 		$why =~ s/\s+at\s+.*//s;
 		error("$leaf: not valid JSON - $why");
-		return;
+		return undef;
 	}
 
-	$reg = _validateRegion($leaf,$reg,0);
+	return _validateRegion($leaf,$reg,0);
+}
+
+
+sub _loadFile
+{
+	my ($path,$leaf) = @_;
+
+	my $reg = readRegionFile($path,$leaf);
 	return if !$reg;
 
 	my $key = _foldId($reg->{id});

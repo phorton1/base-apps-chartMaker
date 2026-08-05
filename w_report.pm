@@ -47,6 +47,7 @@ sub show
 		built		=> 'Build complete',
 		refused		=> 'Build refused',
 		cancelled	=> 'Build cancelled',
+		cleaned		=> 'Clean up',
 	);
 
 	my $this = $class->SUPER::new($parent,-1,
@@ -56,10 +57,16 @@ sub show
 	# because the detail of a refusal and the detail of a success look
 	# alike at a glance and only one of them means something was written.
 
+	# A CLEANUP HAS ITS OWN, because the other three are all about whether
+	# an output file exists and it is not about that at all.  What it did
+	# is a list of counts, so the headline says what kind of act it was and
+	# leaves the numbers to the lines below.
+
 	my %headline = (
 		built		=> 'The .rct files were written.',
 		refused		=> 'Nothing was written.',
 		cancelled	=> 'Stopped. Nothing was written.',
+		cleaned		=> 'What the cleanup removed.',
 	);
 
 	my $head = Wx::StaticText->new($this,-1,

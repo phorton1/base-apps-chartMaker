@@ -36,6 +36,7 @@ use dm_cache;
 use dm_meta;
 use w_source;
 use w_catalog;
+use w_clean;
 use base qw(Wx::SplitterWindow Pub::WX::Window);
 
 
@@ -576,28 +577,46 @@ sub catalogDialog
 
 
 sub deleteSelected
-	# THE FILE, AND NEVER THE CACHE.  Tiles are the expensive thing, they
-	# are keyed by cache_key rather than by this file, and another file may
-	# address them deliberately.  Deleting a definition says nothing about
-	# imagery.
+	# THE FILE, AND THE CACHE IF THE USER SAYS SO.
+	#
+	# This used to be a MessageBox that stated two things without having
+	# looked at either: that the tiles were not deleted, and that any
+	# region naming the id would stop resolving.  The first was a refusal
+	# with a real reason behind it - tiles are keyed by cache_key, not by
+	# this file, and a second .tsd may address them deliberately - but the
+	# reason is a CONDITION, and stating it as an absolute meant the only
+	# way to reclaim a stale source's gigabytes was File Explorer.  The
+	# second was hypothetical: it warned about regions without ever asking
+	# whether there were any.
+	#
+	# So it is w_clean, filtered to this source's cache_key: the same
+	# survey, the real answer to 'used by' across every set, the tile count
+	# and size, the offer of the tiles, and the shared-key case said out
+	# loud when it applies.  See docs/design/cleanup.md.
 {
 	my ($this) = @_;
 	my $node = $this->selectedNode() or return;
 
-	my $warn = "Delete $node->{leaf}?\n\n".
-		"The cached tiles are NOT deleted.\n";
-	$warn .= "\nAny region naming '$node->{id}' will stop resolving until ".
-		"a source declares that id again.\n" if $node->{id};
+	my $src = $node->{id} ? getSource($node->{id}) : undef;
+	my $key = $src ? $src->{cache_key} : undef;
 
-	return if Wx::MessageBox($warn,'Delete Source',
-		wxYES_NO | wxICON_QUESTION,$this) != wxYES;
+	# A REFUSED FILE HAS NO LOADED SOURCE and therefore no cache_key from
+	# the model.  dm_source's own default - the leaf without its extension
+	# - is what its tiles would have been filed under, and dm_clean applies
+	# the same rule, so the row it lands on is the one holding them.
 
-	my $err = deleteSourceFile($node->{leaf});
-	if ($err)
+	if (!$key)
 	{
-		Wx::MessageBox($err,'Delete Source',wxOK | wxICON_ERROR,$this);
-		return;
+		$key = lc($node->{leaf});
+		$key =~ s/\.tsd$//i;
 	}
+
+	w_clean->show($this,{
+		keys      => [ $key ],
+		only_leaf => $node->{leaf},
+		title     => "Delete $node->{leaf}",
+	});
+
 	$this->_afterWrite('');
 }
 

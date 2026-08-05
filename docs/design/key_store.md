@@ -11,7 +11,8 @@
 **Key Store** --
 **[Build](build.md)** --
 **[MBTiles](mbtiles.md)** --
-**[RCT](rct.md)**
+**[RCT](rct.md)** --
+**[Cleanup](cleanup.md)**
 
 folders: **[Home](../readme.md)** --
 **[Architecture](../architecture.md)** --

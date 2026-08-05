@@ -11,7 +11,8 @@
 **[Key Store](key_store.md)** --
 **[Build](build.md)** --
 **[MBTiles](mbtiles.md)** --
-**[RCT](rct.md)**
+**[RCT](rct.md)** --
+**[Cleanup](cleanup.md)**
 
 folders: **[Home](../readme.md)** --
 **[Architecture](../architecture.md)** --
@@ -403,4 +404,4 @@ else is defensible.
 
 ---
 
-**Next:** [Build](build.md)
+**Next:** [Key Store](key_store.md)

@@ -33,6 +33,11 @@ BEGIN
 # application edits - opened, saved and closed - and the Regions window is
 # its view rather than something to be shown and hidden on its own, which
 # is why it is not in the View menu.
+#
+# AND THEN THE TWO THINGS THAT ARE NOBODY'S DOCUMENT, below a separator:
+# the key store and the cleanup.  Neither belongs to the open set, both act
+# on the user's own material on this machine, and the File menu is where
+# somebody looks first for something they cannot otherwise find.
 
 my @file_menu = (
 	$COMMAND_SET_OPEN,
@@ -42,7 +47,10 @@ my @file_menu = (
 	$COMMAND_SET_SAVEAS,
 	$COMMAND_SET_REVERT,
 	$ID_SEPARATOR,
-	$COMMAND_SET_CLOSE );
+	$COMMAND_SET_CLOSE,
+	$ID_SEPARATOR,
+	$COMMAND_KEYS,
+	$COMMAND_CLEAN );
 
 
 # Creating a region needs somewhere to put it and something to show it in,
@@ -52,9 +60,7 @@ my @edit_menu = (
 	$COMMAND_NEW_REGION,
 	$ID_SEPARATOR,
 	$COMMAND_NEW_SOURCE,
-	$COMMAND_CATALOG,
-	$ID_SEPARATOR,
-	$COMMAND_KEYS );
+	$COMMAND_CATALOG );
 
 
 my @view_menu = (
@@ -118,6 +124,8 @@ my $command_data = {
 		'The tile services chartMaker knows about, and creating sources from them'],
 	$COMMAND_KEYS		=> ['Key Store...',
 		'Values for the {key_names} that source urls contain'],
+	$COMMAND_CLEAN		=> ['Clean Up Caches...',
+		'What is cached, what still uses it, and removing what nothing does'],
 	$COMMAND_PREFS		=> ['Preferences...','Folders, the map, and what a new region starts with'],
 	$COMMAND_FETCH		=> ['Fetch Tiles',	'Fill the cache with every tile the build will read'],
 	$COMMAND_BUILD_RCT	=> ['Build RCT','Fetch, then write the set as .rct files'],

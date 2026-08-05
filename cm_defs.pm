@@ -40,6 +40,7 @@ BEGIN
 		$COMMAND_NEW_SOURCE
 		$COMMAND_CATALOG
 		$COMMAND_KEYS
+		$COMMAND_CLEAN
 		$COMMAND_PREFS
 		$COMMAND_BUILD_RCT
 		$COMMAND_BUILD_MBTILES
@@ -153,13 +154,27 @@ our $COMMAND_NEW_SOURCE	= 10033;
 
 our $COMMAND_CATALOG	= 10034;
 
-# THE KEY STORE SITS WITH THEM, and in the Edit menu rather than under
-# Preferences, because a key_value is USER MATERIAL and not a setting.  A
-# preference changes how the application behaves; a key is a thing the user
-# obtained from somebody else and without which a source they installed
-# does nothing at all.  The FOLDER it lives in is the preference.
+# THE KEY STORE IS NOT UNDER PREFERENCES, because a key_value is USER
+# MATERIAL and not a setting.  A preference changes how the application
+# behaves; a key is a thing the user obtained from somebody else and
+# without which a source they installed does nothing at all.  The FOLDER it
+# lives in is the preference.
+#
+# It is in the FILE menu, with the cleanup below it.  Both are about the
+# user's own material on this machine rather than about the open document,
+# and the File menu is the first place anybody looks for a thing they
+# cannot otherwise find.
 
 our $COMMAND_KEYS		= 10035;
+
+# CLEANING UP IS NOT AN EDIT AND NOT A BUILD.  It acts on what earlier
+# builds and browsing left behind - caches with no source, sources no
+# region names, blanks cached before anybody knew they were blanks - and
+# none of that is part of the open set.  It is enabled with no set open,
+# because a folder of tiles nothing uses is exactly the state somebody
+# starts the application in order to deal with.
+
+our $COMMAND_CLEAN		= 10036;
 
 # Preferences is a VIEW menu item rather than a File one, because nothing
 # it changes is part of the document.

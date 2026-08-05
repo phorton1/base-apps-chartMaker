@@ -9,7 +9,7 @@
 # handles AFTER the declaration.  Tiles already sitting in the cache from
 # before were stored as good imagery.
 #
-# This walks a source's cache and converts them.
+# This converts them, for one source, from the command line.
 #
 # NOT A DELETE.  Deleting would make each tile unknown again and it would
 # be refetched on the next pass; the '.none' marker IS the knowledge that
@@ -21,6 +21,14 @@
 # lazily as they are asked for.  This is for doing it all at once - after
 # a probe, or before measuring what a build would actually cost.
 #
+# IT IS NOW A WRAPPER ON dm_clean, and it had to become one.  It carried
+# its own copy of the fingerprint test and its own marker writer, and the
+# writer had gone quietly wrong: it wrote an EMPTY .none, which reads back
+# as a plain absence, so every tile it converted lost the one thing that
+# made it interesting - that the service answered 200 with a picture
+# saying nothing rather than saying nothing.  The GUI does this through
+# dm_clean; so does this; there is one rule and one writer.
+#
 #	perl tool_prune_absent.pl [source_id] [--go]
 #
 # Without --go it reports and touches nothing.
@@ -29,12 +37,12 @@ use strict;
 use warnings;
 use FindBin;
 use lib "$FindBin::Bin/..";
-use Digest::MD5 qw( md5_hex );
 use Pub::Utils;
 use cm_defs;
 use cm_prefs;
 use dm_set;
 use dm_source;
+use dm_clean;
 
 my $go = grep { $_ eq '--go' } @ARGV;
 my $id = (grep { !/^--/ } @ARGV)[0] || $DEFAULT_SOURCE_ID;
@@ -50,64 +58,27 @@ die "no source '$id' - try one of: ".join(', ',getSourceIds())."\n" if !$src;
 my $fps = $src->{absent_fingerprints} || [];
 die "'$id' declares no absent_fingerprints - nothing to match\n" if !@$fps;
 
-my %want = map { $_->{bytes} => $_->{md5} } @$fps;
-my $root = cacheDir()."/$src->{cache_key}";
-die "no cache at $root\n" if !-d $root;
+my $key = $src->{cache_key};
 
 print "source     $id\n";
-print "cache      $root\n";
+print "cache      ",cacheDir(),"/$key\n";
 print "matching   ",join(", ",map { "$_->{bytes}b $_->{md5}" } @$fps),"\n";
 print $go ? "MODE       ACTING\n" : "MODE       dry run (pass --go to act)\n";
 print "\n";
 
-opendir(my $rh,$root) or die "cannot read $root: $!\n";
-my @zooms = sort { $a <=> $b } grep { /^\d+$/ && -d "$root/$_" } readdir($rh);
-closedir $rh;
+# THE DRY RUN IS THE SURVEY ITSELF, not a second pass written to resemble
+# it.  What it prints is what the act would then do, because the same
+# function counted it.
 
-my ($total,$hit,$done) = (0,0,0);
+my $rows = cleanSurvey({ keys => [ $key ] });
+my $row  = $rows->[0];
+die "no cache for '$key'\n" if !$row;
 
-for my $z (@zooms)
-{
-	my $dir = "$root/$z";
-	opendir(my $dh,$dir) or next;
-	my @files = grep { !/^\.\.?$/ && !/\.none$/ } readdir($dh);
-	closedir $dh;
+printf("%d tiles examined, %d are the declared placeholder (%s)\n",
+	$row->{tiles},$row->{sent_tiles},prettyBytes($row->{sent_bytes}));
 
-	my $zhit = 0;
-	for my $leaf (@files)
-	{
-		my $path = "$dir/$leaf";
-		$total++;
-		my $len = -s $path;
-		next if !defined($len) || !$want{$len};
+exit(0) if !$go || !$row->{sent_tiles};
 
-		open(my $fh,'<',$path) or next;
-		binmode $fh;
-		local $/;
-		my $data = <$fh>;
-		close $fh;
-		next if md5_hex($data) ne $want{$len};
-
-		$zhit++;
-		$hit++;
-		next if !$go;
-
-		# The marker first, then the image.  Dying between the two leaves
-		# a recorded absence with a stale image beside it, which cacheGet
-		# resolves in favour of the image - recoverable.  The other order
-		# would leave the tile unknown, which is a refetch.
-
-		(my $stem = $leaf) =~ s/\.[^.]+$//;
-		my $none = "$dir/$stem.none";
-		open(my $nh,'>',$none) or do { warn "cannot write $none: $!\n"; next };
-		close $nh;
-		unlink($path) or warn "cannot remove $path: $!\n";
-		$done++;
-	}
-	printf("  z%-2d  %5d files  %5d are the placeholder\n",$z,scalar(@files),$zhit)
-		if @files;
-}
-
+my $report = cleanAct(undef,[ $key ],{ sentinels => 1 });
 print "\n";
-printf("%d tiles examined, %d matched%s\n",$total,$hit,
-	$go ? ", $done converted to recorded absences" : " (nothing changed)");
+print "$_\n" for @{cleanReportLines($report)};
