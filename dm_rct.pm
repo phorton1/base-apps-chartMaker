@@ -55,6 +55,7 @@ use Pub::Utils;
 use cm_defs;
 use dm_cache;
 use dm_coverage;
+use dm_image;
 
 
 BEGIN
@@ -64,9 +65,11 @@ BEGIN
 		writeRct
 		rctCardName
 		rctCanCarry
+		rctCanConvert
 		rctFormats
 		rctCardInfo
 		rctScanFolder
+		rctLastError
 	);
 }
 
@@ -148,11 +151,49 @@ sub _semiNorthing
 # produces is a card that builds, reports success, and is blank on the
 # water.
 #
-# It also survives format conversion arriving later: this becomes the
-# place a format that still cannot be carried is refused, instead of the
-# place every non-JPEG is refused.
+# Format conversion has since arrived, and this is now the place a format
+# that still cannot be carried is refused, rather than the place every
+# non-JPEG is refused.
+
+# WHY THE LAST WRITE FAILED, kept because an exporter answers with undef
+# and undef carries no reason.  The build turns that into "could not be
+# written", which is true of every failure here and useful for none of
+# them: the sentence somebody actually needs - which source, which tile,
+# what was wrong with its bytes - is the one _err composes and would
+# otherwise throw away into the log.
+#
+# RECORDED RATHER THAN RETURNED, because every failure path in this module
+# is a bare 'return undef' and threading a reason back through all of them
+# would be a much larger change than the problem is worth.
+#
+# ONE COPY PER THREAD, which is what makes it safe.  A build runs on a
+# worker, and a file-scoped 'my' is copied into each thread rather than
+# shared, so two builds can never read each other's reason.
+
+my $last_error = '';
+
+
+sub rctLastError
+{
+	return $last_error;
+}
+
 
 my @CARRIED = qw( jpeg );
+
+
+# WHAT IT CANNOT HOLD BUT CAN TAKE IN.  A png is decoded and written back
+# out as jpeg on the way into the file, which is an encoder and not the
+# image-processing stack this application refuses: same 256 pixels, same
+# ground, a container the plotter can read.
+#
+# IT IS A SEPARATE LIST FROM @CARRIED ON PURPOSE.  What the container
+# holds is a fact about the .rct format and never changes; what can be
+# converted into it is a fact about what this INSTALLATION can decode, and
+# is false on a machine with no GD at all.  Folding them into one list
+# would make "an .rct holds jpeg" depend on which libraries are present.
+
+my @CONVERTED = qw( png );
 
 
 sub rctFormats
@@ -166,6 +207,19 @@ sub rctCanCarry
 	my ($fmt) = @_;
 	return 0 if !defined($fmt);
 	return scalar(grep { $_ eq $fmt } @CARRIED);
+}
+
+
+sub rctCanConvert
+	# Whether a tile in $fmt can be turned into something this format
+	# carries, HERE, on this machine.  A format nobody has considered is
+	# refused, and so is every format when there is no decoder installed -
+	# which is a supported configuration and not an error.
+{
+	my ($fmt) = @_;
+	return 0 if !defined($fmt);
+	return 0 if !grep { $_ eq $fmt } @CONVERTED;
+	return imageCan() ? 1 : 0;
 }
 
 
@@ -491,6 +545,7 @@ sub writeRct
 {
 	my ($reg,$sources,$path,$opts) = @_;
 	$opts ||= {};
+	$last_error = '';
 
 	return _err("writeRct: no region")      if !$reg;
 	return _err("writeRct: no source map")  if !$sources || !%$sources;
@@ -541,16 +596,24 @@ sub writeRct
 
 	# ---- collect the tile bytes, and learn which cells are really there
 
-	my $stats = { tiles => 0, absent => 0, failed => 0, bytes => 0, blocks => 0,
-				  zooms => {}, failed_tiles => [] };
+	my $stats = { tiles => 0, absent => 0, failed => 0, converted => 0,
+				  bytes => 0, blocks => 0, zooms => {}, failed_tiles => [] };
 	my @blobs;			# [ \$data ] in write order
 	my $blob_bytes = 0;
+
+	# WHAT A CONVERTED TILE IS WRITTEN AT, resolved by the caller and passed
+	# in rather than read here.  This runs on a worker thread and the
+	# exporter has no business learning about the preferences system to get
+	# one integer; dm_image clamps it, so an absent or silly value is safe.
+
+	my $quality = $opts->{quality};
 
 	for my $z ($zoom_min..$zoom_max)
 	{
 		my $zt = 0;
 		my $za = 0;
 		my $zf = 0;
+		my $zc = 0;
 		for my $blk (@{$by_zoom->{$z}})
 		{
 			$blk->{cells} = {};
@@ -589,44 +652,69 @@ sub writeRct
 					next;
 				}
 
-				# THE DECLARATION IS NOT THE EVIDENCE.  The build already
-				# refused any source whose declared tile_format this
-				# format cannot carry, but a source may declare jpeg and
-				# serve png -- and dm_cache records the format DETECTED
-				# FROM THE BYTES at fetch time, so the truth is sitting
-				# right here for the price of a string compare.
+				# THE DECLARATION IS NOT THE EVIDENCE, and this is the line
+				# where that stops being a principle and starts being the
+				# code.  dm_cache records the format DETECTED FROM THE
+				# BYTES at fetch time, so what the .tsd claimed does not
+				# come into it: a source that declares jpeg and serves png
+				# and a source that honestly declares png are the same case
+				# here, and both are settled by one string compare.
 				#
-				# This is not the image inspection this module refuses to
-				# do.  It reads a fact the cache already established; it
-				# does not decode anything, and no image ever enters this
-				# process.
+				# AND THIS IS WHERE AN IMAGE FINALLY ENTERS THIS PROCESS.
+				# It did not before, and the sentence saying so was true
+				# and worth keeping right up until the day a card could be
+				# built from a png source at all.  What enters is one tile,
+				# decoded and written straight back out as jpeg.  Nothing
+				# is resampled, reprojected or composited - the image
+				# stack this application refuses is still refused - and
+				# THE CACHE IS NOT TOUCHED.  The cache holds what the
+				# service sent; the format a card needs is a property of
+				# the card, so the conversion lives at this seam and
+				# nowhere earlier.
 
+				my $bytes = $got->{bytes};
 				if (!rctCanCarry($got->{format}))
 				{
-					return _err("writeRct: '$reg->{id}' - source ".
-						"'$blk->{source}{id}' served $got->{format} at ".
-						"$z/$x/$y, which an RCT cannot carry, although it ".
-						"declares $blk->{source}{tile_format} - the card ".
-						"would be structurally valid and blank on the plotter");
+					my $conv = rctCanConvert($got->{format}) ?
+						imageToJpeg($bytes,$quality) : undef;
+					if (!$conv)
+					{
+						return _err("writeRct: '$reg->{id}' - source ".
+							"'$blk->{source}{id}' served $got->{format} at ".
+							"$z/$x/$y, which an RCT cannot carry".
+							(rctCanConvert($got->{format}) ?
+								" and which would not decode" :
+							 imageCan() ?
+								" and cannot be converted" :
+								" and cannot be converted, because no image ".
+								"decoder is installed").
+							" - the card would be structurally valid and ".
+							"blank on the plotter");
+					}
+					$bytes = $conv;
+					$zc++;
 				}
 
-				push @blobs,$got->{bytes};
+				push @blobs,$bytes;
 				$blk->{cells}{$key} = {
 					index	=> $#blobs,
-					length	=> length(${$got->{bytes}}),
+					length	=> length($$bytes),
 				};
-				$blob_bytes += length(${$got->{bytes}});
+				$blob_bytes += length($$bytes);
 				$zt++;
 			}
 			$stats->{blocks}++;
 		}
 		$stats->{zooms}{$z} = { tiles => $zt, absent => $za, failed => $zf,
+								converted => $zc,
 								blocks => scalar(@{$by_zoom->{$z}}) };
-		$stats->{tiles}  += $zt;
-		$stats->{absent} += $za;
-		$stats->{failed} += $zf;
-		display($dbg_rct,1,sprintf("z%-2d %6d tiles %5d absent %5d failed  %d block(s)",
-			$z,$zt,$za,$zf,scalar(@{$by_zoom->{$z}})));
+		$stats->{tiles}     += $zt;
+		$stats->{absent}    += $za;
+		$stats->{failed}    += $zf;
+		$stats->{converted} += $zc;
+		display($dbg_rct,1,sprintf("z%-2d %6d tiles %5d absent %5d failed  %d block(s)%s",
+			$z,$zt,$za,$zf,scalar(@{$by_zoom->{$z}}),
+			$zc ? sprintf("  %d converted",$zc) : ''));
 	}
 	$stats->{bytes} = $blob_bytes;
 
@@ -809,6 +897,7 @@ sub writeRct
 sub _err
 {
 	my ($msg) = @_;
+	$last_error = $msg;
 	error($msg);
 	return undef;
 }

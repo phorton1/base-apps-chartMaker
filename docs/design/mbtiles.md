@@ -158,6 +158,7 @@ guards and a write call. What changes:
 | | RCT | MBTiles |
 |---|---|---|
 | carries | JPEG | JPEG or PNG |
+| converts | PNG, where a decoder is installed | nothing, it already holds both |
 | files must agree on zauthor/zmin | yes, the E80 fuses them into one pyramid | no, each file is an independent chart |
 | name check | an 8.3 stem | any valid id |
 | default folder | `RASTER_DIR/<set>` | `MBTILES_DIR/<set>` |

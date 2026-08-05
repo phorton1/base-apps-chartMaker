@@ -35,43 +35,20 @@ structure of it may be changed at anytime by Patrick, and only by Patrick.
 
 
 
-## Phase P - KEY STORE
-
-The linking of sources to private credentials or api keys maintained in the
-$data_dir or other folder(s) will be implemented and tested with at least
-one such source.
-
-He have only a crude slot mechanism in tsds, no defined storage mechanism,
-and a number of source_catalog.md entries not yet in catalog.json.
-This may require me to obtain free keys or trial tiers to various
-service, etc.  Please give me your idea of what we need to do for
-CREDENTIALS.
 
 
-## PNGS
+## initital implementation Phase R - CACHE CLEANUP utility
 
-Format conversion at the exporter seam
+Checkboxes:
 
-Decoding and re-encoding one tile, which is an encoder and not the image-processing stack this application refuses.
-No resampling, no reprojection, no compositing. It carries a quality preference, and that preference is a legitimate
-user-level setting precisely because it changes the bytes without changing what the card asserts - the same ground,
-the same zooms, the same source. Anything that changed those would belong to the region, not to a preference.
-
-
-## CACHE CLEANUP utility
-
-to tiles only in some existing regionset
-
-tiles get accumulated in testing and I have no way to easily trim the cache back to the tiles
-I actually need.
-
-cache cleanups of tiles that are identified as sentinels after fingerprints have been identfie
+- remove tiles that have been identified as sentinal blanks
+- remove all tiles and caches that are not part of an existing region_set
+- remove tsds that are not the defualts or part of an existing region set.
 
 
 
 
-
-## USER MANUAL
+## Initital implementation Phase S - USER MANUAL
 
 Tutorial
 
@@ -80,7 +57,7 @@ the entire process of creating region sets and doing builds within the constrain
 shipped TSDs.
 
 
-## INSTALLABLE
+## Initital implementation Phase T - INSTALLABLE
 
 Installable Application and Release Cycle
 

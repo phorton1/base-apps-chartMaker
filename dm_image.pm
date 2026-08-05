@@ -52,6 +52,7 @@ BEGIN
 		imageCan
 		imageWhyNot
 		imageCost
+		imageToJpeg
 		imageIsFlat
 		imageDetailRatio
 		imageIsBlowup
@@ -109,12 +110,102 @@ sub imageCost
 
 
 sub _decode
+	# SNIFFED RATHER THAN TRIED, and the difference is thousands of lines of
+	# console output.  Handing png bytes to newFromJpegData does return
+	# undef, but libjpeg writes "Not a JPEG file" to stderr on its way there
+	# -- once per tile, which across a card being converted buries every
+	# real message the build had to say.  The magic bytes settle it in three
+	# characters without asking a codec anything.
+	#
+	# The formats named here are exactly the two dm_fetch allows into the
+	# cache, so anything else arriving is already a bug somewhere earlier
+	# and undef is the right answer to it.
 {
 	my ($bytes) = @_;
 	return undef if !imageCan() || !$bytes;
-	my $img = eval { GD::Image->newFromJpegData($$bytes,1) };
-	$img = eval { GD::Image->newFromPngData($$bytes,1) } if !$img;
+
+	my $img;
+	if ($$bytes =~ /^\xFF\xD8\xFF/)
+	{
+		$img = eval { GD::Image->newFromJpegData($$bytes,1) };
+	}
+	elsif ($$bytes =~ /^\x89PNG\r\n\x1A\n/)
+	{
+		$img = eval { GD::Image->newFromPngData($$bytes,1) };
+	}
 	return $img;
+}
+
+
+#---------------------------------------------
+# re-encoding, for an exporter
+#---------------------------------------------
+
+# WHAT THE QUALITY MEANS, and it is worth stating because the number looks
+# more absolute than it is.  GD cannot read a jpeg's quantisation tables,
+# so what a service itself encoded at is not knowable -- but byte length
+# is, and that is the only handle there has ever been here.
+#
+# MEASURED over 25 tiles of Waitemata Harbour at z16, fetched from LINZ
+# TWICE - once as .jpeg and once as .png, which that service answers at the
+# same address.  So both sides are real: the divisor is the jpeg LINZ chose
+# to send, and the dividend is what this code makes of the png it sent for
+# the same ground.
+#
+#	   q60   q70   q75   q80   q85   q90   q95  q100
+#	  0.69  0.82  0.90  1.03  1.19  1.47  2.00  3.50
+#
+# So q90 writes a card about half again the size a natively-jpeg source
+# would produce, and BYTE-FOR-BYTE PARITY WITH THE SERVICE IS NEAR q80.
+# 90 is still the default, because Esri publishes its own imagery at q90
+# and matching the most generous service shipped is the defensible place
+# to sit -- but a card lives on a CF card, so the trade belongs to the
+# user and this is a preference rather than a constant.
+#
+# THE SAME CURVE MEASURED AGAINST PNGS MADE FROM CACHED JPEGS read parity
+# at q70 instead, because such a fixture carries a generation of jpeg
+# artifacts and re-compresses more easily than real imagery.  The 1.47 at
+# q90 came out the same either way; the parity point did not.  Which is
+# the reason these numbers are from the service and not from a fixture.
+
+my $DEFAULT_QUALITY = 90;
+my $MIN_QUALITY     = 30;
+my $MAX_QUALITY     = 100;
+
+
+sub imageToJpeg
+	# ONE TILE, DECODED AND WRITTEN BACK OUT AS JPEG.  Returns a reference
+	# to the new bytes, or undef when there is no decoder or the body will
+	# not decode.  A caller that gets undef must say so and stop: the whole
+	# reason it asked is that it cannot carry what it already had, so
+	# passing the original through would write exactly the card this
+	# application most needs not to produce.
+	#
+	# THE OTHER HALF OF THE SEAM, and not a new capability.  It resamples
+	# nothing, reprojects nothing and composites nothing: 256 pixels in and
+	# the same 256 pixels out, in a container an .rct can hold.  The
+	# image-processing stack this application refuses is still refused.
+	#
+	# MEASURED AT 4 ms PER TILE on this machine over real LINZ png, which is
+	# about two and a half minutes across a 35,000 tile card and nothing at
+	# all beside the hours those tiles took to fetch.  That is why nothing
+	# here is cached, pooled or threaded.
+	#
+	# ALPHA IS LOST, because jpeg has nowhere to put it.  Every imagery
+	# tile this application fetches is opaque, so today that costs nothing.
+	# A transparent overlay would flatten, and that is a fact about jpeg
+	# rather than a defect here.
+{
+	my ($bytes,$quality) = @_;
+	my $img = _decode($bytes) or return undef;
+
+	$quality = $DEFAULT_QUALITY if !defined($quality) || $quality !~ /^\d+$/;
+	$quality = $MIN_QUALITY if $quality < $MIN_QUALITY;
+	$quality = $MAX_QUALITY if $quality > $MAX_QUALITY;
+
+	my $out = eval { $img->jpeg($quality) };
+	return undef if !$out || !length($out);
+	return \$out;
 }
 
 

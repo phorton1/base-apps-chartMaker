@@ -27,7 +27,7 @@
 #	each file's zoom range is its OWN band - the whole point of the split
 #	the TMS row flip, checked against the arithmetic and not against itself
 #	tile bytes round trip EXACTLY - the blob binding is not text
-#	a png source builds here and is refused for RCT, in the same fixture
+#	a png source is STORED as png here and CONVERTED for an RCT
 #	an absent tile is simply not a row
 
 use strict;
@@ -43,6 +43,7 @@ use dm_source;
 use dm_region;
 use dm_coverage;
 use dm_cache;
+use dm_image;
 use dm_rct;
 use dm_mbtiles;
 use dm_build;
@@ -461,13 +462,25 @@ ok($st->{failed} == 0,"nothing failed");
 
 
 #---------------------------------------------
-# 7 - png builds here and is refused for a card
+# 7 - png is stored here and converted for a card
 #---------------------------------------------
 # THE PEER DIFFERENCE, in one fixture so it cannot drift.  Same source,
 # same region, two exporters, two answers - and both are right.
+#
+# THE DIFFERENCE MOVED WHEN CONVERSION ARRIVED.  An .rct still does not
+# HOLD png; it re-encodes one on the way in.  So the two answers are no
+# longer "built" and "refused" but "stored as png" and "converted to
+# jpeg", and the format guard is no longer where the second one is
+# decided.
+#
+# THESE FIXTURE BYTES ARE NOT A REAL PNG, which is useful exactly here:
+# they prove the RCT path refuses bytes it cannot decode rather than
+# passing them through into a card that would be blank on the water.
+# Real imagery through all four combinations of declared and served
+# format is test_png.pl's job, not this file's.
 
 ok(mbtilesCanCarry('png') && !rctCanCarry('png'),
-	"mbtiles carries png and RCT does not");
+	"mbtiles carries png natively and an .rct still does not");
 
 putFile("$ROOT/region_sets/Mbt/Png.region",<<'EOJ');
 {
@@ -496,8 +509,23 @@ ok(mbtilesInfo("$OUT/Png/Png.mbtiles")->{metadata}{format} eq 'png',
 	"and its metadata says png");
 
 my $png_rct = buildOutput(['Png'],{ fallback => 'mbt_png' },'rct');
-ok(!$png_rct->{ok} && $png_rct->{guard} eq 'format',
-	"the SAME region is refused for an RCT build, at the format guard");
+my $guard   = $png_rct->{guard} // '?';
+
+if (imageCan())
+{
+	ok(!$png_rct->{ok} && $guard eq 'export',
+		"with a decoder the same region is no longer refused up front - it ".
+		"reaches the exporter, which refuses THESE bytes (guard '$guard')");
+}
+else
+{
+	# NO DECODER IS A SUPPORTED CONFIGURATION, and refusing a png source
+	# before an hour of fetching is the correct thing to do in it.
+
+	ok(!$png_rct->{ok} && $guard eq 'format',
+		"with no decoder the same region is refused at the format guard, ".
+		"before anything is fetched (guard '$guard')");
+}
 
 
 #---------------------------------------------

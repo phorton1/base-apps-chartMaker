@@ -108,6 +108,7 @@ format, and a guard that does not run looks exactly like a guard that passed.
 | | RCT | MBTiles |
 |---|---|---|
 | carries | JPEG | JPEG or PNG |
+| converts | PNG, where a decoder is installed | nothing - one file, one declared format |
 | files must agree on `zauthor`/`zmin` | yes - the E-Series fuses them into one pyramid | no - each file is an independent chart |
 | name check | an 8.3 stem | any valid id |
 | default folder | `RASTER_DIR/<set>` | `MBTILES_DIR/<set>` |
@@ -651,25 +652,34 @@ one of them.
 reasons that are only visible from this side of the boundary - see
 [RCT](rct.md#two-constraints-only-chartmaker-can-see).
 
-**The tiles must be in a format the exporter can carry.** RCT holds JPEG. A source may
-legitimately declare `png`, and nothing stops such a source declaring `build` in its
-`uses` - so the combination is reachable without anybody doing anything wrong.
+**The tiles must be in a format the exporter can carry, or one it can convert.** RCT holds
+JPEG and re-encodes a PNG on the way in; MBTiles holds both and converts nothing, because
+one file names one format in its own metadata. A source may legitimately declare `png` and
+nothing stops such a source declaring `build` in its `uses`, so the combination is reachable
+without anybody doing anything wrong.
 
-The exporter copies cached bytes into the blob table without inspecting them, which is
-what keeps an image stack out of the build and is worth keeping. The consequence is that
-a PNG source yields a structurally valid card full of bytes the plotter cannot decode:
-built, reported as successful, and blank on the water. That is the worst failure this
-application can produce, because every signal says it worked.
+What a PNG source must never produce is a structurally valid card full of bytes the plotter
+cannot decode: built, reported as successful, and blank on the water. That is the worst
+failure this application can produce, because every signal says it worked.
 
-So the build refuses, naming the source and its format, rather than writing that card.
-The check survives format conversion arriving later - it becomes the place a format that
-still cannot be carried is refused, instead of the place every non-JPEG is refused.
+**The declaration is a hint, and this guard is the only place it is asked to predict
+anything.** `tile_format` states what a `.tsd` *expects*; the truth arrives per tile from the
+magic bytes. So a refusal here can only ever be an early warning, and it is worth having
+precisely because the alternative is failing at tile four thousand of a run that has already
+spent an hour. It refuses only what no outcome can rescue: a source that declares a format
+this machine has no decoder to convert. A PNG source on a machine that *can* convert is not
+refused, and never should have been.
 
-**And the declaration is checked against the evidence.** A source may declare JPEG and serve
-PNG, which the first check cannot catch. The cache already records the format *detected from
-the bytes* when a tile was fetched, so the exporter compares that per tile for the price of a
-string comparison. This is not the image inspection this application refuses: it reads a
-fact the cache established, decodes nothing, and no image ever enters the process.
+**The evidence is checked where the bytes are.** The cache records the format detected from
+the bytes when a tile was fetched, so the exporter reads that per tile - which makes a source
+that declares JPEG and serves PNG the same case as one that honestly declares PNG, and
+settles both by one string comparison. A tile the output cannot carry is converted there, and
+refused there if it will not decode.
+
+This is where an image enters the process, and it is worth being exact about what enters:
+one tile, decoded and written straight back out. Nothing is resampled, reprojected or
+composited, and the cached bytes are not touched. See
+[RCT](rct.md#jpeg-only-and-png-converted-into-it).
 
 **A source that may not build at all.** `uses` is the author's statement of what a source is
 for, and it was consulted where a source is *chosen* and never where one is *used*. A set

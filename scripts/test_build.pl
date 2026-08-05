@@ -37,6 +37,7 @@ use dm_region;
 use dm_coverage;
 use dm_cache;
 use dm_fill;
+use dm_image;
 use dm_rct;
 use dm_build;
 
@@ -369,8 +370,23 @@ sub guardTest
 	my $out = "$ROOT/raster/$set";
 	my $rep = buildRct([getRegionIds()],{ fallback => 'bld_a', %{$opts->{build} || {}} });
 
-	ok(!$rep->{ok} && $rep->{guard} eq $guard,
-		"$what -> refused as '$rep->{guard}' ($rep->{refused})");
+	# A LEADING '!' MEANS "ANY GUARD BUT THIS ONE", which is not a
+	# weakening.  Where a guard used to fire and no longer does, what
+	# matters is that THAT gate opened - what stops the build afterwards
+	# is a property of the fixture (these sources answer at example.com)
+	# and asserting it would pin the test to an accident.
+
+	my $got = $rep->{guard} // '';
+	if ($guard =~ /^!(.*)$/)
+	{
+		ok(!$rep->{ok} && $got ne $1,
+			"$what -> got past the '$1' gate (stopped at '$got')");
+	}
+	else
+	{
+		ok(!$rep->{ok} && $got eq $guard,
+			"$what -> refused as '$got' ($rep->{refused})");
+	}
 	ok(dirCount($out) == 0,"   and wrote nothing");
 	return $rep;
 }
@@ -381,14 +397,30 @@ guardTest('GNoSrc',regionJson('Alpha','no_such_source','inherited'),'source',
 guardTest('GUses',regionJson('Alpha','bld_disp','inherited'),'uses',
 	"a source that does not declare 'build'",{});
 
-guardTest('GFmt',regionJson('Alpha','bld_png','inherited'),'format',
-	"a png source an RCT cannot carry",{});
+# THE FORMAT GUARD MOVED WHEN CONVERSION ARRIVED, and it moved for a
+# reason worth stating here rather than only in the code: tile_format in a
+# .tsd is an EXPECTATION, so refusing a whole build on it was refusing a
+# prediction.  An .rct re-encodes a png on the way in now, so there is
+# nothing left to refuse up front - unless this machine has no decoder at
+# all, in which case the refusal is still exactly right and still saves an
+# hour of fetching.
+#
+# BOTH ANSWERS ARE CORRECT and which one applies is a property of the
+# installation, so the test asks the installation rather than assuming.
+
+my $png_gate = imageCan() ? '!format' : 'format';
+my $png_says = imageCan() ?
+	"a png source, which an RCT converts rather than refuses" :
+	"a png source with no decoder installed to convert it";
+
+guardTest('GFmt',regionJson('Alpha','bld_png','inherited'),$png_gate,
+	$png_says,{});
 
 # A SUBREGION'S source is checked too.  This is the case a per-region check
 # would pass: the region is fine and the detail box is not.
 
-guardTest('GSubFmt',regionJson('Alpha','bld_a','bld_png'),'format',
-	"a png source on the SUBREGION only",{});
+guardTest('GSubFmt',regionJson('Alpha','bld_a','bld_png'),$png_gate,
+	"$png_says, on the SUBREGION only",{});
 
 # THE ID RULES ARE NOT THE SAME RULE.  A region id may be any length of
 # [A-Za-z0-9]; a card stem may be at most eight characters.  So the only

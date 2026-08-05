@@ -164,16 +164,38 @@ the symbols are spelled out (`(c)`, `(r)`, `(tm)`) and accented letters fall bac
 base forms. A credit line is the one piece of text on a card somebody may have a legal
 interest in being legible.
 
-## JPEG only
+## JPEG only, and PNG converted into it
 
-An `.RCT` carries JPEG, so a source that returns PNG is refused at the start of a build,
-naming the source and its format. A card full of bytes the plotter cannot decode would
-report success and be blank on the water, which is the worst failure this application can
-produce. See [Build](build.md#what-the-build-validates-before-it-runs).
+An `.RCT` carries JPEG. A card full of bytes the plotter cannot decode would report success
+and be blank on the water, which is the worst failure this application can produce, so what
+goes into the file is checked per tile against the format the cache **detected from the
+bytes** rather than against anything a `.tsd` declared.
 
-Converting a tile rather than refusing it would belong to **the exporter and not the
-cache** - the cache stores what the source sent, and the format a card needs is a property
-of the card.
+A tile that arrives as PNG is **decoded and written back out as JPEG on the way in**. That
+is an encoder, not the image-processing stack this application refuses: the same 256 pixels
+of the same ground, in a container the plotter can read. Nothing is resampled, reprojected
+or composited, and no pixel is examined.
+
+**The conversion belongs to the exporter and not the cache.** The cache stores what the
+source sent, and the format a card needs is a property of the card. A build that wrote
+converted bytes back would turn the cache into a record of what was last built rather than
+of what was served, and a second output format would then inherit the first one's
+compromises.
+
+**Quality is a preference, and it reaches only converted tiles.** A tile that arrived as
+JPEG is copied byte for byte and no setting can touch it. The default is 90; measured
+against a service that answers the same ground as both formats, that writes a card about
+1.5x the size a natively-JPEG source produces, with byte-for-byte parity near 80. A PNG
+also costs about 7.5x the JPEG on the wire and in the cache, for identical ground, which
+is worth knowing when a service offers a choice of address. It is a preference because it
+changes the bytes without changing what the card asserts - the same ground, the same zooms,
+the same source. Anything that changed those would belong to the region.
+
+**The decoder is optional and a card is not.** Conversion needs an image decoder installed;
+where there is none, a source that declares PNG is refused before a build starts rather
+than an hour into one, and a source that declares JPEG and turns out to serve PNG is
+refused by the per-tile check. Both refusals name the format and say that nothing could
+convert it. See [Build](build.md#what-the-build-validates-before-it-runs).
 
 ## The card is smaller than the model, and costs nothing extra
 

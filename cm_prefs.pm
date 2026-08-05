@@ -77,6 +77,8 @@ BEGIN
 		$PREF_NEW_ZMIN
 		$PREF_NEW_ZMAX
 
+		$PREF_JPEG_QUALITY
+
 		@PREF_DIRS
 	);
 	push @EXPORT, grep { $_ ne 'initPrefs' } @Pub::Prefs::EXPORT;
@@ -103,6 +105,8 @@ our $PREF_KEYS_DIR			= 'KEYS_DIR';
 our $PREF_NEW_ZAUTHOR		= 'NEW_ZAUTHOR';
 our $PREF_NEW_ZMIN			= 'NEW_ZMIN';
 our $PREF_NEW_ZMAX			= 'NEW_ZMAX';
+
+our $PREF_JPEG_QUALITY		= 'JPEG_QUALITY';
 
 # THE SIX FOLDERS, in the order a dialog should show them: what is read,
 # then what is written, then what is kept.
@@ -191,6 +195,24 @@ my %defaults = (
 	$PREF_NEW_ZAUTHOR		=> 15,
 	$PREF_NEW_ZMIN			=> 10,
 	$PREF_NEW_ZMAX			=> 16,
+
+	# WHAT A CONVERTED TILE IS WRITTEN AT, and it applies to exactly one
+	# thing: a tile that arrived in a format the output cannot carry and
+	# had to be re-encoded on the way into a card.  A tile that arrived as
+	# jpeg is copied and never re-encoded, so this cannot touch it.
+	#
+	# IT IS A PREFERENCE BECAUSE IT CHANGES THE BYTES WITHOUT CHANGING
+	# WHAT THE CARD ASSERTS - the same ground, the same zooms, the same
+	# source.  Anything that changed those would belong to the region.
+	#
+	# 90 MEASURED AGAINST REAL IMAGERY writes a card about 1.5x the size a
+	# natively-jpeg source produces, with byte-for-byte parity against the
+	# service near q80.  90 is still the default because Esri serves its
+	# own imagery at q90, so it is what the most generous shipped service
+	# thinks its own pixels are worth.  See dm_image.pm for the curve and
+	# how it was measured.
+
+	$PREF_JPEG_QUALITY		=> 90,
 );
 
 

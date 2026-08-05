@@ -55,6 +55,7 @@ use Time::HiRes qw( time );
 use Pub::Utils;
 use cm_defs;
 use cm_utils;
+use cm_prefs;
 use dm_source;
 use dm_set;
 use dm_region;
@@ -62,6 +63,7 @@ use dm_coverage;
 use dm_fill;
 use dm_rct;
 use dm_mbtiles;
+use dm_image;
 use dm_observe;
 use dm_analysis;
 
@@ -101,6 +103,12 @@ our $dbg_build:shared = 0;
 # EVERY FIELD EARNS ITS PLACE by a real difference:
 #
 #   carry / formats  RCT is JPEG only; MBTiles holds JPEG or PNG.
+#   can_convert      what an output can TAKE IN but not hold.  An RCT
+#                    re-encodes a png on the way in; an mbtiles never
+#                    converts anything, because it holds both already and
+#                    its metadata names one format for the whole file.
+#   last_error       why the last write failed.  An exporter answers with
+#                    undef, and undef is not something a person can read.
 #   uniform          the E80 fuses every .rct on a card into ONE pyramid
 #                    and cuts the reveal aperture at the coarsest zauthor
 #                    present, so the files must agree.  MBTiles files are
@@ -129,6 +137,8 @@ sub _initFormats
 		uniform		=> 1,
 		formats		=> \&rctFormats,
 		can_carry	=> \&rctCanCarry,
+		can_convert	=> \&rctCanConvert,
+		last_error	=> \&rctLastError,
 		check_name	=> \&rctCardName,
 		name_help	=> 'at most 8 characters, letters and digits only',
 		base_dir	=> \&rasterDir,
@@ -153,6 +163,8 @@ sub _initFormats
 		uniform		=> 0,
 		formats		=> \&mbtilesFormats,
 		can_carry	=> \&mbtilesCanCarry,
+		can_convert	=> sub { return 0 },
+		last_error	=> \&mbtilesLastError,
 		check_name	=> \&mbtilesNodeName,
 		name_help	=> 'letters and digits only',
 		base_dir	=> \&mbtilesDir,
@@ -203,7 +215,8 @@ sub _newReport
 		partial		=> 0,		# cards were written before it stopped
 		out_dir		=> '',
 		regions		=> [],
-		totals		=> { tiles => 0, absent => 0, failed => 0, bytes => 0 },
+		totals		=> { tiles => 0, absent => 0, failed => 0, converted => 0,
+						 bytes => 0 },
 		fill		=> undef,
 		secs		=> 0,
 		warned		=> 0,		# it went ahead, but something is worth saying
@@ -310,24 +323,36 @@ sub _validateSources
 			return (0,undef);
 		}
 
-		# 3 - CARRIABLE, and WHICH FORMAT ASKS depends on the output.  RCT
-		# holds JPEG alone.  Nothing stops a png source declaring 'build',
-		# so the combination is reachable without anybody doing anything
-		# wrong -- and the exporter copies cached bytes into the container
-		# without inspecting them, which is what keeps an image stack out
-		# of the build and is worth keeping.  The consequence is a
-		# structurally valid file full of bytes the reader cannot use:
-		# built, reported successful, blank on the water.  That is the
-		# worst failure this application can produce, because every signal
-		# says it worked.
+		# 3 - CARRIABLE OR CONVERTIBLE, and WHICH FORMAT ASKS depends on the
+		# output.  RCT holds JPEG alone but re-encodes a png on the way in,
+		# so the question here is no longer "what does the container hold"
+		# but "can this machine get the tiles in at all".
+		#
+		# THE DECLARATION IS A HINT AND THIS IS THE ONLY PLACE IT IS ASKED
+		# TO PREDICT ANYTHING.  tile_format is what a .tsd EXPECTS, and the
+		# truth arrives per tile from the bytes -- so a refusal here can
+		# only ever be an early warning, and it is worth having precisely
+		# because the alternative is failing at tile four thousand of a run
+		# that has already spent an hour.  It refuses only the case that no
+		# outcome can rescue: a source that says png on a machine with no
+		# decoder to convert one.  It no longer refuses a png-declaring
+		# source that this machine can perfectly well convert, which it did
+		# for as long as converting was not possible.
+		#
+		# The per-tile truth is still checked where it always was, in the
+		# exporter, against the format the cache detected.
 
-		if (!$fmt->{can_carry}->($src->{tile_format}))
+		if (!$fmt->{can_carry}->($src->{tile_format}) &&
+			!$fmt->{can_convert}->($src->{tile_format}))
 		{
 			_refuse($report,'format',
 				"source '$src_id' serves $src->{tile_format}, which ".
 					"$fmt->{label} cannot carry",
 				"named by: $who",
 				"$fmt->{holds} ".join(', ',$fmt->{formats}->())." only",
+				(imageCan() ? () :
+					("no image decoder is installed, so it cannot be ".
+					 "converted either")),
 				$fmt->{blank});
 			return (0,undef);
 		}
@@ -582,6 +607,15 @@ sub buildOutput
 	$ids = [ @$ids ];
 	$opts->{fallback} ||= getDefaultSource();
 
+	# WHAT A CONVERTED TILE IS WRITTEN AT, resolved ONCE here and carried in
+	# $opts, so an exporter is handed a number instead of learning about the
+	# preferences system.  A caller that passed one keeps it, which is what
+	# lets a test pin the quality without touching anybody's settings.
+
+	$opts->{quality} = prefVal($PREF_JPEG_QUALITY)
+		if !defined $opts->{quality};
+	$report->{quality} = $opts->{quality};
+
 	$prog->{phase} = 'Validating' if $prog;
 	display($dbg_build,0,"build $fmt->{id}: validating");
 
@@ -712,15 +746,27 @@ sub buildOutput
 
 		$prog->{label} = $id if $prog;
 
+		# WHAT THE EXPORTER IS TOLD, and it is built here rather than passed
+		# through, so an exporter never sees the build's own options.  Every
+		# key in it is a deliberate handover.
+
 		my $st = $fmt->{write}->($reg,$by_region->{$id},$report->{out_dir},
-			{ defined $opts->{zmax} ? ( zmax => int($opts->{zmax}) ) : () });
+			{ quality => $opts->{quality},
+			  defined $opts->{zmax} ? ( zmax => int($opts->{zmax}) ) : () });
 
 		if (!$st)
 		{
 			$report->{partial} = scalar(@{$report->{regions}}) ? 1 : 0;
 			$report->{secs} = time() - $started;
+			# THE EXPORTER'S OWN SENTENCE FIRST.  "could not be written" is
+			# true of every failure here and useful for none of them; the
+			# reason names the source, the tile and what was wrong with it.
+
+			my $why = $fmt->{last_error} ? $fmt->{last_error}->() : '';
+
 			return _refuse($report,'export',
 				"'$id' could not be written",
+				($why ? ($why) : ()),
 				$report->{partial} ?
 					"already written for: ".join(', ',
 						map { $_->{id} } @{$report->{regions}}) : ());
@@ -752,6 +798,7 @@ sub buildOutput
 			tiles		=> $st->{tiles},
 			absent		=> $st->{absent},
 			failed		=> $st->{failed},
+			converted	=> $st->{converted} || 0,
 			blocks		=> $st->{blocks},
 			bytes		=> $st->{size},
 			zoom_min	=> $st->{zoom_min},
@@ -759,10 +806,11 @@ sub buildOutput
 			path		=> $st->{path},
 		};
 
-		$report->{totals}{tiles}  += $st->{tiles};
-		$report->{totals}{absent} += $st->{absent};
-		$report->{totals}{failed} += $st->{failed};
-		$report->{totals}{bytes}  += $st->{size};
+		$report->{totals}{tiles}     += $st->{tiles};
+		$report->{totals}{absent}    += $st->{absent};
+		$report->{totals}{failed}    += $st->{failed};
+		$report->{totals}{converted} += $st->{converted} || 0;
+		$report->{totals}{bytes}     += $st->{size};
 
 		$prog->{done}++ if $prog;
 
@@ -873,6 +921,20 @@ sub buildReportLines
 		push @out,"$report->{totals}{absent} tile(s) are absent because the ".
 			"source has no imagery there.";
 		push @out,"The reader will magnify a coarser tile over those areas.";
+	}
+
+	# CONVERSION IS INFORMATION TOO, and it is said because a build that
+	# quietly re-encoded half its bytes should not look identical to one
+	# that copied them.  It names the quality, since that is the setting
+	# somebody would go looking for after reading this line.
+
+	if ($report->{totals}{converted})
+	{
+		push @out,'';
+		push @out,"$report->{totals}{converted} tile(s) did not arrive as ".
+			"JPEG and were re-encoded at quality ".
+			($report->{quality} // prefVal($PREF_JPEG_QUALITY)).".";
+		push @out,"A card holds JPEG only. Set the quality in Preferences.";
 	}
 
 	if ($report->{fill})

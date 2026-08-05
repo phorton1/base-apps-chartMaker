@@ -64,6 +64,7 @@ BEGIN
 		mbtilesCanCarry
 		mbtilesFormats
 		mbtilesNodeName
+		mbtilesLastError
 		mbtilesInfo
 	);
 }
@@ -93,6 +94,19 @@ my %CARRIED = (
 	jpeg	=> 'jpg',
 	png		=> 'png',
 );
+
+
+# WHY THE LAST WRITE FAILED.  See the note on the same thing in dm_rct.pm:
+# an exporter answers with undef, undef carries no reason, and the reason
+# is the whole of what somebody reading the report needs.
+
+my $last_error = '';
+
+
+sub mbtilesLastError
+{
+	return $last_error;
+}
 
 
 sub mbtilesFormats
@@ -449,6 +463,7 @@ sub writeMbtiles
 {
 	my ($reg,$sources,$dir,$opts) = @_;
 	$opts ||= {};
+	$last_error = '';
 
 	return _err("writeMbtiles: no region")     if !$reg;
 	return _err("writeMbtiles: no source map") if !$sources || !%$sources;
@@ -529,6 +544,7 @@ sub writeMbtiles
 sub _err
 {
 	my ($msg) = @_;
+	$last_error = $msg;
 	error($msg);
 	return undef;
 }

@@ -176,6 +176,31 @@ sub _generalPage
 	$sizer->AddSpacer(14);
 	$sizer->Add($bs,0,wxEXPAND|wxLEFT|wxRIGHT,10);
 
+	# THE ONE KNOB ON WHAT GETS WRITTEN, and the text's whole job is to say
+	# how narrow it is.  A card holds jpeg, so a tile that arrived as png
+	# is re-encoded on the way in and this is what it is written at.  A
+	# tile that arrived as jpeg is copied untouched and no setting here can
+	# reach it, which is the sentence that stops somebody turning this up
+	# expecting a sharper card.
+
+	my $qbox = Wx::StaticBox->new($p,-1,'When a tile must be converted');
+	my $qs   = Wx::StaticBoxSizer->new($qbox,wxVERTICAL);
+	$qs->AddSpacer(4);
+	$qs->Add(_row($p,'JPEG quality:',
+		$this->_spin($p,$PREF_JPEG_QUALITY,30,100),
+		Wx::StaticText->new($p,-1,'higher is a bigger card, not a sharper '.
+			'one above about 90')),0,wxLEFT,6);
+	$qs->AddSpacer(4);
+	$qs->Add(Wx::StaticText->new($p,-1,
+		'Only a tile that did NOT arrive as JPEG is ever re-encoded.'."\n".
+		'A source that serves JPEG is copied byte for byte and nothing '.
+		'here touches it.'),
+		0,wxLEFT|wxTOP,6);
+	$qs->AddSpacer(4);
+
+	$sizer->AddSpacer(14);
+	$sizer->Add($qs,0,wxEXPAND|wxLEFT|wxRIGHT,10);
+
 	# HOW HARD THIS MACHINE PUSHES ANYBODY'S SERVER, in its own box because
 	# it is the only thing in this dialog that affects somebody else.
 	#
