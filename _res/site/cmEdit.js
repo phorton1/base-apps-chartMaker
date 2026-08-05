@@ -461,7 +461,7 @@ function zoomToSelection() {
     if (!pts.length) return;
 
     // Never deeper than the object is built to.  A small subregion would
-    // otherwise be framed at a zoom no card ever holds imagery for.
+    // otherwise be framed at a zoom no build ever holds imagery for.
     map.fitBounds(L.latLngBounds(pts), {
         padding: [40, 40],
         maxZoom: sel.node.zmax !== undefined ? sel.node.zmax : undefined,
@@ -856,7 +856,7 @@ function buildDialog(title, fields, onOk, opts) {
         if (inputs.id) {
             // Only SUGGEST from the name while creating.  Editing an existing
             // object must never quietly rewrite its id because its name was
-            // touched - the id is the file name and the card file stem.
+            // touched - the id is the file name and the output file stem.
             if (inputs.name && !inputs.id.dataset.touched && !opts.editing)
                 inputs.id.value = suggestId(v.name);
             const id = inputs.id.value.trim();

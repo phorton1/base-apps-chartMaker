@@ -61,7 +61,7 @@ author's document rather than a set of exchangeable pieces.
 | Field            | Meaning                                                               |
 | ---------------- | --------------------------------------------------------------------- |
 | `region_version` | Format version, so a future reader knows what it is holding.          |
-| `id`             | Stable identifier. Referenced by sets; the file name; the card stem.  |
+| `id`             | Stable identifier. Referenced by sets; the file name; the output stem. |
 | `name`           | What a person calls it. Free to change at any time.                   |
 | `notes`          | Free text. The format is JSON and JSON has no comments.               |
 | `zauthor`        | The zoom at which this region's polygon meets the tile grid.          |
@@ -108,14 +108,14 @@ special is needed to say it.
 ### The id is structural
 
 **The id carries load and the name does not.** The id is the file name, the key every
-[set](#sets-are-folders) references, and the stem of the exported [card file](rct.md). It is therefore
+[set](#sets-are-folders) references, and the stem of the exported [file](rct.md). It is therefore
 restricted to `[A-Za-z0-9]` - no spaces, nothing that would have to be escaped somewhere,
 and the somewhere is never all the places.
 
 Ids are compared **case insensitively** but stored **with the case the author wrote**, which
 is exactly what the filesystem underneath does. `PortBelo` and `portbelo` cannot be two
 regions because they cannot be two files. The convention is CamelCase and short - `Bocas`,
-`PanCanal`, `PortBelo`, `SanBlas`, `SanBlasE` - because eight characters keeps the card file
+`PanCanal`, `PortBelo`, `SanBlas`, `SanBlasE` - because eight characters keeps the exported
 name a genuine FAT short name.
 
 **The id is not derived from the name.** A new region *suggests* one by CamelCasing the
@@ -180,11 +180,11 @@ because each matches the vocabulary of its own neighbours; they are not to be un
 `zmin` and `zmax` bound what the region actually carries. **The region is complete over
 `[zauthor..zmax]`**, and that completeness is not an optimisation to be traded away: the
 plotter cuts its aperture at `zauthor` and paints at whatever level the view scale calls
-for, so the painted set has to be a superset of the revealed set at every level on the card.
+for, so the painted set has to be a superset of the revealed set at every level built.
 A partly populated level opens a hole onto ground nothing painted.
 
 **Two of the three are properties of an output folder rather than of a region.** Every
-`.RCT` on one card must agree on `zauthor` and `zmin`, because the firmware holds them on
+`.RCT` read together must agree on `zauthor` and `zmin`, because the firmware holds them on
 the chartset rather than per file; only `zmax` varies freely. That does *not* make them
 belong somewhere else - it makes them a **check at build time**, which given the convention
 will almost never fire. See [Build](build.md).
@@ -272,7 +272,7 @@ that stops abruptly at a boundary the user cannot see. So the application warns 
 What the imagery does affect is what actually lands in the output: a tile the source does
 not have is simply absent. The model says which tiles are wanted, the source decides which
 exist, and **preview is the only place those two meet before a build** - a tile missing in
-preview is a tile that will be missing on the card.
+preview is a tile that will be missing from the file.
 
 The reason for the split is a requirement that no single number can express: the same
 geography needs to be built at different depths for different destinations. A plotter with
@@ -280,11 +280,11 @@ a small card wants a shallow chartset of Bocas; a unit with room to spare wants 
 
 That does **not** require a second persistent object to hold the difference. It is one
 region and a shorter command: the cap prunes the deep bands arithmetically, so `build Bocas`
-and `build Bocas --zmax 16` produce the two cards from one definition, with no duplicated
+and `build Bocas --zmax 16` produce the two chartsets from one definition, with no duplicated
 geometry and nothing extra to keep in step.
 
 It also produces a property worth stating out loud: **build deep once, export shallow as
-often as you like.** The tiles are already in the cache, so the small card costs no
+often as you like.** The tiles are already in the cache, so the shallow one costs no
 additional fetching at all.
 
 Where the cap is set, and what else a build is configured with, is in [Build](build.md).
@@ -302,7 +302,7 @@ Shrinking is uncommon and it destroys work, so it **asks first**, naming what wi
 clipped and what will disappear. The rule applies at every level: a subregion that shrinks
 clips its own children exactly as a region clips its subregions.
 
-Containment is what the card format ultimately depends on. Because a subregion lies within
+Containment is what the `.RCT` format ultimately depends on. Because a subregion lies within
 its parent, every tile the subregion covers has a coarser tile above it that the parent
 already covers - the **nested-coverage invariant**, which is what lets a plotter fall back
 gracefully from a detailed tile it does not have to one it does. It holds by construction
@@ -350,7 +350,7 @@ half, which is the thing being avoided.
 
 What it buys is not correctness - union ownership prevents gaps wherever the boundary
 falls. It is **duplication**: a boundary that runs through a tile puts that tile in both
-regions, so it is fetched once but shipped twice, once in each output. On a card measured
+regions, so it is fetched once but shipped twice, once in each output. On a chartset measured
 in megabytes that is the difference worth having.
 
 This does not contradict geometry being stored as drawn. That rule forbids the application
@@ -374,9 +374,9 @@ Each of these is absent for a reason, and each was considered.
 **The source used to be on this list**, on the grounds that a region says where and how deep
 and never from what. That was overturned by what it costs a set to travel: a set whose build
 source is left to the machine is not a recipe, because two people running it get different
-cards. So a region names one - see above - and what remains absent is everything else.
+outputs. So a region names one - see above - and what remains absent is everything else.
 
-- **No coded region name for the card.** The exported file's stem is the id, uppercased at
+- **No coded region name for the output.** The exported file's stem is the id, uppercased at
   export if it needs to be. Carrying a second machine-readable copy of the region's identity
   would only be one more thing to disagree with the first. See [RCT](rct.md).
 - **No view state.** Whether a region is currently shown on the map is a fact about this
@@ -399,23 +399,23 @@ A **set** is the answer to "what travels together" - and it is a **folder**:
     $data_dir/region_sets/<set>/*.region
 ```
 
-**The files present ARE the set.** There is no index naming which regions belong to a card,
-exactly as there is none on the card itself, where the renderer enumerates the folder and
+**The files present ARE the set.** There is no index naming which regions belong to a build,
+exactly as there is none in the output itself, where the renderer enumerates the folder and
 merges every `.rct` it finds. A manifest is correct only by discipline and fails silently in
 both directions - naming a region that is gone, and missing one that is there. Dropping in a
 region somebody sent you is the whole of adding it, File Explorer is the set editor, and a
 set is a folder you can zip and mail.
 
 **One set is active at a time.** The map shows one set, and one set builds, because a
-working set assembled across sets is one no card could express. It is also the scope in
+working set assembled across sets is one no output could express. It is also the scope in
 which the containment and overlap rules matter, since that is the only time two regions'
 tiles land in the same output.
 
-**Ids are unique within a set, not globally.** A card is one folder; two sets that each
-contain a `Bocas` are two cards, not a conflict.
+**Ids are unique within a set, not globally.** A build is one folder; two sets that each
+contain a `Bocas` are two outputs, not a conflict.
 
 **One output folder per set.** A build writes to `<raster>/<set>`, and that folder is what
-is copied to the card - which makes the copy a copy rather than a decision about which files
+is copied onto a card - which makes the copy a copy rather than a decision about which files
 belong together. See [RCT](rct.md) for the `\RASTER\` contract on the consumer side.
 
 ## A set is a document
@@ -483,7 +483,7 @@ a folder disappearing underneath it is not a reason to throw that away. What deg
 where the next Open lands.
 
 **Checked means shown on the map, and nothing more.** It is not membership: the set is the
-folder, so every region in it is on the card whether or not you are currently looking at it.
+folder, so every region in it is built whether or not you are currently looking at it.
 Unchecking one is how you get it out of your way while working on another. This is also why
 it is not a flag on the region file - one user's view state has no business inside a file
 meant to be handed to somebody else - and why losing it costs nothing.

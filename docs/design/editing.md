@@ -143,7 +143,7 @@ an unfinished ring that any other action would strand.
 | delete the dirty object | yes | **refused** | no |
 | delete some *other* object | yes | yes | no |
 | create anything | yes | **refused** | no |
-| build a card | yes | **refused** | no |
+| build | yes | **refused** | no |
 
 **Refused, not queued and not auto-saved.** The refusal names the object and the two ways
 out - Save or Revert - because a user who cannot tell why the application stopped responding
@@ -152,7 +152,7 @@ to a click will conclude it is broken.
 DRAW forbids the lot because it is transient and self-terminating: Close it or abandon it,
 and both are one keystroke.
 
-**A card is not built from a dirty model.** The refusal is worth its irritation - a card
+**Nothing is built from a dirty model.** The refusal is worth its irritation - a file
 built from what is on disk while the screen shows something else is a discrepancy that only
 turns up on the plotter, hours later, where it cannot be explained.
 
@@ -184,7 +184,7 @@ But coverage is a union and never subtracts, so they are not the same kind of un
 - **A gap** - a strip of tiles that no region claims - is ground the chartset does not carry.
   On the plotter it shows as revealed water with nothing painted under it, and no amount of
   care further down can recover imagery that was never built.
-- **An overlap** - a tile claimed by two regions - costs duplicated tiles on the card and
+- **An overlap** - a tile claimed by two regions - costs duplicated tiles in the output and
   means the two regions disagree about how deep that water goes. Wasteful and untidy, and
   every tile is still there.
 
@@ -319,17 +319,17 @@ surface already goes.
 
 The contested-tile count is **not** a live readout and not a per-seam report. It is computed
 where the other whole-set checks are computed: at build time, beside the check that every
-region on one card agrees on `zauthor` and `zmin`.
+region built together agrees on `zauthor` and `zmin`.
 
 Both are reported and neither stops a build, but they are worth keeping straight:
 
 - **Disagreeing `zauthor` or `zmin` matters only where files fuse.** On an E-Series card
   every `.RCT` is merged into one pyramid, so those two are properties of the chartset and
-  the odd file out can be built and then never drawn - its imagery present on the card and
+  the odd file out can be built and then never drawn - its imagery present in the file and
   permanently invisible. Where an output's files are independent charts there is nothing to
   agree about, and nothing is said.
 - **Contested tiles are wasteful.** Duplicated imagery and two regions disagreeing about
-  depth in the same water, on a perfectly readable card.
+  depth in the same water, from perfectly readable files.
 
 Neither is refused, and the reason is the same in both cases: trying a new `zauthor` on one
 region before converting a whole chartset is a legitimate thing to want, and the author is

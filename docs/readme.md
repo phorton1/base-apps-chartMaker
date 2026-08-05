@@ -10,7 +10,7 @@
 use aboard a boat. You draw the regions you care about on a map, say how much detail each
 one deserves, connect an imagery source of your own choosing, and chartMaker fetches,
 assembles and packages the result - as **`.mbtiles`** for [**OpenCPN**](https://opencpn.org/),
-and as an **`.RCT` card** for the aerial photo overlay on Raymarine E-Series plotters.
+and as **`.RCT` files** for the aerial photo overlay on Raymarine E-Series plotters.
 
 The reason to want such a thing is simple. Official charts are surveyed, authoritative and
 frequently wrong about the last hundred metres: the reef that grew, the sandbar that moved,
@@ -97,7 +97,7 @@ Please see [LICENSE.TXT](../LICENSE.TXT) for more information.
   the companion application: a lifelong, device-independent home for your waypoints,
   routes and tracks. chartMaker makes the *charts* you carry; navMate manages the
   *navigation data* you carry. navMate is also the E-Series Firmware Builder, which is what
-  puts the aerial photo overlay - the feature chartMaker's `.RCT` cards feed - on the
+  puts the aerial photo overlay - the feature chartMaker's `.RCT` files feed - on the
   plotter in the first place.
 
 - [**base-Pub**](https://github.com/phorton1/base-Pub) - the shared Perl library that
@@ -106,7 +106,7 @@ Please see [LICENSE.TXT](../LICENSE.TXT) for more information.
 
 - [**Ray Library**](https://github.com/phorton1/base-Pub-Ray/blob/master/docs/readme.md) -
   the reverse-engineered Raymarine protocols, file formats and E-Series firmware internals
-  that the RCT card format was built against.
+  that the RCT format was built against.
 
 ---
 

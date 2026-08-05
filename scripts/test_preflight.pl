@@ -393,7 +393,7 @@ writeRct(getRegion('Beta'),$srcs_b,"$OUT/Beta.rct");
 
 ok(-f "$OUT/Alpha.rct" && -f "$OUT/Beta.rct","two cards exist in the folder");
 
-my $info = rctCardInfo("$OUT/Alpha.rct");
+my $info = rctFileInfo("$OUT/Alpha.rct");
 ok($info && $info->{zauthor} == 12,"a card's header reports its zauthor ".
 	"($info->{zauthor})");
 ok($info->{stem} eq 'Alpha',"and its stem ($info->{stem})");

@@ -12,13 +12,13 @@
 #
 # ONE SET AT A TIME IS LOADED -- the active one, from dm_set.  Ids
 # therefore need only be unique WITHIN a set, which is more correct than
-# the alternative: a card is one folder, and two sets that both contain a
-# Bocas are two cards, not a conflict.  Changing the active set advances
+# the alternative: a build is one folder, and two sets that both contain a
+# Bocas are two outputs, not a conflict.  Changing the active set advances
 # the shared counter, so every thread reloads from the new folder.
 #
 # CHECKED MEANS SHOWN ON THE MAP, and nothing more.  It is not what
 # builds: the SET is what builds, because the set is a folder and the
-# files present in it are the card.  Checking is a per-machine view
+# files present in it are what builds.  Checking is a per-machine view
 # convenience, held in memory here and written to the ini on clean exit
 # by the application layer -- it is deliberately NOT durable data, and
 # there is no file in the user's folder that can disagree with the
@@ -34,7 +34,7 @@
 # subtracts, so an inner ring could not mean anything.
 #
 # THE ID IS STRUCTURAL AND THE NAME IS NOT.  The id is the file name, the
-# key every set references, and the stem of the exported card file, so it
+# key every set references, and the stem of the exported file, so it
 # is restricted to [A-Za-z0-9] -- no spaces, nothing needing an escape.
 # The name is free text and carries no load at all.  Ids are compared
 # case insensitively (the id IS a Windows file name, and PortBelo and
@@ -457,7 +457,7 @@ sub _validateRegion
 			if $reg->{region_version} > $REGION_VERSION;
 	}
 
-	# The id is a file name and a card file stem.  Anything outside
+	# The id is a file name and an output file stem.  Anything outside
 	# [A-Za-z0-9] would have to be escaped somewhere, and the somewhere is
 	# never all the places.
 
@@ -1527,7 +1527,7 @@ sub deleteSubregion
 # what is shown on the map
 #---------------------------------------------
 # CHECKED IS A VIEW, NOT A MEMBERSHIP.  The set is the folder; every
-# region in it is part of the card.  Unchecking one hides it from the
+# region in it is part of the build.  Unchecking one hides it from the
 # map while you work on another, and that is all it does.
 #
 # There is deliberately no file behind this.  A stored membership list

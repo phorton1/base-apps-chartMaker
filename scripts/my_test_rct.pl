@@ -64,7 +64,7 @@ printf("model: %s  z%d-%d  %d tiles  zauthor %d\n",
 	$reg->{id},$want_zmin,$want_zmax,$want_tiles,$reg->{zauthor});
 
 print "=== build ===\n";
-my $path = "$OUT/".rctCardName($reg->{id});
+my $path = "$OUT/".rctFileName($reg->{id});
 my $st = writeRct($reg,$srcs,$path);
 ok(defined($st),"writeRct returned stats");
 exit(1) if !$st;

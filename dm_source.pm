@@ -342,7 +342,7 @@ sub _validate
 	# answer 200 with a fixed image saying so in words: Esri's "Map data
 	# not yet available" is one image, 2521 bytes, byte for byte identical
 	# every time.  Nothing downstream can tell that from imagery, so a
-	# build bakes grey tiles into a card and reports success - the worst
+	# build bakes grey tiles into a file and reports success - the worst
 	# failure this application has, because every signal says it worked.
 	#
 	# Declared rather than detected, because it is a fact about a server
@@ -733,7 +733,7 @@ sub checkSourceField
 	$val = '' if !defined $val;
 
 	# ASCII, ALWAYS.  These files are read by people, transported between
-	# them, and their attribution reaches an RCT card as 7-bit bytes for a
+	# them, and their attribution reaches an .rct as 7-bit bytes for a
 	# firmware font renderer.  A character that cannot survive that trip
 	# should be refused where it is typed, not silently mangled later.
 

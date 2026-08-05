@@ -216,7 +216,7 @@ sub _declaredAbsentHeader
 # sample, a verify, the map proxy - so learning here is a property of
 # FETCHING rather than of anybody's reason for fetching.  Put anywhere else
 # it becomes a question of which surfaces remembered to ask, and a user who
-# never ran the optional one exports a card full of grey.
+# never ran the optional one exports a file full of grey.
 #
 # THREE THINGS MAKE IT FREE.
 #
@@ -654,7 +654,7 @@ sub fetchStore
 	return $result if !$result;
 
 	# A 200 THAT MEANS 404.  Recorded as the absence it is, so it is never
-	# asked for again and never reaches a card.
+	# asked for again and never reaches an output file.
 	#
 	# AND RECORDED AS THE KIND OF ABSENCE IT IS.  Everything downstream of a
 	# build treats this exactly as a 404 and should - there is no tile

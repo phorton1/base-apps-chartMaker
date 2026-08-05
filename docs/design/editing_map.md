@@ -71,7 +71,7 @@ and a declared sentinel alike, which is the right answer at a map. Telling those
 **The tile carries the application's name**, and that is the load-bearing part of it. It is
 the same pale grey a service's own no-data tile tends to be, so without a word on it nobody
 could tell chartMaker saying "there is nothing here" from a *new, unrecognised* sentinel that
-the fetcher is quietly baking into a card as though it were imagery. Finding one of those by
+the fetcher is quietly baking into the output as though it were imagery. Finding one of those by
 eye is exactly how the Esri fingerprint was found.
 
 One case is folded in that strictly is not the same: a fetch that FAILED returns 502, and an
@@ -133,7 +133,7 @@ Both say something as you type that the model would otherwise only tell you late
 - the **id** is suggested from the name and flagged the moment it collides with one already
   in the set
 - the **zooms** say whether they agree with the regions already there, which is the
-  condition for this region sharing a card with its siblings
+  condition for this region being built alongside its siblings
 - a subregion's **band** runs from its parent's `zmax` + 1 to its own, so a `zmax` at or
   below the parent's contributes nothing at all, and the panel says so as the number changes
 
@@ -204,7 +204,7 @@ than where it was clicked.
 
 **With snap on, a vertex lands on the tile grid of the object's own level** - `zauthor` for
 a region, `zmax` for a subregion, and the open set's `zauthor` when nothing is selected
-yet, which is well defined because every region on one card must agree on it.
+yet, which is well defined because every region built together must agree on it.
 
 That is the whole of the shared-boundary mechanism. Two regions meet exactly because a
 person put both their vertices on the same intersection, and those two coordinates are
@@ -266,7 +266,7 @@ placement without toggling the mode off and back.
 ### Autozoom
 
 A palette switch. When the selection changes, the map frames that object's own polygons with
-a margin, never deeper than its `zmax` - a small subregion framed at a zoom no card carries
+a margin, never deeper than its `zmax` - a small subregion framed at a zoom nothing carries
 imagery for would be a worse answer than none.
 
 **It fires only for a selection that arrived from somewhere else.** Zooming to an object the
@@ -309,7 +309,7 @@ deepest `zmax` anywhere inside it at the top, since no level outside that holds 
 The rectangles are still clipped to the view - an answer about tiles nobody can see is of no
 use - while the count is the whole set at that level.
 
-**The panel nests the way the model does.** The set is the top line with what the whole card
+**The panel nests the way the model does.** The set is the top line with what the whole build
 would cost; the region names its levels and totals **itself and everything inside it**; a
 selected subregion adds a block below carrying only the band it supplies. The blocks are
 disjoint by construction, so they read down the panel as addition, and each level of nesting

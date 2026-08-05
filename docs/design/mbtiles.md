@@ -42,7 +42,7 @@ inferred from what a container happened to contain.
 
 Two consequences worth stating because they are easy to miss:
 
-- **Building a card does not require building an mbtiles first.** The two are independent
+- **Building `.rct` files does not require building an mbtiles first.** The two are independent
   outputs of the same model.
 - **Each exporter owns its own encoding question.** A source that returns PNG is the RCT
   exporter's problem to transcode, because RCT is JPEG-only; mbtiles has no such constraint
@@ -167,7 +167,7 @@ guards and a write call. What changes:
 coverage enumerator for every tile and the cache is keyed by source, so a set already built
 to one format builds to the other without fetching anything at all.
 
-**The configured output folder belongs to the card.** It is where an E-Series card gets
+**The configured output folder belongs to the `.rct` build.** It is where an E-Series card gets
 assembled, chosen once and remembered per set; an mbtiles build has no business landing a
 tree of region folders in the middle of it, so it takes its own default.
 

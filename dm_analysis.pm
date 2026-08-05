@@ -125,9 +125,9 @@ sub analyseFetch
 		est_known	=> 1,		# 0 if any source has no basis for an estimate
 		missing_src	=> [],		# resolved ids that are not installed
 		displaced	=> [],		# sources that declare a displacement
-		zagree		=> undef,	# set when the card would disagree with itself
-		overwrite	=> [],		# cards in out_dir this build would replace
-		foreign		=> [],		# cards in out_dir NOT part of this build
+		zagree		=> undef,	# set when the build would disagree with itself
+		overwrite	=> [],		# files in out_dir this build would replace
+		foreign		=> [],		# files in out_dir NOT part of this build
 		elapsed		=> 0,
 	};
 
@@ -208,7 +208,7 @@ sub analyseFetch
 					# THE SIZE SAMPLE COMES FROM THIS REGION'S OWN TILES.
 					# Sampling the cache DIRECTORY instead was measurably
 					# wrong - it holds every region's tiles at that zoom,
-					# so a card was predicted at 165.8 MB and came out at
+					# so a build was predicted at 165.8 MB and came out at
 					# 67.7 MB.  These are the tiles actually being counted.
 					push @{$zc->{keys}},$key if $bucket eq 'cached';
 				}
@@ -251,13 +251,13 @@ sub analyseFetch
 
 	$out->{bytes} = _estimateBytes($out,\%index);
 
-	# ---- the card's own consistency, and what is already in the folder
+	# ---- the build's own consistency, and what is already in the folder
 	#
-	# BOTH OF THESE ARE ABOUT A CARD, and neither means anything about any
+	# BOTH OF THESE ARE ABOUT .rct, and neither means anything about any
 	# other output.  Agreement exists because the E-Series fuses every .rct
 	# present into ONE pyramid and cuts the reveal aperture at the coarsest
 	# zauthor among them; the folder survey reads .rct headers to find out
-	# what else is on that card.  An output whose files are independent
+	# what else is in that folder.  An output whose files are independent
 	# charts has no chartset to disagree with and no headers to read, so
 	# asking would produce a warning about nothing - which is how a real
 	# warning gets trained out of being read.
@@ -283,7 +283,7 @@ my $BYTES_GUESS = 18000;
 
 
 sub _estimateBytes
-	# Total card size, from tiles actually on disk.
+	# Total output size, from tiles actually on disk.
 	#
 	# BY SAMPLING, NOT BY WEIGHING THE WHOLE CACHE.  The obvious
 	# implementation calls cacheStats, which walks every zoom of a source
@@ -357,9 +357,9 @@ sub _estimateBytes
 
 
 sub _checkAgreement
-	# EVERY FILE ON ONE CARD MUST AGREE on zauthor and zmin - the firmware
+	# EVERY .rct BUILT TOGETHER MUST AGREE on zauthor and zmin - the firmware
 	# holds both on the CHARTSET, not per file: it fuses every .rct on the
-	# card into one pyramid and indexes it as zdir[z - zmin].  The reveal
+	# them into one pyramid and indexes it as zdir[z - zmin].  The reveal
 	# aperture is cut at the coarsest zauthor present, so a file whose zmin
 	# is finer than that contributes no outline at all and its imagery is
 	# drawn and permanently invisible.
@@ -371,7 +371,7 @@ sub _checkAgreement
 	#
 	# IT ASKS THE FOLDER AS WELL AS THE SET, which is the part a check
 	# across the build alone would miss: building one region into a folder
-	# of cards built earlier is exactly when the disagreement appears, and
+	# of files built earlier is exactly when the disagreement appears, and
 	# the regions being built may agree perfectly with each other.
 {
 	my ($regions,$out_dir,$ids) = @_;
@@ -406,12 +406,12 @@ sub _checkAgreement
 
 
 sub _surveyFolder
-	# What is already in the output folder: the cards this build would
-	# REPLACE, and the cards that would remain beside it without being
+	# What is already in the output folder: the files this build would
+	# REPLACE, and the files that would remain beside it without being
 	# part of it.
 	#
 	# The second list is the one nobody asks for and it is the more
-	# dangerous: a card left from an earlier set or a renamed region is
+	# dangerous: a file left from an earlier set or a renamed region is
 	# still read by the plotter, still contributes to the pyramid, and is
 	# invisible in every other view.
 {
@@ -481,7 +481,7 @@ sub analysisLines
 			"will be after this run.";
 	}
 
-	push @out,sprintf("The card would be about %.1f MB.",$an->{bytes}/1048576)
+	push @out,sprintf("The .rct file would be about %.1f MB.",$an->{bytes}/1048576)
 		if $what eq 'build' && $an->{bytes};
 	push @out,sprintf("The charts would be about %.1f MB.",$an->{bytes}/1048576)
 		if $what eq 'mbtiles' && $an->{bytes};

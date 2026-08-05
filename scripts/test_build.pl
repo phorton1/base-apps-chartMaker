@@ -642,7 +642,7 @@ my $partial = {
 	detail => [], secs => 1,
 };
 my $pl = buildReportLines($partial);
-ok(scalar(grep { /PARTIAL card set/ } @$pl),
+ok(scalar(grep { /folder is INCOMPLETE/ } @$pl),
 	"a partial cancel reports PARTIAL, not 'nothing was written'");
 ok(!scalar(grep { /nothing was written/ } @$pl),
 	"   and does not also claim nothing was written");
@@ -664,7 +664,7 @@ my $lines = buildReportLines($r);
 ok(ref($lines) eq 'ARRAY' && scalar(@$lines),
 	"a successful build renders ".scalar(@$lines)." lines");
 ok(!scalar(grep { !defined } @$lines),"with no undefined lines");
-ok(scalar(grep { /Built 1 card/ } @$lines),"saying what it built");
+ok(scalar(grep { /Built 1 .rct file/ } @$lines),"saying what it built");
 
 my $flines = buildReportLines($rh);
 ok(scalar(grep { /^REFUSED/ } @$flines),"a refusal leads with REFUSED");

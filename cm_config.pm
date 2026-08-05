@@ -32,8 +32,8 @@
 # list and this module grows a name; nothing above it needs to know yet.
 #
 # WHAT IS DELIBERATELY NOT IN IT: zmax, and anything else that changes what
-# a build puts on a card beyond WHICH regions.  Two people with the same
-# region set must be able to get the same card - see w_prefs, which draws
+# a build writes beyond WHICH regions.  Two people with the same
+# region set must be able to get the same output - see w_prefs, which draws
 # the same line for the same reason.
 
 package cm_config;
@@ -104,7 +104,7 @@ sub defaultOutDir
 sub defaultMbtilesOutDir
 	# The same idea for the other output, and it is NOT CONFIGURABLE.
 	#
-	# The stored out_dir is the CARD folder - it is where an E-Series card
+	# The stored out_dir is the .rct OUTPUT folder - it is where the files
 	# gets assembled, chosen once per set because that folder is copied
 	# wholesale to a CF card.  A tree of region folders landing in the
 	# middle of it would make that copy a decision instead of a copy.  So

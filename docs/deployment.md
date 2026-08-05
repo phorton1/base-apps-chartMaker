@@ -36,7 +36,7 @@ installed application testable by running the development one.
 `$data_dir` holds everything the user authored or acquired, and nothing chartMaker can
 regenerate:
 
-- **Region sets** - `region_sets/<set>/`, one folder per card. The files present in a folder
+- **Region sets** - `region_sets/<set>/`, one folder per chartset. The files present in a folder
   ARE the set; there is no index, so dropping in a region somebody sent you is the whole of
   adding it. Each file is one region: geometry, nesting, and the depth each area deserves.
   See [Design: Regions](design/regions.md).
@@ -88,7 +88,7 @@ is one file rather than a tree:
     SOURCES_DIR       $data_dir/sources          the .tsd files
     REGION_SETS_DIR   $data_dir/region_sets      one folder per set
     MBTILES_DIR       $data_dir/mbtiles          built chartsets
-    RASTER_DIR        $data_dir/raster           built cards, one folder per set
+    RASTER_DIR        $data_dir/raster           built .rct files, one folder per set
     CACHE_DIR         $data_dir/cache            fetched tiles
     KEYS_DIR          $data_dir                 holds chartMaker.keys.json
 ```

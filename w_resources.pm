@@ -73,7 +73,7 @@ my @view_menu = (
 # needs, so Fetch is never REQUIRED -- but it is the half that takes the
 # hour, and being able to run it on its own is what lets an author fill a
 # region overnight and build in a minute the next morning.  Fetch alone
-# also refuses nothing, because it writes no card: a source that cannot
+# also refuses nothing, because it writes no output: a source that cannot
 # carry to an RCT can still legitimately have its tiles fetched.
 
 # PROBE IS NOT HERE, and was.  It is reached by right-clicking the node to
@@ -120,7 +120,7 @@ my $command_data = {
 		'Values for the {key_names} that source urls contain'],
 	$COMMAND_PREFS		=> ['Preferences...','Folders, the map, and what a new region starts with'],
 	$COMMAND_FETCH		=> ['Fetch Tiles',	'Fill the cache with every tile the build will read'],
-	$COMMAND_BUILD_RCT	=> ['Build RCT Card','Fetch, then write the set as .rct card files'],
+	$COMMAND_BUILD_RCT	=> ['Build RCT','Fetch, then write the set as .rct files'],
 	$COMMAND_BUILD_MBTILES => ['Build MBTiles',
 		'Fetch, then write the set as .mbtiles charts - one per detail area'],
 };

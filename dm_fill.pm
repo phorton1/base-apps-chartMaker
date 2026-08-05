@@ -15,7 +15,7 @@
 # fetches nothing by design -- an uncached tile is simply absent, the miss
 # bit is set, and the plotter overzooms from a present ancestor.  Reshaping
 # an existing subregion therefore rebuilds happily from cache, but NEW
-# ground at depth has never been fetched, and the card comes back with
+# ground at depth has never been fetched, and the output comes back with
 # holes the E80 papers over.  It looks SOFT rather than broken, which reads
 # on the water as "the imagery is bad there" instead of "we never fetched
 # it."  This is what makes new ground real.

@@ -61,7 +61,7 @@ sub new
 	my ($class,$parent,$what) = @_;
 	$what ||= 'build';
 
-	# THE FOLDER SECTION IS THE CARD'S, not every build's.  An mbtiles
+	# THE FOLDER SECTION IS THE .rct BUILD'S, not every build's.  An mbtiles
 	# build has one destination and nothing to choose, so this dialog is
 	# 'what' for it exactly as it is for a fetch - see
 	# cm_config::defaultMbtilesOutDir.  It is still a BUILD, which is what
@@ -92,7 +92,7 @@ sub new
 		$writes ? 'Build these regions:' : 'Fetch tiles for these regions:',
 		[16,38],[300,18]);
 
-	# A CHECK LIST, NOT THE REGION TREE.  What is on the card and what is
+	# A CHECK LIST, NOT THE REGION TREE.  What gets built and what is
 	# on the map are different questions and have to look different - the
 	# tree's own checkboxes mean show-on-map and always have.
 
@@ -249,7 +249,7 @@ sub onBrowse
 	$start = _nativeDir($start);
 
 	my $dlg = Wx::DirDialog->new($this,
-		'Choose a folder for the .rct card files',$start);
+		'Choose a folder for the .rct files',$start);
 	my $rslt = $dlg->ShowModal();
 	my $path = $dlg->GetPath();
 	$dlg->Destroy();

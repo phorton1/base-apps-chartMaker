@@ -67,7 +67,7 @@ our $app_dir = $^O eq 'MSWin32' ?
 # It is the Landsat WELD global annual mosaic, and it beats the other
 # shipped source (Blue Marble) for two reasons that are about what this
 # application is FOR.  Blue Marble reaches z8, which is BELOW the overview
-# floor a conventional card is built at, so it cannot participate in a
+# floor a conventional build uses, so it cannot participate in a
 # build at all.  WELD reaches z12, and where WELD has no data is the open
 # ocean -- it covers coastlines, which is the only place aerial raster
 # charting means anything.  "Not truly global" is a non-cost when the

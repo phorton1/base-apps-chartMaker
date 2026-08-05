@@ -133,7 +133,7 @@ sub commandHelp
 		[ 'subregion delete <region> <id>',	'remove a detail area'							],
 		[ 'config',				'the build configuration: what, where, how fast'	],
 		[ 'config regions <id,id|all>',	'which regions get fetched and built'		],
-		[ 'config out <path|default>',	'where the .rct cards go'					],
+		[ 'config out <path|default>',	'where the .rct files go'					],
 		[ 'config rate <src> <ms>',		'go no faster than this (on top of the TSD)'],
 		[ 'config reset',		'back to defaults, removing build.json'				],
 		[ 'analyse [id|set|all]','what a fetch/build would cost - reads nothing else'],
@@ -143,13 +143,13 @@ sub commandHelp
 		[ 'sample <tsd> <region>[/<sub>] [zmin zmax] [nodepth]',
 										'probe ONE service over an area - is it worth using?'],
 		[ 'fetch <id|set|all> [zmax]',	'fill the cache with every tile the build will read'],
-		[ 'build rct <id|set> [zmax]',	'fetch, then export region(s) as .rct card files'	],
+		[ 'build rct <id|set> [zmax]',	'fetch, then export region(s) as .rct files'	],
 		[ 'build mbtiles <id|set> [zmax]',
 										'the same, as one .mbtiles per node'				],
 		[ '  --dirty',					'build anyway from unsaved edits'					],
 		[ '  --failed',					'export anyway with tiles that never arrived'		],
 		[ 'check <id>',			'show a region on the map'									],
-		[ 'uncheck <id>',		'hide it from the map (it is still on the card)'			],
+		[ 'uncheck <id>',		'hide it from the map (it is still built)'			],
 	];
 }
 
@@ -524,7 +524,7 @@ sub _fetchCommand
 	# fetch <id|set|all> [zmax]
 	#
 	# The cache filler.  It exists because dm_rct fetches nothing: a build
-	# over ground that has never been displayed writes a card full of
+	# over ground that has never been displayed writes a file full of
 	# absences that the plotter papers over by overzooming, which looks
 	# soft rather than broken and is therefore not noticed until somebody
 	# is out there relying on it.
@@ -711,7 +711,7 @@ sub _sampleCommand
 sub _configCommand
 	# config                        show it
 	# config regions <id,id|all>    what gets fetched and built
-	# config out <path|default>     where the cards go
+	# config out <path|default>     where the .rct files go
 	# config rate <source> <ms>     go no faster than this, on top of the TSD
 	# config reset                  back to defaults, removing the file
 	#
@@ -876,7 +876,7 @@ sub _analyseCommand
 
 	if ($an->{zagree})
 	{
-		warning(0,0,"the cards on this chartset would NOT agree:");
+		warning(0,0,"these .rct files would NOT agree with each other:");
 		for my $field (qw( zauthor zmin ))
 		{
 			my $h = $an->{zagree}{$field} or next;
@@ -892,11 +892,11 @@ sub _buildCommand
 	# build <rct|mbtiles> <id|set|all> [zmax]
 	#
 	# 'set' MEANS THE WHOLE ACTIVE SET, not the checked part of it.  The
-	# set is a folder and every region file in it is part of the card,
-	# because THE SET OF FILES PRESENT IS THE SET OF REGIONS - on the card
+	# set is a folder and every region file in it is part of the build,
+	# because THE SET OF FILES PRESENT IS THE SET OF REGIONS - in the output
 	# there is no manifest, and there is none here either.  Checking a
 	# region hides it from the map while you work; it has never been a
-	# statement about what belongs on the card, and 'all' is now the same
+	# statement about what belongs in it, and 'all' is now the same
 	# thing said twice.
 {
 	my ($rest) = @_;
@@ -973,8 +973,9 @@ sub _buildCommand
 	# --dirty and --failed are the overrides, spelled out rather than
 	# offered as buttons, because on this surface there is nobody to ask.
 
-	# THE CONFIGURED OUTPUT FOLDER BELONGS TO THE CARD, and only to it.
-	# It is where an E-Series card gets assembled, chosen once and
+	# THE CONFIGURED OUTPUT FOLDER BELONGS TO THE .rct BUILD, and only to it.
+	# It is where the files an E-Series card will carry get assembled,
+	# chosen once and
 	# remembered per set; an mbtiles build has no business landing a tree
 	# of region folders in the middle of it.  So mbtiles takes its own
 	# default and the configuration is left saying what it has always said.
@@ -1026,7 +1027,7 @@ sub _regionsCommand
 	}
 	my @working = getWorkingSet();
 	display(0,1,scalar(@working)." of ".scalar(@ids).
-		" shown on the map - ALL ".scalar(@ids)." are on the card");
+		" shown on the map - ALL ".scalar(@ids)." are built");
 }
 
 

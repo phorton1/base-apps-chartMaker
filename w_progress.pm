@@ -194,7 +194,7 @@ sub onTimer
 sub onCancel
 	# THE FLAG, AND NOTHING ELSE.  The worker is between tiles somewhere
 	# and will notice within one request; killing it here would leave a
-	# half-written card and a cache mid-write.  So the dialog says so and
+	# half-written file and a cache mid-write.  So the dialog says so and
 	# waits, and says that it is waiting - a Cancel button that stays
 	# enabled and does nothing visible reads as a hang.
 {

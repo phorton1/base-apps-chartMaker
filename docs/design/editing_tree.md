@@ -28,7 +28,7 @@ and where everything that has no position lives.
 The map can only show what is on screen, and only says one thing about an object at a time -
 its outline. The tree answers the questions the map structurally cannot:
 
-- **is this set internally consistent?** Every `.RCT` on one card must agree on `zauthor` and
+- **is this set internally consistent?** Every `.RCT` read together must agree on `zauthor` and
   `zmin`, and that is a property of a *collection*, not of anything you can point at.
 - **what is in this set that I cannot see?** A region with no geometry is nowhere on the map.
   So is a region whose water is three thousand miles from the current view.
@@ -60,7 +60,7 @@ longer exists. Two levels, each naming something on disk:
 
 Every region's row carries its own `zmin`-`zmax` at `zauthor`, in a monospaced font so the
 numbers line up down the column, and a subregion's row carries the band it adds. That is the
-entire point: a set whose regions disagree about `zauthor` cannot be built onto one card, and
+entire point: a set whose regions disagree about `zauthor` cannot be built together, and
 a disagreement has to be **visible** rather than discovered by clicking five regions and
 remembering what each said.
 
@@ -69,7 +69,7 @@ It names the set, the number of regions in it, and either the one `zmin` and `za
 all share or that they are **mixed**, with the count at each value.
 
 A mixed set is not an error - it is a perfectly good folder of regions that cannot be built
-as one card yet. The build says which region is the odd one out; the tree says so earlier.
+as one chartset yet. The build says which region is the odd one out; the tree says so earlier.
 
 ## An object with no geometry says so
 

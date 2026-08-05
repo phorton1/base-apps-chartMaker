@@ -4,7 +4,7 @@
 #---------------------------------------------
 # The few things that survive a session, and nothing else.
 #
-#	active_set			which region set the map shows and the card builds from
+#	active_set			which region set the map shows and a build reads from
 #	default_source		the TSD used for ordinary rendering
 #	unchecked_<set>		which regions of a set are hidden on the map
 #	last_browse			the folder the last Browse landed in

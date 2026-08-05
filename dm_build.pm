@@ -41,7 +41,7 @@
 #
 # THE FORMAT TOLERATES A HOLE BECAUSE IT MUST; that is not a quality
 # standard.  An .rct sets a miss bit for any tile it lacks and the plotter
-# magnifies an ancestor, so a card with holes reports success, looks soft
+# magnifies an ancestor, so a file with holes reports success, looks soft
 # rather than broken, and is discovered offshore.  The exporter cannot
 # refuse this -- absence is how the format expresses a legitimate edge of
 # coverage.  The build can, because the build holds the ledger.
@@ -115,8 +115,8 @@ our $dbg_build:shared = 0;
 #                    independent charts and there is nothing to agree on.
 #   check_name       an .rct stem is 8.3; an mbtiles path is not.
 #   base_dir         they are different folders, and mixing a tree of
-#                    region folders in among the cards would make the
-#                    E-Series card directory something a user has to read
+#                    region folders in among the .rct files would make the
+#                    output directory something a user has to read
 #                    carefully rather than copy wholesale.
 #   write / discard  one writes a file, the other a folder of them, so
 #                    "take that back" is not the same call either.
@@ -130,23 +130,23 @@ sub _initFormats
 		id			=> 'rct',
 		label		=> 'an RCT',
 		holds		=> 'RCT holds',
-		noun		=> 'card',
+		noun		=> '.rct file',
 		unit		=> 'blk',
-		blank		=> 'the card would be structurally valid and blank '.
+		blank		=> 'the file would be structurally valid and blank '.
 					   'on the plotter',
 		uniform		=> 1,
 		formats		=> \&rctFormats,
 		can_carry	=> \&rctCanCarry,
 		can_convert	=> \&rctCanConvert,
 		last_error	=> \&rctLastError,
-		check_name	=> \&rctCardName,
+		check_name	=> \&rctFileName,
 		name_help	=> 'at most 8 characters, letters and digits only',
 		base_dir	=> \&rasterDir,
 		base_help	=> 'set RASTER_DIR in Preferences, or create it',
 		write		=> sub {
 			my ($reg,$srcs,$out_dir,$opts) = @_;
 			return writeRct($reg,$srcs,
-				"$out_dir/".rctCardName($reg->{id}),$opts);
+				"$out_dir/".rctFileName($reg->{id}),$opts);
 		},
 		discard		=> sub {
 			my ($st) = @_;
@@ -212,7 +212,7 @@ sub _newReport
 		refused		=> '',		# why, in one sentence
 		detail		=> [],		# the lines under it
 		cancelled	=> 0,
-		partial		=> 0,		# cards were written before it stopped
+		partial		=> 0,		# files were written before it stopped
 		out_dir		=> '',
 		regions		=> [],
 		totals		=> { tiles => 0, absent => 0, failed => 0, converted => 0,
@@ -263,7 +263,7 @@ sub _validateSources
 	# subregion may legitimately name a different source than its parent --
 	# that is the entire point of the field being on both -- so a check
 	# that ran per region would pass a region whose detail box is built
-	# from something the card cannot carry.
+	# from something the file cannot carry.
 	#
 	# Returns ($ok,$by_region) where $by_region is { id => source map },
 	# the same maps the exporter is handed, so the thing that was
@@ -412,7 +412,7 @@ sub _validate
 		return (0,undef);
 	}
 
-	# 0 - THE MODEL MUST BE ON DISK.  A card built from unsaved edits is
+	# 0 - THE MODEL MUST BE ON DISK.  A file built from unsaved edits is
 	# not reproducible from the set that is supposed to define it, and the
 	# whole claim of a region set is that it IS the recipe.  Specified in
 	# docs/design/editing.md and enforced nowhere until now.
@@ -422,7 +422,7 @@ sub _validate
 		_refuse($report,'dirty',
 			"'$set' has unsaved changes",
 			"unsaved: ".join(', ',dirtyRegionIds()),
-			"save the set first - a card built from edits that are not on ".
+			"save the set first - a file built from edits that are not on ".
 				"disk cannot be rebuilt from it");
 		return (0,undef);
 	}
@@ -432,19 +432,19 @@ sub _validate
 	my ($ok,$by_region) = _validateSources($ids,$opts->{fallback},$report,$fmt);
 	return (0,undef) if !$ok;
 
-	# 4 - EVERY REGION ON ONE CARD MUST AGREE on zauthor and zmin, and this
+	# 4 - EVERY REGION BUILT TOGETHER MUST AGREE on zauthor and zmin, and this
 	# is a WARNING RATHER THAN A REFUSAL.
 	#
-	# IT IS ALSO ONLY TRUE OF A CARD.  The check exists because the E80
+	# IT IS ALSO ONLY TRUE OF .rct.  The check exists because the E80
 	# fuses every .rct present into one pyramid; an output whose files are
 	# independent charts has nothing to agree about, and warning there
 	# would be teaching the user to ignore a real warning.
 	#
 	# What it is about: the firmware holds both on the CHARTSET, not per
-	# file - it fuses every .rct on the card into one pyramid and indexes
+	# file - it fuses every .rct it is given into one pyramid and indexes
 	# it as zdir[z - zmin].  The reveal aperture is cut at the coarsest
 	# zauthor present, so a file whose zmin is finer than that contributes
-	# no outline at all and its imagery sits on the card fully built and
+	# no outline at all and its imagery sits there fully built and
 	# permanently invisible.
 	#
 	# Why it does not refuse: trying a new zauthor on ONE region before
@@ -474,7 +474,7 @@ sub _validate
 		next if scalar(keys %$h) <= 1;
 		$report->{warned} = 1;
 		push @{$report->{warnings}},
-			"the regions disagree on $name - every file on one card should ".
+			"the regions disagree on $name - every .rct built from one set should ".
 				"carry the same value, or the odd one out may be built and ".
 				"permanently invisible",
 			(map { "  $name $_ : ".join(', ',@{$h->{$_}}) } sort keys %$h);
@@ -669,7 +669,7 @@ sub buildOutput
 		return $report;
 	}
 
-	# A DEAD SOURCE IS NOT A CARD WITH HOLES.  fillCoverage gives up after
+	# A DEAD SOURCE IS NOT A FILE WITH HOLES.  fillCoverage gives up after
 	# a run of consecutive failures rather than aiming thousands of
 	# pointless requests at somebody's server; that is a stopped run, not
 	# a result, and there is nothing to export from it.
@@ -696,7 +696,7 @@ sub buildOutput
 	{
 		$report->{secs} = time() - $started;
 		return _refuse($report,'failed',
-			"$fill->{error} tile(s) never arrived - the card would have ".
+			"$fill->{error} tile(s) never arrived - the file would have ".
 				"holes the plotter hides by overzooming",
 			_firstN($fill->{failed_tiles},10),
 			($fill->{error} > 10 ?
@@ -722,11 +722,11 @@ sub buildOutput
 		my $reg = getRegion($id) or next;
 
 		# CANCEL IS CHECKED HERE TOO, between files rather than during one.
-		# Writing a card is short next to fetching one, but a set of five
+		# Writing a file is short next to fetching one, but a set of five
 		# is not, and a Cancel button that does nothing for a minute reads
-		# as a hang.  Between files is also the only safe place: a card is
+		# as a hang.  Between files is also the only safe place: a file is
 		# written through a temp name and renamed, so stopping here leaves
-		# no fragment - only whole cards, and the report says how many.
+		# no fragment - only whole files, and the report says how many.
 
 		if (progressCancelled($prog))
 		{
@@ -841,13 +841,13 @@ sub buildReportLines
 	# A report that never reached a format still has to render - a refusal
 	# on the format name itself is exactly that case.
 
-	my $noun = $report->{noun} || 'card';
+	my $noun = $report->{noun} || 'file';
 	my $unit = $report->{unit} || 'blk';
 
 	if ($report->{cancelled})
 	{
 		# A CANCEL DURING THE WRITE IS NOT THE SAME AS ONE DURING THE
-		# FETCH, and saying "nothing was written" when whole cards are
+		# FETCH, and saying "nothing was written" when whole files are
 		# sitting in the folder would be a lie the user finds later.
 
 		if ($report->{partial})
@@ -859,7 +859,7 @@ sub buildReportLines
 			push @out,"  $_->{name}" for @{$report->{regions}};
 			push @out,'';
 			push @out,"Those are complete and the rest were not written,";
-			push @out,"so the folder is a PARTIAL $noun set.  Build again to";
+			push @out,"so the folder is INCOMPLETE.  Build again to";
 			push @out,"finish it - the tiles are cached, so it will be quick.";
 			return \@out;
 		}
@@ -885,7 +885,7 @@ sub buildReportLines
 	push @out,$report->{out_dir};
 
 	# A WARNING SURVIVES INTO THE REPORT.  It was shown in the preflight
-	# and accepted there, and it is still true of the card that now exists
+	# and accepted there, and it is still true of the file that now exists
 	# - a success message that quietly drops it would leave the only
 	# record of the decision in a dialog that has been closed.
 
@@ -934,7 +934,7 @@ sub buildReportLines
 		push @out,"$report->{totals}{converted} tile(s) did not arrive as ".
 			"JPEG and were re-encoded at quality ".
 			($report->{quality} // prefVal($PREF_JPEG_QUALITY)).".";
-		push @out,"A card holds JPEG only. Set the quality in Preferences.";
+		push @out,"An .rct holds JPEG only. Set the quality in Preferences.";
 	}
 
 	if ($report->{fill})

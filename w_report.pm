@@ -7,7 +7,7 @@
 # THREE OUTCOMES, NOT A MESSAGE BOX SAYING DONE.  A build ends one of
 # three ways and they need different things from the user:
 #
-#	BUILT      here is what is on the card, and where it is
+#	BUILT      here is what was written, and where it is
 #	REFUSED    here is what to fix, and nothing was written
 #	CANCELLED  you stopped it, and nothing was written
 #
@@ -54,10 +54,10 @@ sub show
 
 	# A HEADLINE THAT SAYS WHICH OF THE THREE IT WAS, above the detail,
 	# because the detail of a refusal and the detail of a success look
-	# alike at a glance and only one of them means there is a card.
+	# alike at a glance and only one of them means something was written.
 
 	my %headline = (
-		built		=> 'The card files were written.',
+		built		=> 'The .rct files were written.',
 		refused		=> 'Nothing was written.',
 		cancelled	=> 'Stopped. Nothing was written.',
 	);

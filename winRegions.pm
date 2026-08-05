@@ -221,7 +221,7 @@ sub new
 
 	# ROW 1 -- Save, the id, and the map checkbox.  The ID IS STRUCTURAL
 	# -- the file name, the key every set references, and the stem of the
-	# exported card file -- which is why it leads rather than the name,
+	# exported file -- which is why it leads rather than the name,
 	# and why it has a field of its own: SanBlasE is not a slug of 'San
 	# Blas East', it is a decision.
 
@@ -810,7 +810,7 @@ sub newRegionDialog
 	return if !defined($name) || $name !~ /\S/;
 
 	# The zooms come from the regions already here, because every file
-	# on one card must agree on zauthor and zmin.  Offering what already
+	# built together must agree on zauthor and zmin.  Offering what already
 	# works is how this stops making an unbuildable sibling.
 
 	my ($za,$zn,$zx) = (15,10,16);
@@ -1150,7 +1150,7 @@ sub _nodeLabel
 	# cannot say two different things about the same node.
 	#
 	# THE NUMBERS ARE A COLUMN, fixed width, because a set whose regions
-	# disagree about zauthor cannot be built onto one card - and a
+	# disagree about zauthor cannot be built together - and a
 	# disagreement has to be visible at a glance rather than found by
 	# clicking five regions and remembering what each one said.  The tree
 	# is the only surface that can show it; see docs/design/editing_tree.md.
@@ -1167,7 +1167,7 @@ sub _nodeLabel
 
 
 sub _setSummary
-	# WHAT THE SET IS, AND WHETHER IT COULD BUILD.  Every file on one card
+	# WHAT THE SET IS, AND WHETHER IT COULD BUILD.  Every .rct built together
 	# must agree on zauthor and zmin, so a set that does not agree with
 	# itself is worth saying at the top of the window rather than leaving
 	# to be discovered by a build.
@@ -1462,8 +1462,8 @@ sub _enableControls
 
 sub _setProperties
 	# THE DOCUMENT, said plainly.  The folder IS the answer to "what is on
-	# the card", so it is readable here rather than inferred - and what is
-	# unsaved is part of that answer, because a card built now would be
+	# built", so it is readable here rather than inferred - and what is
+	# unsaved is part of that answer, because a file built now would be
 	# built from the files rather than from what is on screen.
 {
 	my ($this) = @_;
@@ -1501,11 +1501,11 @@ sub _setProperties
 		getRegion($_)->{zauthor}) for @ids;
 
 	$text .= "
-EVERY region in a set is on the card it builds.  The files
+EVERY region in a set is in what it builds.  The files
 ".
 		"present in the folder ARE the set - there is no manifest, and
 ".
-		"hiding a region here does not take it off the card.
+		"hiding a region here does not leave it out of the built file.
 ";
 	$text .= "
 Nothing is written until the set is saved.
@@ -1532,7 +1532,7 @@ sub showProperties
 
 		# WITH NOTHING SELECTED THE PANEL DESCRIBES THE DOCUMENT, which is
 		# the only thing there is to say when no one region has been asked
-		# about - and answers "what is on the card" without a click.
+		# about - and answers "what gets built" without a click.
 
 		$this->{props}->SetValue($node ?
 			"region '$node->{root_id}' is gone\n" : $this->_setProperties());
@@ -1592,7 +1592,7 @@ sub showProperties
 			'zauthor',$reg->{zauthor});
 		$text .= sprintf("%-16s %d\n",'zmin',$reg->{zmin});
 		$text .= sprintf("%-16s %d\n",'zmax',$reg->{zmax});
-		$text .= sprintf("%-16s %s.rct\n",'card file',$reg->{id});
+		$text .= sprintf("%-16s %s.rct\n",'file',$reg->{id});
 	}
 	else
 	{
@@ -1620,7 +1620,7 @@ sub showProperties
 			if ($reg->{source_name} // '') =~ /\S/;
 	}
 
-	$text .= sprintf("%-16s %s  (it is on the card either way)\n",'shown on map',
+	$text .= sprintf("%-16s %s  (it is built either way)\n",'shown on map',
 		isChecked($node->{root_id}) ? 'yes' : 'no');
 	$text .= sprintf("%-16s %s\n",'notes',$reg->{notes}) if $reg->{notes};
 

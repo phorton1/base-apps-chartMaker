@@ -147,7 +147,7 @@ crosses in either direction. See [Build](design/build.md#progress-and-where-the-
 before the application object, deliberately, so they inherit a loaded model and copy an
 interpreter with no widgets in it. A worker launched from a menu cannot do that. There is
 precedent outside this application - the same shared-record-and-detached-worker shape drives
-a card write from navMate's GUI - and none inside it, which is the reason to say so here.
+an `.rct` write from navMate's GUI - and none inside it, which is the reason to say so here.
 
 **Fetch and build are one piece of machinery.** They differ only in which function the
 worker calls and what the report says; building it twice is how the two end up behaving

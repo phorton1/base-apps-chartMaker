@@ -535,7 +535,7 @@ function drawInfo() {
     }
     if (s && s.active_set) {
         infoRow('set', s.active_set + (s.set_dirty ? ' *' : ''));
-        // TILE COUNTS ARE NOT INTERESTING AT SET LEVEL - what a whole card
+        // TILE COUNTS ARE NOT INTERESTING AT SET LEVEL - what a whole build
         // costs is, and that is one number.
         if (c && c.set) infoRow('size', prettyBytes(c.set.bytes), 'cm-info-in');
     }
@@ -624,7 +624,7 @@ const COVERAGE_STYLE = {
 };
 
 // WHILE PREVIEW IS ON THE LEVEL IS NOT A CHOICE.  Preview fills in the
-// tiles the card holds at the zoom being looked at, so a footprint pinned
+// tiles the output holds at the zoom being looked at, so a footprint pinned
 // to some other level would be outlining a different question's answer -
 // and the two disagreeing on screen is exactly what made the halo
 // unreadable. Following the map is what makes the outlines mean "these are

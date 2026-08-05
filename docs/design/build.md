@@ -33,11 +33,11 @@ asked before the first request goes out.**
 folder. It is the *build configuration*, and it persists: `region_sets/<set>/build.json`.
 
 **Two - what it will cost.** Tiles to fetch, already cached, and recorded absences, grouped
-by source; the estimated time; the size of the output; which cards will be replaced; which
-cards are in that folder and are *not* part of this build; and whether the chartset would
+by source; the estimated time; the size of the output; which files will be replaced; which
+files are in that folder and are *not* part of this build; and whether the build would
 disagree with itself. Then Build, Back, or Cancel.
 
-**Half of that second dialog is about a CARD, not about building.** Replacement, foreign
+**Half of that second dialog is about the OUTPUT FOLDER, not about building.** Replacement, foreign
 files in the folder, and chartset agreement are all questions about one fused E-Series
 pyramid; an output whose files are independent charts has no chartset to disagree with and
 no headers to survey. So the analysis is told which format it is for and does not compute
@@ -67,14 +67,14 @@ dirtiness from the `.region` leaves present. The configuration is invisible to b
 would demand a save before a build could run, and the build refuses to run dirty.
 
 **What is deliberately not in it:** `zmax`, and anything else that changes what a build puts
-on a card beyond *which regions*. Two people with the same region set must be able to get
-the same card.
+beyond *which regions*. Two people with the same region set must be able to get
+the same output.
 
 ## The output folder is a suggestion
 
 `<RASTER_DIR>/<set>` is where a build goes unless told otherwise, and it can be told
 otherwise. That is what makes a trial build possible - somewhere other than the folder you
-copy to the card - and it softens rebuilding, because the thing you are overwriting is a
+copy onto a card - and it softens rebuilding, because the thing you are overwriting is a
 choice rather than a fixed destination.
 
 **The default is created as needed; a chosen one must already exist.** That asymmetry is the
@@ -84,7 +84,7 @@ unmounted drive, or a configuration copied from another machine than an instruct
 a tree somewhere unexpected, and building it would look like success while hiding the real
 problem. The folder browser's own *Make New Folder* is what creates one, as a user action.
 
-**That choice belongs to the card, and only to it.** The remembered `out_dir` is where an
+**That choice belongs to the `.rct` build, and only to it.** The remembered `out_dir` is where an
 E-Series card gets assembled - the folder copied wholesale to CF - so an
 [mbtiles](mbtiles.md) build landing a tree of region folders in the middle of it would make
 that copy a decision instead of a copy. MBTiles therefore has one destination and nothing to
@@ -130,23 +130,23 @@ a build does not depend on anybody having looked at the region first.
 
 Filling the cache remains available on its own, because it is the half that takes the hour:
 an author can fill a region overnight and build in a minute the next morning. Running it
-alone refuses nothing, since it writes no card.
+alone refuses nothing, since it writes no output.
 
 ## Present, absent, and failed
 
 The cache answers three ways, and the difference exists only for as long as the build holds
 it:
 
-| cache says             | means                                | on the card        | the build |
+| cache says             | means                                | in the file        | the build |
 | ---------------------- | ------------------------------------ | ------------------ | --------- |
 | bytes                  | the tile                             | written            | fine      |
 | a recorded absence     | the source **asserted** it has none  | miss bit, overzoom | reports   |
 | nothing at all         | the fetch never succeeded            | miss bit, overzoom | refuses   |
 
-**On the card the last two are indistinguishable.** Both set the miss bit, both make the
+**In the file the last two are indistinguishable.** Both set the miss bit, both make the
 plotter magnify an ancestor, both look soft rather than broken. One of them is the truth
 about the ground and is correct to ship; the other is a hole that should not be there. The
-card can never tell them apart - the build can, and only at the moment the tile passes
+file can never tell them apart - the build can, and only at the moment the tile passes
 through it.
 
 So an asserted absence is **information, not a warning**. It is the normal edge of a
@@ -160,10 +160,10 @@ tolerates a hole *because it must* and that tolerance is not a quality standard.
 
 ## What a refusal costs
 
-Nothing, and that is deliberate. A build that refuses has written no card at all - not a
+Nothing, and that is deliberate. A build that refuses has written no file at all - not a
 partial one, not an earlier region's. Every `.rct` is written to a temporary name and
 renamed only on success, so a cancel, a crash or a full disk cannot leave a file that looks
-like a card and is a fragment. A cancelled or refused build leaves the folder exactly as it
+complete and is a fragment. A cancelled or refused build leaves the folder exactly as it
 found it.
 
 Both refusals that a user might legitimately disagree with - unsaved edits, and tiles that
@@ -323,12 +323,12 @@ it, and the two would disagree at exactly the seams where disagreement is most e
 
 ## Filling the cache is a separate act from building
 
-The exporter fetches nothing. An uncached tile is simply absent from the card: the miss bit
+The exporter fetches nothing. An uncached tile is simply absent from the file: the miss bit
 is set and the plotter overzooms from a present ancestor, which is exactly the behaviour the
 format is designed around. That is right for the exporter and wrong as a way to acquire
 imagery, because the failure it produces is invisible. Reshaping an existing area rebuilds
 happily from what browsing already cached; **new ground at depth has never been fetched**, so
-the card comes back with holes that the plotter papers over. It looks soft rather than
+the output comes back with holes that the plotter papers over. It looks soft rather than
 broken, which reads on the water as "the imagery is bad there" instead of "we never fetched
 it."
 
@@ -514,7 +514,7 @@ for a service that refuses what it does not have that is the entire answer.
 ### It needs a decoder, and works without one
 
 Pixels are reached through one narrow seam that decodes a tile and encodes one - the same seam
-the exporter will use to turn a png source into a jpeg for a card. Neither consumer resamples
+the exporter uses to turn a png source into a jpeg for an `.rct`. Neither consumer resamples
 output, reprojects or composites.
 
 **With no decoder installed the probe still runs**, reports samples, found and absent, and
@@ -563,9 +563,9 @@ where a region should extend to, because it shows what is out there beyond the b
 ```
 
 **The middle line has no fallback, and that is the design rather than an omission.** A
-plotter answers a request for a tile the card does not hold by magnifying the deepest
+plotter answers a request for a tile the file does not hold by magnifying the deepest
 ancestor it has, and preview reproduced that at first. It made the built edge unreadable:
-real imagery and magnified imagery look alike, so the card appeared to extend a long way
+real imagery and magnified imagery look alike, so the chartset appeared to extend a long way
 past where it actually stopped - a halo of progressively coarser imagery, one tile wider at
 each level, which is genuinely what a plotter shows and is useless for deciding anything.
 
@@ -576,7 +576,7 @@ actually stops.
 **And it is client independent, which is the stronger reason.** A fallback render is a model
 of one consumer's behaviour: the E-Series magnifies the deepest tile it holds, OpenCPN allows
 essentially unlimited overzoom from the deepest level in the file, and neither is a fact
-about the chartset. What the card *contains* is the same answer whoever reads it - so this
+about the chartset. What the file *contains* is the same answer whoever reads it - so this
 mode stays true as consumers are added, and needs no evidence about any of them to be
 trusted. A simulation would need to be validated against every client it claimed to
 simulate, and would be quietly wrong the moment one changed.
@@ -588,18 +588,18 @@ bare context outside it. That difference IS the information.
 **The tile footprint comes with it.** Filled tiles alone do not say where a tile ends, and
 the edge of the built area is what preview is for - so preview turns the footprint on and
 pins it to the map's zoom, and the two answer the same question at the same level: the
-outlines say which tiles are on the card, the fill says what is in them.
+outlines say which tiles get built, the fill says what is in them.
 
 **A tile the source does not have is drawn as a hole**: a muted orange rectangle with a pale
 outline. Orange because it has to be findable at a glance against dark water; muted because a
 region that has never been fetched is a screen full of them and a bright colour would be
 unreadable; outlined because fill alone disappears into brown coastline at low zoom. It is
-deliberately the most conspicuous thing preview can show, since a hole in a card is invisible
+deliberately the most conspicuous thing preview can show, since a hole in a file is invisible
 on the plotter - it overzooms an ancestor and simply looks soft.
 
 The context layer is **visually marked** - dimmed or desaturated, with the coverage
 boundary drawn over it. A user who sees imagery and assumes it is in their chartset is
-preview failing at its only job, and "colour means it is in the card" is a rule learned
+preview failing at its only job, and "colour means it gets built" is a rule learned
 once and never misread.
 
 Preview generates viewport-shaped traffic exactly as browsing does. It never walks the
@@ -614,9 +614,9 @@ them is a property any single region can hold.
 **The source checks apply per resolved source across the whole region tree**, not once per
 region. A subregion may legitimately name a different source than its parent - that is the
 whole point of the field being on both - so a check that ran per region would happily pass a
-region whose detail box is built from something the card cannot carry.
+region whose detail box is built from something the output cannot carry.
 
-**The model must be on disk.** A card built from unsaved edits cannot be rebuilt from the
+**The model must be on disk.** A file built from unsaved edits cannot be rebuilt from the
 set that is supposed to define it, and the entire claim of a region set is that it *is* the
 recipe. On a surface with somebody to ask, this is a question with an obvious answer and is
 asked rather than refused; on the console it refuses and names the flag.
@@ -625,30 +625,30 @@ asked rather than refused; on the console it refuses and names the flag.
 structural, not stylistic: the E-Series firmware holds those two on the chartset - it fuses
 every `.RCT` on a card into one pyramid and indexes it as `zdir[z - zmin]` - so they are
 properties of the *set*. Each file carries the set's values redundantly, which is exactly
-what lets a card be defined by which files are present rather than by a manifest, and lets
+what lets a chartset be defined by which files are present rather than by a manifest, and lets
 the consumer check agreement instead of trusting a declaration.
 
 The failure it prevents is the one the format cannot absorb. The reveal aperture is cut at
-the coarsest `zauthor` on the card; if that level is finer than some file's `zmin`, that
+the coarsest `zauthor` present; if that level is finer than some file's `zmin`, that
 file has no tiles at the outline level, contributes no outline, and its imagery sits on the
-card fully built and permanently invisible.
+file fully built and permanently invisible.
 
 **It warns, and does not refuse.** Trying a new `zauthor` on one region before converting a
 whole chartset is a legitimate thing to want, and a hard refusal makes it impossible. So the
 preflight says so prominently and the author decides - which is the position this
 application already takes about imagery depth, for the same reason.
 
-**And it asks the folder, not only the build.** "Every file on one card" is a statement about
-a *folder*, and a folder can hold cards built at other times, from other sets, or from a
+**And it asks the folder, not only the build.** "Every `.rct` that will be read together" is a statement about
+a *folder*, and a folder can hold files built at other times, from other sets, or from a
 region since renamed. So the check reads the `zauthor` and `zmin` out of the `.rct` headers
 already there - 24 bytes each - as well as from the regions about to be written. That is the
 case a check across the build alone cannot see: building one region at a new `zauthor` into a
-folder of older cards, where the regions being built agree perfectly because there is only
+folder of older files, where the regions being built agree perfectly because there is only
 one of them.
 
 `zmax` is genuinely per-region and must not be forced to match.
 
-**The exported card file name must be a genuine 8.3 short name.** Asserted at export, for
+**The exported file name must be a genuine 8.3 short name.** Asserted at export, for
 reasons that are only visible from this side of the boundary - see
 [RCT](rct.md#two-constraints-only-chartmaker-can-see).
 
@@ -658,7 +658,7 @@ one file names one format in its own metadata. A source may legitimately declare
 nothing stops such a source declaring `build` in its `uses`, so the combination is reachable
 without anybody doing anything wrong.
 
-What a PNG source must never produce is a structurally valid card full of bytes the plotter
+What a PNG source must never produce is a structurally valid file full of bytes the plotter
 cannot decode: built, reported as successful, and blank on the water. That is the worst
 failure this application can produce, because every signal says it worked.
 
@@ -719,7 +719,7 @@ hour actually goes. One bar for the whole build would sit at twenty percent for 
 an hour and tell nobody whether anything was still happening.
 
 **A cancel sets a flag and waits.** The worker notices within one request, finishes the tile
-in hand and unwinds; killing it outright would leave a half-written card and a cache
+in hand and unwinds; killing it outright would leave a half-written file and a cache
 mid-write. Nothing is poisoned by stopping, because an error is never cached - so running it
 again resumes.
 
@@ -729,7 +729,7 @@ drift from the first. So the worker renders it with the same function the consol
 and both surfaces read the one rendering. A build ends in one of three ways - built, refused,
 cancelled - and the report says which before it says anything else, because the detail of a
 refusal and the detail of a success look alike at a glance and only one of them means there
-is a card.
+something was written.
 
 ## What a run will cost, before committing to it
 

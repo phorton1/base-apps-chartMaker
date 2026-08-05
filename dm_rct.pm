@@ -13,7 +13,7 @@
 # -- neither of which is a fact about a container of tiles.
 #
 # NOTHING IS FETCHED HERE.  A tile the cache does not hold is simply
-# absent from the card, which the format expresses natively (the miss bit
+# absent from the file, which the format expresses natively (the miss bit
 # is set and the plotter overzooms from a present ancestor).  Filling the
 # cache is the build's job and happens before this runs.
 #
@@ -27,7 +27,7 @@
 # whether a source is installed, may build, and can be carried by THIS
 # format are three questions the build answers before it gets here.
 #
-# ABSENT AND FAILED ARE NOT THE SAME MISSING TILE, even though the card
+# ABSENT AND FAILED ARE NOT THE SAME MISSING TILE, even though the file
 # cannot tell them apart.  A cached '.none' marker is the source asserting
 # it has no such tile, which is a fact about the ground and correct to
 # ship.  Nothing on disk at all means the fetch never succeeded, which is
@@ -38,7 +38,7 @@
 # BLOCKS ARE FEW AND LARGE, deliberately.  The firmware builds its reveal
 # aperture as a list of screen rectangles, closing a run at every block
 # edge as well as at every absent cell, out of a budget shared across the
-# whole card.  Fragmenting a zoom spends that budget on seams rather than
+# whole chartset.  Fragmenting a zoom spends that budget on seams rather than
 # on coverage.  So: one block over the whole region at its own levels,
 # and one block per subregion at the levels only that subregion reaches.
 # That is exactly the structure regionCoverageNodes() reports.
@@ -63,11 +63,11 @@ BEGIN
 	use Exporter qw( import );
 	our @EXPORT = qw(
 		writeRct
-		rctCardName
+		rctFileName
 		rctCanCarry
 		rctCanConvert
 		rctFormats
-		rctCardInfo
+		rctFileInfo
 		rctScanFolder
 		rctLastError
 	);
@@ -148,7 +148,7 @@ sub _semiNorthing
 #
 # This is a whitelist and not a blacklist on purpose.  A format nobody has
 # considered is refused rather than shipped, because the failure it
-# produces is a card that builds, reports success, and is blank on the
+# produces is a file that builds, reports success, and is blank on the
 # water.
 #
 # Format conversion has since arrived, and this is now the place a format
@@ -223,8 +223,8 @@ sub rctCanConvert
 }
 
 
-sub rctCardName
-	# The 8.3 short name the card carries.  The stem is the region id and
+sub rctFileName
+	# The 8.3 short name the file carries.  The stem is the region id and
 	# nothing else -- see docs/design/rct.md on why this is asserted here
 	# rather than trusted.
 {
@@ -242,14 +242,14 @@ sub rctCardName
 # end, after the tile data.  Normative spec:
 # Pub/Ray/docs/e80_firmware/deployment/raster_chart_format.md.
 #
-# PER FILE, NOT PER CARD, and that is the one place it differs from
+# PER FILE, NOT PER CHARTSET, and that is the one place it differs from
 # zauthor and zmin.  Those are properties of the chartset because the
 # firmware fuses every .rct into one pyramid; a credit is a property of
 # the imagery in this region, and a region may legitimately be built from
 # a different source than the one beside it.  So each file carries its
 # own and a consumer collects the distinct strings across the set.
 #
-# 0/0 MEANS NO ATTRIBUTION, which is also exactly what a card written
+# 0/0 MEANS NO ATTRIBUTION, which is also exactly what a file written
 # before the field existed reads as -- 0x38 was reserved-zero.  That
 # indistinguishability is deliberate and is why nothing needs a version
 # bump.
@@ -267,7 +267,7 @@ sub _asciify
 	# TRANSLITERATED RATHER THAN STRIPPED, because dropping is worse than
 	# it looks -- a stripped copyright sign leaves "Imagery  Google" and a
 	# stripped accent turns "Jose" into "Jos".  A credit line is the one
-	# piece of text on a card that somebody may have a legal interest in
+	# piece of text in a file that somebody may have a legal interest in
 	# being legible.
 {
 	my ($text) = @_;
@@ -334,20 +334,20 @@ sub _attributionFor
 
 
 #---------------------------------------------
-# reading a card back
+# reading a file back
 #---------------------------------------------
 
-sub rctCardInfo
+sub rctFileInfo
 	# What one .rct on disk says about itself, from its first 24 bytes.
 	#
-	# THE CARD IS A BETTER WITNESS THAN THE SET, which is the whole reason
-	# this exists.  "Every file on one card must agree on zauthor and zmin"
+	# THE FILE IS A BETTER WITNESS THAN THE SET, which is the whole reason
+	# this exists.  "Every .rct in one folder must agree on zauthor and zmin"
 	# is a statement about a FOLDER, and a folder can hold files built at
 	# different times from different sets or from a region since renamed.
 	# Asking the region files answers a question about what would be built
-	# now; asking the cards answers the question the firmware will ask.
+	# now; asking the files answers the question the firmware will ask.
 	#
-	# 128 bytes per file and no seeking, so a folder of cards costs
+	# 128 bytes per file and no seeking, so a folder of them costs
 	# nothing to survey.
 {
 	my ($path) = @_;
@@ -374,9 +374,10 @@ sub rctCardInfo
 	}
 
 	# THE CREDIT IS READ BACK BECAUSE THE FILE IS ALREADY OPEN.  A folder
-	# survey opens every card anyway, so knowing what each one credits
+	# survey opens every file anyway, so knowing what each one credits
 	# costs one seek - and "what does this chartset say it is made from"
-	# is a question only the cards can answer once they are on a card.
+	# is a question only the files can answer once they have been copied
+	# onto a card and the set that built them is elsewhere.
 	#
 	# CLAMPED, because attrib_length is a file-supplied u32 and must never
 	# reach an allocator unchecked.  A corrupt or truncated file fails to
@@ -410,7 +411,7 @@ sub rctCardInfo
 
 sub rctScanFolder
 	# Every readable .rct in one folder, by lower-cased stem.  Files that
-	# are not cards are skipped rather than reported: a folder the user
+	# are not .rct files are skipped rather than reported: a folder the user
 	# nominated is theirs and may hold anything.
 {
 	my ($dir) = @_;
@@ -424,7 +425,7 @@ sub rctScanFolder
 
 	for my $leaf (@leaves)
 	{
-		my $info = rctCardInfo("$dir/$leaf") or next;
+		my $info = rctFileInfo("$dir/$leaf") or next;
 		$out{lc($info->{stem})} = $info;
 	}
 	return \%out;
@@ -550,7 +551,7 @@ sub writeRct
 	return _err("writeRct: no region")      if !$reg;
 	return _err("writeRct: no source map")  if !$sources || !%$sources;
 
-	my $name = rctCardName($reg->{id});
+	my $name = rctFileName($reg->{id});
 	return _err("writeRct: region id '$reg->{id}' is not a usable 8.3 stem ".
 		"- at most 8 characters, [A-Za-z0-9] only") if !$name;
 
@@ -562,7 +563,7 @@ sub writeRct
 	# A NODE WITH NO SOURCE IS A BUILD ERROR THAT GOT THIS FAR.  The build
 	# resolves and validates every node's source before any of this runs,
 	# so reaching here means the map and the tree disagree -- which would
-	# otherwise show up as a whole subregion silently absent from the card.
+	# otherwise show up as a whole subregion silently absent from the file.
 
 	for my $z (keys %$by_zoom)
 	{
@@ -623,7 +624,7 @@ sub writeRct
 			# the blobs differently on every build - two builds of the
 			# same region would differ in tens of megabytes and could not
 			# be diffed.  Sorting also stores tiles that are read together
-			# next to each other, which is what a viewport asks the card
+			# next to each other, which is what a viewport asks the file
 			# for.
 
 			for my $key (sort { my ($ax,$ay) = split(/_/,$a);
@@ -635,7 +636,7 @@ sub writeRct
 				my $got = cacheGet($blk->{source},$z,$x,$y);
 
 				# NOTHING ON DISK is not the same answer as a cached
-				# absence.  The card writes the same miss bit for both, so
+				# absence.  The file writes the same miss bit for both, so
 				# this is the last moment the difference exists at all.
 
 				if (!$got)
@@ -662,14 +663,14 @@ sub writeRct
 				#
 				# AND THIS IS WHERE AN IMAGE FINALLY ENTERS THIS PROCESS.
 				# It did not before, and the sentence saying so was true
-				# and worth keeping right up until the day a card could be
+				# and worth keeping right up until the day a file could be
 				# built from a png source at all.  What enters is one tile,
 				# decoded and written straight back out as jpeg.  Nothing
 				# is resampled, reprojected or composited - the image
 				# stack this application refuses is still refused - and
 				# THE CACHE IS NOT TOUCHED.  The cache holds what the
-				# service sent; the format a card needs is a property of
-				# the card, so the conversion lives at this seam and
+				# service sent; the format an .rct needs is a property of
+				# the format, so the conversion lives at this seam and
 				# nowhere earlier.
 
 				my $bytes = $got->{bytes};
@@ -688,7 +689,7 @@ sub writeRct
 								" and cannot be converted" :
 								" and cannot be converted, because no image ".
 								"decoder is installed").
-							" - the card would be structurally valid and ".
+							" - the file would be structurally valid and ".
 							"blank on the plotter");
 					}
 					$bytes = $conv;
@@ -751,7 +752,7 @@ sub writeRct
 	# move the zoom directory, whose position is a compiled-in constant in
 	# the consumer - so putting it at the end means NOTHING ELSE IN THE
 	# LAYOUT MOVES: every existing offset stays valid, a reader built
-	# before the field ignores it, and one built after reads an older card
+	# before the field ignores it, and one built after reads an older file
 	# as "no attribution".
 
 	my $attrib = _attributionFor($nodes,$sources);
@@ -762,12 +763,12 @@ sub writeRct
 	# ---- write
 	#
 	# THROUGH A TEMP FILE AND A RENAME, for the reason dm_cache writes
-	# tiles the same way: a card is written over many seconds and a
+	# tiles the same way: a file is written over many seconds and a
 	# cancel, a crash or a full disk in the middle of it would otherwise
-	# leave a .rct that looks like a card and is a fragment.  The plotter
+	# leave a .rct that looks complete and is a fragment.  The plotter
 	# would read the header, believe the zoom directory, and follow
 	# offsets into a file that stops early.  The rename is the moment the
-	# card exists, and nothing before it is visible under the real name.
+	# file exists, and nothing before it is visible under the real name.
 
 	my $tmp = "$path.tmp";
 	my $fh;
@@ -871,7 +872,7 @@ sub writeRct
 	}
 
 	# Windows rename() will not replace an existing file, so the previous
-	# card has to go first.  The window between the two is the one moment
+	# file has to go first.  The window between the two is the one moment
 	# a rebuild is destructive, and it is as short as it can be made.
 
 	unlink($path) if -e $path;

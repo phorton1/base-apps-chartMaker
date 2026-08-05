@@ -22,7 +22,7 @@ folders: **[Home](../readme.md)** --
 **`.RCT` is exporter number one.** The aerial photo overlay in the custom E-Series firmware
 built by [navMate](https://github.com/phorton1/base-apps-navMate/blob/master/docs/readme.md)
 reads a purpose-built on-card raster format: one `.RCT` file per region, under `\RASTER\` on
-a CF card. A card is a deployment artifact rather than a source of truth - it is
+a CF card. Those files are a deployment artifact rather than a source of truth - they are
 regenerated, never edited.
 
 **The byte format is not specified here.** It is specified by its own document, in the
@@ -64,7 +64,7 @@ The producer contracts in the format spec are not extra work: they are the model
 The one thing worth restating in the consumer's own terms is **why** completeness over
 `[zauthor..zmax]` cannot be traded away. The plotter cuts its reveal aperture from the
 polygon at `zauthor` and paints at whatever level the view scale calls for. The painted set
-must therefore be a superset of the revealed set at every level the card carries. A
+must therefore be a superset of the revealed set at every level the file carries. A
 partially populated level opens an aperture onto ground that nothing painted.
 
 ## Two constraints only chartMaker can see
@@ -88,14 +88,14 @@ it removes more than about six empty cells. Where the two disagree, prefer fewer
 disk cost of an empty cell is eight bytes and the cost of an exhausted rectangle budget is
 the whole feature degrading to its pre-aperture behaviour.
 
-**The card file name must be a genuine 8.3 short name.** The renderer's mount scan accepts
+**The file name must be a genuine 8.3 short name.** The renderer's mount scan accepts
 an entry whose name ends in `.RCT`, relying on the filesystem reader handing back an
 upper-cased name - which is true of names that are valid FAT short names. Whether a longer
 or mixed-case name survives that path is a property of how the file was *written to the
 card*, on the other side of a boundary the firmware cannot see. chartMaker is the only party
 in a position to guarantee it, so the exporter asserts it: the stem is the region id, at
 most eight characters, alphanumeric. A build that cannot satisfy that fails rather than
-producing a card whose file names depend on Windows' `~1` numbering.
+producing files whose names depend on Windows' `~1` numbering.
 
 This is also why the region id is restricted to `[A-Za-z0-9]` and is a field of its own
 rather than a slug of the name - see [Regions](regions.md#the-id-is-structural).
@@ -140,7 +140,7 @@ Each `.rct` carries the credit text for the imagery in it, located by `attrib_of
 contract is normative in `Pub/Ray/docs/e80_firmware/deployment/raster_chart_format.md`; what
 belongs here is what the *producer* decides.
 
-**It is per file, not per card** - the one place it differs from `zauthor` and `zmin`. Those
+**It is per file, not per chartset** - the one place it differs from `zauthor` and `zmin`. Those
 are properties of the chartset because the firmware fuses every file into one pyramid; a
 credit is a property of the imagery in this region, and a region may legitimately be built
 from a different source than the one beside it. So each file carries the distinct credits of
@@ -149,10 +149,10 @@ the sources its own tiles came from, in walk order, deduplicated.
 **Placing it last is what makes it free.** Variable-length data anywhere earlier would move
 the zoom directory, whose position is a compiled-in constant in the consumer. At the end,
 nothing else in the layout moves - which is demonstrable rather than merely argued: adding
-it to the Bocas card grew the file by exactly the length of the credit and changed **five
+it to the Bocas file grew it by exactly the length of the credit and changed **five
 bytes** of the original 70 MB, all of them inside the `0x38` field.
 
-`0`/`0` means no attribution, which is also exactly what a card written before the field
+`0`/`0` means no attribution, which is also exactly what a file written before the field
 existed reads as, since `0x38` was reserved-zero. That indistinguishability is why the
 format version does not move.
 
@@ -161,12 +161,12 @@ the eventual consumer is a firmware font renderer, and a credit that arrives as 
 become ASCII somewhere. Dropping the offending bytes is worse than it looks - a stripped
 copyright sign leaves `Imagery  Google`, and a stripped accent turns `Jose` into `Jos` - so
 the symbols are spelled out (`(c)`, `(r)`, `(tm)`) and accented letters fall back to their
-base forms. A credit line is the one piece of text on a card somebody may have a legal
+base forms. A credit line is the one piece of text in a file somebody may have a legal
 interest in being legible.
 
 ## JPEG only, and PNG converted into it
 
-An `.RCT` carries JPEG. A card full of bytes the plotter cannot decode would report success
+An `.RCT` carries JPEG. A file full of bytes the plotter cannot decode would report success
 and be blank on the water, which is the worst failure this application can produce, so what
 goes into the file is checked per tile against the format the cache **detected from the
 bytes** rather than against anything a `.tsd` declared.
@@ -177,29 +177,29 @@ of the same ground, in a container the plotter can read. Nothing is resampled, r
 or composited, and no pixel is examined.
 
 **The conversion belongs to the exporter and not the cache.** The cache stores what the
-source sent, and the format a card needs is a property of the card. A build that wrote
+source sent, and the format an `.rct` needs is a property of the format. A build that wrote
 converted bytes back would turn the cache into a record of what was last built rather than
 of what was served, and a second output format would then inherit the first one's
 compromises.
 
 **Quality is a preference, and it reaches only converted tiles.** A tile that arrived as
 JPEG is copied byte for byte and no setting can touch it. The default is 90; measured
-against a service that answers the same ground as both formats, that writes a card about
+against a service that answers the same ground as both formats, that writes a file about
 1.5x the size a natively-JPEG source produces, with byte-for-byte parity near 80. A PNG
 also costs about 7.5x the JPEG on the wire and in the cache, for identical ground, which
 is worth knowing when a service offers a choice of address. It is a preference because it
-changes the bytes without changing what the card asserts - the same ground, the same zooms,
+changes the bytes without changing what the file asserts - the same ground, the same zooms,
 the same source. Anything that changed those would belong to the region.
 
-**The decoder is optional and a card is not.** Conversion needs an image decoder installed;
+**The decoder is optional and a readable file is not.** Conversion needs an image decoder installed;
 where there is none, a source that declares PNG is refused before a build starts rather
 than an hour into one, and a source that declares JPEG and turns out to serve PNG is
 refused by the per-tile check. Both refusals name the format and say that nothing could
 convert it. See [Build](build.md#what-the-build-validates-before-it-runs).
 
-## The card is smaller than the model, and costs nothing extra
+## The output is smaller than the model, and costs nothing extra
 
-Depth caps are applied at export, so one deeply built region produces cards of several sizes
+Depth caps are applied at export, so one deeply built region produces files of several sizes
 from one set of tiles. Building shallow after building deep fetches nothing at all.
 
 ---

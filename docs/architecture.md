@@ -62,7 +62,7 @@ OpenCPN's chart sources do not cover well.
 
 **Raymarine E-Series (E80/E120) owners** running the custom firmware built by navMate's
 E-Series Firmware Builder, which adds an aerial photo overlay to a twenty-year-old plotter.
-That overlay reads chartMaker's `.RCT` card.
+That overlay reads chartMaker's `.RCT` files.
 
 The bar is deliberate and it is set at "a fighting chance", not at "turnkey": someone
 capable of installing navMate and using it to build custom plotter firmware should be able
@@ -293,10 +293,10 @@ buys, are in [Design: Regions](design/regions.md).
 Three rules give the model its properties:
 
 - **Depth is requested by a region and decided by a target.** A region says the anchorage
-  deserves detail; a target says this particular card stops at a particular zoom, and the
+  deserves detail; a target says this particular build stops at a particular zoom, and the
   built depth is the lesser of the two. That is what lets one description of Bocas del Toro
-  produce both a small card for a plotter with a small slot and a large one for a plotter
-  without that limit - and, because the tiles are already cached, the second card costs no
+  produce both a shallow chartset for a plotter with a small card and a deep one for a plotter
+  without that limit - and, because the tiles are already cached, the second costs no
   additional fetching at all. Real imagery resolution is a third opinion, and it only ever
   warns: a source that upsamples still yields tiles worth carrying.
 - **A polygon meets the tile grid exactly once**, at the zoom that area is quantised at.
@@ -305,7 +305,7 @@ Three rules give the model its properties:
   ever one place geometry becomes tiles.
 - **Subregions are geometrically contained in their parent.** Containment of polygons then
   implies containment of tiles - every tile a subregion covers has a coarser tile above it
-  that the parent already covers - which is exactly the nested-coverage invariant the card
+  that the parent already covers - which is exactly the nested-coverage invariant the `.RCT`
   format needs in order to fall back gracefully from a missing tile to a coarser one. It
   also means each level supplies only the zoom band its parent does not reach.
 - **Where regions overlap, ownership is a union, not a contest.** A tile that two regions
@@ -316,13 +316,13 @@ Three rules give the model its properties:
 The **editor** and the **preview** are one component in two modes, not two pipelines: the
 same map, the same tile proxy, a clip applied on top. Preview earns its place by answering
 what the chartset will actually contain - what the *build* source looks like here before
-committing to a nine-thousand-tile run, and how deep the card really goes at any point on
+committing to a nine-thousand-tile run, and how deep the output really goes at any point on
 it, which is read off the map by zooming in until the imagery stops.
 
-**It shows contents, not a client.** Consumers differ in how they cope with a zoom the card
+**It shows contents, not a client.** Consumers differ in how they cope with a zoom the output
 does not carry - the E-Series magnifies the deepest tile it holds, OpenCPN permits
 essentially unlimited overzoom from the deepest level in the file - and none of that is a
-fact about the chartset. Rendering the card's own contents is the same answer whoever reads
+fact about the chartset. Rendering the file's own contents is the same answer whoever reads
 it, so the mode stays true as consumers are added and needs no evidence about any of them.
 
 What makes that more than an illustration is that **preview renders through the build's own
@@ -346,7 +346,7 @@ derives the chart's scale from it - so depth that an [RCT](design/rct.md) expres
 **`.RCT` is exporter number one.** The aerial photo overlay in the custom E-Series firmware
 reads a purpose-built on-card raster format - one `.RCT` file per region under `\RASTER\`,
 with no manifest, because the set of files present *is* the set of regions. It is
-regenerable: the card is a deployment artifact, not a source of truth.
+regenerable: a card is a deployment artifact, not a source of truth.
 
 Further exporters plug into the same seam, and it is now a real seam rather than an
 intention: an output format declares what it can carry, what it can be named, where it goes

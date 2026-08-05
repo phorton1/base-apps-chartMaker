@@ -399,7 +399,7 @@ sub _fetchWorker
 
 	my $stats = fillCoverage($ids,{ %$opts, progress => $prog });
 
-	# FETCH REFUSES NOTHING, because it writes no card.  A tile that never
+	# FETCH REFUSES NOTHING, because it writes no output.  A tile that never
 	# arrived is worth reporting and is not a failure of this act -- the
 	# whole point of a separate Fetch is to chip away at a big region over
 	# several sessions, and errors are never cached, so running it again
@@ -653,7 +653,7 @@ sub onLongAct
 	#	   the work
 	#
 	# NOTHING IS ASKED AFTER THE WORK STARTS.  Every question a user could
-	# be asked - unsaved edits, overwriting cards, a chartset that would
+	# be asked - unsaved edits, overwriting files, a chartset that would
 	# disagree with itself - is answered before the first request goes out,
 	# because a confirmation dialog at the end of a three hour fetch is one
 	# nobody is sitting there to answer.
@@ -663,15 +663,15 @@ sub onLongAct
 {
 	# THREE MODES, NOT A BOOLEAN, and the third is what turned the boolean
 	# into a liar.  'is_build' used to mean four different things at once -
-	# writes something, has an output folder, may overwrite a card, needs
+	# writes something, has an output folder, may overwrite a file, needs
 	# the chartset to agree - and they stopped being the same question the
 	# moment a second output existed.  So:
 	#
 	#	$what     which act this is: fetch, build (rct), or mbtiles
 	#	$writes   it produces files, so it has a destination to show
-	#	$is_card  it is an E-Series chartset, so the card rules apply
+	#	$is_rct   the output is .rct, so the chartset rules apply
 	#
-	# Only $is_card gates the card-shaped questions, and that is the whole
+	# Only $is_rct gates the .rct-shaped questions, and that is the whole
 	# of what an mbtiles build skips.
 
 	my ($this,$id) = @_;
@@ -680,7 +680,7 @@ sub onLongAct
 		$id == $COMMAND_BUILD_RCT		? 'build'	:
 		$id == $COMMAND_BUILD_MBTILES	? 'mbtiles'	: 'fetch';
 	my $writes   = ($what ne 'fetch');
-	my $is_card  = ($what eq 'build');
+	my $is_rct  = ($what eq 'build');
 	my $is_build = $writes;
 
 	my $verb = $writes ? 'build' : 'fetch';
@@ -712,7 +712,7 @@ sub onLongAct
 	{
 		my $dlg = Wx::MessageDialog->new($this,
 			"'".openSetName()."' has unsaved changes.\n\n".
-			"A card built from edits that are not on disk cannot be rebuilt ".
+			"A file built from edits that are not on disk cannot be rebuilt ".
 			"from the set that is supposed to define it.\n\n".
 			"Save it first?",
 			$$resources{app_title},wxYES_NO | wxCANCEL | wxICON_EXCLAMATION);
@@ -758,7 +758,7 @@ sub onLongAct
 		# resolved path for SHOWING, and there is no choice to pass on.
 
 		my $out_dir =
-			$is_card	? ($cfg->{out_dir} || defaultOutDir())	:
+			$is_rct	? ($cfg->{out_dir} || defaultOutDir())	:
 			$writes		? defaultMbtilesOutDir()				: '';
 
 		# THE ANALYSIS IS A PURE READ and takes about a tenth of a second,
@@ -771,7 +771,7 @@ sub onLongAct
 		my $an = analyseFetch($ids,{
 			fallback => $fallback,
 			config   => $cfg,
-			format   => ($is_card ? 'rct' : 'mbtiles'),
+			format   => ($is_rct ? 'rct' : 'mbtiles'),
 			$writes ? ( out_dir => $out_dir ) : (),
 		});
 		undef $busy;
@@ -787,12 +787,12 @@ sub onLongAct
 			fallback => $fallback,
 			config   => $cfg,
 			allow_dirty => $allow_dirty,
-			format   => ($is_card ? 'rct' : 'mbtiles'),
-			$is_card ? ( out_dir => $cfg->{out_dir} ) : (),
+			format   => ($is_rct ? 'rct' : 'mbtiles'),
+			$is_rct ? ( out_dir => $cfg->{out_dir} ) : (),
 		};
 
 		return $this->runLongAct(
-			$what eq 'build'	? 'Building RCT Card'	:
+			$what eq 'build'	? 'Building RCT'	:
 			$what eq 'mbtiles'	? 'Building MBTiles'	: 'Fetching Tiles',
 			$writes ? \&_buildWorker : \&_fetchWorker,
 			$ids,$opts);

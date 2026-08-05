@@ -262,7 +262,7 @@ places is not imagery at any of them.
 application ever receives passes through it - a build, a fill, a sample, a verify, the map
 proxy - so learning there is a property of *fetching* rather than of anybody's reason for
 fetching. Anywhere else it becomes a question of which surfaces remembered to ask, and a user
-who never ran the optional one exports a card full of grey.
+who never ran the optional one exports a file full of grey.
 
 Three things make it free:
 

@@ -3,11 +3,11 @@
 // The editor and the preview are ONE component in two modes: the same map,
 // the same proxy, the same regions. Preview adds a clip and a cap, and it
 // answers the one question the footprint cannot -- not "which tiles are in
-// the card" but "what will the plotter DRAW", which at any zoom past a
+// built" but "what will the plotter DRAW", which at any zoom past a
 // region's depth is a different picture entirely.
 //
 // THE APPLICATION DECIDES COVERAGE, NOT THIS FILE.  /preview answers, per
-// tile, which tile the chartset would draw there: this one when the card
+// tile, which tile the chartset would draw there: this one when the file
 // carries it, its deepest carried ANCESTOR when it does not, and nothing at
 // all outside coverage. If the applet worked that out for itself, preview
 // would be an illustration of the build rather than a test of it, and the
@@ -133,7 +133,7 @@ const CmPreviewLayer = L.GridLayer.extend({
             const src = previewCache.get(
                 coords.z + '/' + coords.x + '/' + coords.y);
 
-            // Null means the card does not hold this tile at this zoom;
+            // Null means the output does not hold this tile at this zoom;
             // undefined means the answer never covered it, which happens
             // only at the very edge of a fast pan. Both are left blank, and
             // the greyed base map shows through -- which for the first is
@@ -151,8 +151,8 @@ const CmPreviewLayer = L.GridLayer.extend({
     },
 
     _paint: function (tile, src, coords, done) {
-        // The card's own tile at this very zoom, drawn exactly as the card
-        // will hold it. There is no other case: a tile the card does not
+        // The built tile at this very zoom, drawn exactly as the file
+        // will hold it. There is no other case: a tile the file does not
         // carry at this level is not drawn at all, and the greyed base map
         // shows through instead.
 
@@ -166,7 +166,7 @@ const CmPreviewLayer = L.GridLayer.extend({
             done(null, tile);
         };
 
-        // A TILE THE SOURCE DOES NOT HAVE IS A HOLE IN THE CARD, and the
+        // A TILE THE SOURCE DOES NOT HAVE IS A HOLE IN THE OUTPUT, and the
         // whole point of preview is that a hole reads AS a hole. The proxy
         // answers an absence with a failure rather than an image, so this
         // is the classification arriving through the image element.
@@ -187,7 +187,7 @@ const CmPreviewLayer = L.GridLayer.extend({
 // PREVIEW IS A MODE, not an overlay, so turning it on changes what the
 // whole map means: the imagery under it stops being the thing you are
 // looking at and becomes context. It is dimmed to say so -- 'colour means
-// it is in the card' is a rule learned once and never misread, and a user
+// it is built' is a rule learned once and never misread, and a user
 // who sees bright imagery and assumes it is in their chartset is preview
 // failing at its only job.
 
@@ -232,13 +232,13 @@ function togglePreview() {
     }
 }
 
-// The tiles drawn are the tiles the card holds AT THIS ZOOM, so a zoom
+// The tiles drawn are the tiles the output holds AT THIS ZOOM, so a zoom
 // change is a different answer rather than the same one rescaled.
 
 map.on('zoomend', () => { if (previewOn) cmPreviewInvalidate(); });
 
 // The model changed, so every classification held is suspect -- a region
-// reshaped, a zmax raised, a source repointed all move which tile the card
+// reshaped, a zmax raised, a source repointed all move which tile the file
 // would draw where. Thrown away whole rather than reconciled.
 
 function cmPreviewInvalidate() {

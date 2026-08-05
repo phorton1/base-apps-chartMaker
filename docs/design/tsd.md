@@ -181,7 +181,7 @@ A well behaved source answers **404** for a tile it does not hold. Some answer *
 fixed image saying so in words**.
 
 Nothing downstream can tell that from imagery. It is not a blurry tile, which at least
-resembles the ground; it is a picture of a sentence, and a build will bake it into a card and
+resembles the ground; it is a picture of a sentence, and a build will bake it into a file and
 report success. That is the worst failure this application has, because every signal says it
 worked.
 
@@ -208,7 +208,7 @@ written beside a picture is a file nothing ever reads, with the wrong answer win
 body this file *names* reaches that point, which is a person's assertion about the source, made
 by hand; honouring it is the point of declaring it.
 
-**A refusal and a sentinel stay distinguishable afterwards.** For anything that builds a card
+**A refusal and a sentinel stay distinguishable afterwards.** For anything that builds a file
 they are the same thing - there is no tile either way - but they are not the same finding about
 a service, and the finding is what a probe exists to make. The marker remembers which, because
 the bytes are gone by the time anybody could work it out again. See [Build](build.md#the-probe).
@@ -477,7 +477,7 @@ still has to be authored well below the zooms the region editor offers by defaul
 `esri_world_imagery` is also the first shipped source to carry an
 [`absent_fingerprints`](#a-200-that-means-404) entry. Past the depth it actually holds, the
 service stops upsampling and returns a fixed grey "no data" image rather than a 404, so
-without the fingerprint that picture would be cached as imagery and baked onto a card.
+without the fingerprint that picture would be cached as imagery and baked into a file.
 
 `google_satellite` is the opposite case and carries none, because none is possible. It
 never answers 404 and never sends a fixed image, so it magnifies its own imagery

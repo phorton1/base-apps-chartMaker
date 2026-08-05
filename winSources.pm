@@ -754,7 +754,7 @@ sub showProperties
 	# a digest and a header token are not things a person reads, and what
 	# is worth knowing here is whether the source has been taught to say
 	# it at all -- an Esri source showing no fingerprints is a source that
-	# will bake grey 'not yet available' tiles into a card.
+	# will bake grey 'not yet available' tiles into a file.
 
 	my $fps  = $src->{absent_fingerprints} || [];
 	my $hdrs = $src->{absent_headers} || [];

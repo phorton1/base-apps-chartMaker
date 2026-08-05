@@ -198,14 +198,14 @@ my %defaults = (
 
 	# WHAT A CONVERTED TILE IS WRITTEN AT, and it applies to exactly one
 	# thing: a tile that arrived in a format the output cannot carry and
-	# had to be re-encoded on the way into a card.  A tile that arrived as
+	# had to be re-encoded on the way into an .rct.  A tile that arrived as
 	# jpeg is copied and never re-encoded, so this cannot touch it.
 	#
 	# IT IS A PREFERENCE BECAUSE IT CHANGES THE BYTES WITHOUT CHANGING
-	# WHAT THE CARD ASSERTS - the same ground, the same zooms, the same
+	# WHAT THE OUTPUT ASSERTS - the same ground, the same zooms, the same
 	# source.  Anything that changed those would belong to the region.
 	#
-	# 90 MEASURED AGAINST REAL IMAGERY writes a card about 1.5x the size a
+	# 90 MEASURED AGAINST REAL IMAGERY writes a file about 1.5x the size a
 	# natively-jpeg source produces, with byte-for-byte parity against the
 	# service near q80.  90 is still the default because Esri serves its
 	# own imagery at q90, so it is what the most generous shipped service

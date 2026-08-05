@@ -26,8 +26,8 @@
 # application creates only the folders it chose the location of; see
 # dm_set::_ensureDirs, which enforces the same rule from the other side.
 #
-# WHAT IS NOT HERE.  Nothing that changes what a build puts on a card:
-# two people with the same region set must get the same card, or a set
+# WHAT IS NOT HERE.  Nothing that changes what a build puts in a file:
+# two people with the same region set must get the same output, or a set
 # stops being a portable recipe.  The new-region zoom levels are here
 # because they are SEEDS - they touch only regions that do not exist yet.
 
@@ -177,18 +177,18 @@ sub _generalPage
 	$sizer->Add($bs,0,wxEXPAND|wxLEFT|wxRIGHT,10);
 
 	# THE ONE KNOB ON WHAT GETS WRITTEN, and the text's whole job is to say
-	# how narrow it is.  A card holds jpeg, so a tile that arrived as png
+	# how narrow it is.  An .rct holds jpeg, so a tile that arrived as png
 	# is re-encoded on the way in and this is what it is written at.  A
 	# tile that arrived as jpeg is copied untouched and no setting here can
 	# reach it, which is the sentence that stops somebody turning this up
-	# expecting a sharper card.
+	# expecting a sharper file.
 
 	my $qbox = Wx::StaticBox->new($p,-1,'When a tile must be converted');
 	my $qs   = Wx::StaticBoxSizer->new($qbox,wxVERTICAL);
 	$qs->AddSpacer(4);
 	$qs->Add(_row($p,'JPEG quality:',
 		$this->_spin($p,$PREF_JPEG_QUALITY,30,100),
-		Wx::StaticText->new($p,-1,'higher is a bigger card, not a sharper '.
+		Wx::StaticText->new($p,-1,'higher is a bigger file, not a sharper '.
 			'one above about 90')),0,wxLEFT,6);
 	$qs->AddSpacer(4);
 	$qs->Add(Wx::StaticText->new($p,-1,
@@ -280,7 +280,7 @@ sub _foldersPage
 		[ $PREF_SOURCES_DIR,		'Sources:',		'the .tsd files'				],
 		[ $PREF_REGION_SETS_DIR,	'Region sets:',	'one folder per set'			],
 		[ $PREF_MBTILES_DIR,		'MBTiles out:',	'built chartsets'				],
-		[ $PREF_RASTER_DIR,			'RCT out:',		'built cards, one folder per set'],
+		[ $PREF_RASTER_DIR,			'RCT out:',		'built .rct files, one folder per set'],
 		[ $PREF_CACHE_DIR,			'Tile cache:',	'fetched tiles - not temporary'	],
 
 		# THE KEY STORE IS LAST, AND ITS HINT IS THE WHOLE REASON IT IS A

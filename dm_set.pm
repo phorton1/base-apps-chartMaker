@@ -8,7 +8,7 @@
 #	$data_dir/region_sets/<set>/*.region
 #
 # THE FILES PRESENT ARE THE SET.  There is no manifest naming which
-# regions belong to a card, exactly as there is none on the card itself:
+# regions belong to a build, exactly as there is none in the output:
 # the renderer enumerates the folder and merges every .rct it finds.  A
 # manifest is correct only by discipline and fails silently in both
 # directions -- naming a region that is gone, and missing one that is
@@ -17,7 +17,7 @@
 #
 # ONE SET IS ACTIVE AT A TIME.  The map shows one set, and one set (or
 # one region of it) builds, because a working set assembled ACROSS sets
-# would be one no card could express.
+# would be one no output could express.
 #
 # EXISTENCE COMES FROM THE FOLDER, SELECTION COMES FROM THE INI.  Which
 # set is active is not a fact about the folder, so it is not stored in
@@ -28,7 +28,7 @@
 # renamed and deleted outside this application by design.
 #
 # A SET NAME IS A FOLDER NAME, and it becomes the name of the folder
-# copied to the card, so it carries the same [A-Za-z0-9] restriction a
+# copied onto a card, so it carries the same [A-Za-z0-9] restriction a
 # region id does and for the same reason: anything else would have to be
 # escaped somewhere, and the somewhere is never all the places.
 #
@@ -115,7 +115,7 @@ sub mbtilesDir
 sub rasterDir
 	# THE BASE, not the output folder.  A build writes to
 	# rasterDir()/<set>, and it is THAT folder which is copied to the
-	# card -- which makes the copy a copy rather than a decision about
+	# consumer -- which makes the copy a copy rather than a decision about
 	# which files belong together.
 	#
 	# On the CF card the spec requires a single outer folder called

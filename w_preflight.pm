@@ -19,11 +19,11 @@
 #
 #	how many tiles, per SOURCE, and how long
 #	whether any source declares a DISPLACEMENT
-#	which cards it will REPLACE
-#	which cards are in that folder and are NOT part of this build
-#	whether the card would disagree with itself about zauthor / zmin
+#	which files it will REPLACE
+#	which files are in that folder and are NOT part of this build
+#	whether the build would disagree with itself about zauthor / zmin
 #
-# The fourth is the one nobody asks for and is the more dangerous: a card
+# The fourth is the one nobody asks for and is the more dangerous: a file
 # left from an earlier set or a renamed region is still read by the
 # plotter, still contributes to the pyramid, and is invisible everywhere
 # else.
@@ -56,11 +56,11 @@ sub new
 	my ($class,$parent,$what,$an,$out_dir) = @_;
 	$what ||= 'build';
 
-	# $is_card gates what is true of an E-SERIES CHARTSET; $writes gates
+	# $is_rct gates what is true of the .rct output; $writes gates
 	# what is true of anything that produces files.  They were one flag
 	# until there was a second output - see w_frame::onLongAct.
 
-	my $is_card = ($what eq 'build');
+	my $is_rct = ($what eq 'build');
 	my $writes  = ($what ne 'fetch');
 
 	my $this = $class->SUPER::new($parent,-1,
@@ -72,7 +72,7 @@ sub new
 	my $y = 12;
 
 	Wx::StaticText->new($this,-1,
-		$is_card	? "Cards will be written to:"	:
+		$is_rct	? ".rct files will be written to:"	:
 		$writes		? "Charts will be written to:"	:
 					  "Tiles will be fetched for:",
 		[16,$y],[260,18]);
@@ -105,7 +105,7 @@ sub new
 
 	# ---- everything that wants saying before somebody commits
 
-	my @notes = _notes($an,$is_card,$writes,$out_dir);
+	my @notes = _notes($an,$is_rct,$writes,$out_dir);
 
 	my $nc = Wx::TextCtrl->new($this,-1,join("\n",@notes),
 		[16,$y],[600,190],
@@ -140,7 +140,7 @@ sub new
 
 sub _notes
 {
-	my ($an,$is_card,$writes,$out_dir) = @_;
+	my ($an,$is_rct,$writes,$out_dir) = @_;
 	my @n;
 
 	if (@{$an->{missing_src}})
@@ -170,9 +170,9 @@ sub _notes
 	{
 		# THE WARNING THAT IS NOT A REFUSAL.  Stated at length because the
 		# consequence is invisible: the imagery is built, it is on the
-		# card, and it is never drawn.
+		# output, and it is never drawn.
 
-		push @n,"WARNING - the cards on this chartset would not agree.";
+		push @n,"WARNING - these .rct files would not agree with each other.";
 		for my $field (qw( zauthor zmin ))
 		{
 			my $h = $an->{zagree}{$field} or next;
@@ -186,18 +186,18 @@ sub _notes
 		push @n,'';
 	}
 
-	if ($is_card && @{$an->{overwrite}})
+	if ($is_rct && @{$an->{overwrite}})
 	{
-		push @n,scalar(@{$an->{overwrite}})." card(s) will be REPLACED:";
+		push @n,scalar(@{$an->{overwrite}})." .rct file(s) will be REPLACED:";
 		push @n,sprintf("  %-14s  z%d-%-2d  %.1f MB",
 			$_->{leaf},$_->{zoom_min},$_->{zoom_max},$_->{bytes}/1048576)
 			for @{$an->{overwrite}};
 		push @n,'';
 	}
 
-	if ($is_card && @{$an->{foreign}})
+	if ($is_rct && @{$an->{foreign}})
 	{
-		push @n,scalar(@{$an->{foreign}})." card(s) are in this folder and are ".
+		push @n,scalar(@{$an->{foreign}})." other .rct file(s) are in this folder and are ".
 			"NOT part of this build:";
 		push @n,sprintf("  %-14s  z%d-%-2d  zauthor %d",
 			$_->{leaf},$_->{zoom_min},$_->{zoom_max},$_->{zauthor})
@@ -209,17 +209,17 @@ sub _notes
 
 	if (!@n)
 	{
-		push @n,$is_card ?
+		push @n,$is_rct ?
 			"Nothing in the output folder will be disturbed." :
 			$writes ?
 			"One .mbtiles per region and per detail area, in a folder per\n".
 			"region.  Existing charts of the same name will be REPLACED." :
 			"Nothing will be written - this only fills the tile cache.";
 	}
-	elsif ($writes && !$is_card)
+	elsif ($writes && !$is_rct)
 	{
 		# SAID EVEN WHEN THERE IS SOMETHING ELSE TO SAY, because "what is
-		# about to be overwritten" is the question the card build answers
+		# about to be overwritten" is the question the .rct build answers
 		# here with a list, and this output cannot answer it with one - it
 		# would mean opening every database in the tree to say what is in
 		# it, which is a survey nobody asked for.

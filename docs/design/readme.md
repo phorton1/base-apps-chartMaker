@@ -26,7 +26,7 @@ check.
 
 Two of them describe things a user can hold in their hand and hand to somebody else - a
 **region** and a **source**. Two describe things chartMaker writes - an **mbtiles** file and
-an **RCT card**. One describes what happens in between. The remaining five are about
+**RCT files**. One describes what happens in between. The remaining five are about
 changing the model: the rules both coverage-authoring surfaces obey, then each of those
 surfaces, then the editor for a source, and then the shipped list a source can be created
 from without writing one.
@@ -72,14 +72,14 @@ from without writing one.
 - **[Build](build.md)** -
   The build as one act: the two preflight dialogs, what it refuses before it starts, the
   tile proxy every request passes through, the cache and its keying, and the preview that
-  answers what a card will actually contain.
+  answers what a build will actually contain.
 
 - **[MBTiles](mbtiles.md)** -
   An output and not a hub: what chartMaker writes into a standard MBTiles container, why
   the file is one per node, and the metadata that carries provenance downstream.
 
 - **[RCT](rct.md)** -
-  The E-Series card format: what chartMaker guarantees a card, the nested coverage the
+  The E-Series raster format: what chartMaker guarantees a reader, the nested coverage the
   format depends on, and the two constraints only the producer can see.
 
 ---

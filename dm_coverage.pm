@@ -24,7 +24,7 @@
 # COMPLETENESS OVER [zauthor..zmax] IS NOT AN OPTION.  The plotter cuts
 # its reveal mask from the polygon at zauthor and paints at whatever
 # level the view scale calls for, so the painted set must be a superset
-# of the revealed set at every level the card carries.  A partially
+# of the revealed set at every level the file carries.  A partially
 # populated level would open an aperture onto ground nothing painted.
 #
 # A SUBREGION SUPPLIES THE BAND ITS PARENT DOES NOT REACH: from the
@@ -642,15 +642,15 @@ sub coverageHas
 
 
 sub previewTiles
-	# WHAT THE CARD ACTUALLY HOLDS over a rectangle of tiles at one zoom.
+	# WHAT THE OUTPUT ACTUALLY HOLDS over a rectangle of tiles at one zoom.
 	# Returns { "x_y" => source id } for the tiles in coverage AT THIS ZOOM,
 	# and nothing at all for the rest.
 	#
-	# AT THIS ZOOM, and no fallback.  A card carries tiles at the levels a
+	# AT THIS ZOOM, and no fallback.  A file carries tiles at the levels a
 	# region was built to and nothing below them; a plotter papers over the
 	# difference by magnifying whatever ancestor it has, and an earlier
 	# version of this reproduced that.  It was the wrong question.  What an
-	# author needs to see is which tiles are on the card at the level being
+	# author needs to see is which tiles are in the output at the level being
 	# looked at - so that zooming in until the imagery stops IS the answer
 	# to "how deep did I build here", read directly off the map.
 	#

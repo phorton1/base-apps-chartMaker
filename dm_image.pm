@@ -11,7 +11,7 @@
 # which is the image-processing stack this application refuses and goes on
 # refusing.  Magnifying a parent to compare against its child happens
 # inside an analysis that writes no file, and no pixel it produces reaches
-# a card.
+# an output.
 #
 # OPTIONAL, AND THE APPLICATION IS WHOLE WITHOUT IT.  If no decoder is
 # installed, imageCan() is false, every question here answers 'unknown',
@@ -113,7 +113,7 @@ sub _decode
 	# SNIFFED RATHER THAN TRIED, and the difference is thousands of lines of
 	# console output.  Handing png bytes to newFromJpegData does return
 	# undef, but libjpeg writes "Not a JPEG file" to stderr on its way there
-	# -- once per tile, which across a card being converted buries every
+	# -- once per tile, which across a build being converted buries every
 	# real message the build had to say.  The magic bytes settle it in three
 	# characters without asking a codec anything.
 	#
@@ -155,12 +155,13 @@ sub _decode
 #	   q60   q70   q75   q80   q85   q90   q95  q100
 #	  0.69  0.82  0.90  1.03  1.19  1.47  2.00  3.50
 #
-# So q90 writes a card about half again the size a natively-jpeg source
+# So q90 writes a file about half again the size a natively-jpeg source
 # would produce, and BYTE-FOR-BYTE PARITY WITH THE SERVICE IS NEAR q80.
 # 90 is still the default, because Esri publishes its own imagery at q90
 # and matching the most generous service shipped is the defensible place
-# to sit -- but a card lives on a CF card, so the trade belongs to the
-# user and this is a preference rather than a constant.
+# to sit -- but the files have to fit wherever they are going, so the
+# trade belongs to the user and this is a preference rather than a
+# constant.
 #
 # THE SAME CURVE MEASURED AGAINST PNGS MADE FROM CACHED JPEGS read parity
 # at q70 instead, because such a fixture carries a generation of jpeg
@@ -178,7 +179,7 @@ sub imageToJpeg
 	# to the new bytes, or undef when there is no decoder or the body will
 	# not decode.  A caller that gets undef must say so and stop: the whole
 	# reason it asked is that it cannot carry what it already had, so
-	# passing the original through would write exactly the card this
+	# passing the original through would write exactly the file this
 	# application most needs not to produce.
 	#
 	# THE OTHER HALF OF THE SEAM, and not a new capability.  It resamples
@@ -187,7 +188,7 @@ sub imageToJpeg
 	# image-processing stack this application refuses is still refused.
 	#
 	# MEASURED AT 4 ms PER TILE on this machine over real LINZ png, which is
-	# about two and a half minutes across a 35,000 tile card and nothing at
+	# about two and a half minutes across a 35,000 tile build and nothing at
 	# all beside the hours those tiles took to fetch.  That is why nothing
 	# here is cached, pooled or threaded.
 	#
