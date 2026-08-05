@@ -296,14 +296,22 @@ html, body {
 
 /* The context menu. */
 
+/* FIXED, NOT ABSOLUTE, because it is placed from clientX/clientY, which are
+   VIEWPORT coordinates.  Absolute positioning reads them as DOCUMENT
+   coordinates, so the two agree only while the page is scrolled to the top -
+   and an unclamped menu running off the bottom is itself what grows the
+   document and makes it scrollable.  Fixed removes both halves of that. */
+
 #cm-ctx {
-    position: absolute;
+    position: fixed;
     z-index: 1300;
     background: rgba(20, 20, 20, 0.96);
     border: 1px solid #555;
     border-radius: 4px;
     padding: 4px;
     min-width: 12em;
+    max-height: calc(100vh - 8px);
+    overflow-y: auto;
 }
 
 #cm-ctx button {

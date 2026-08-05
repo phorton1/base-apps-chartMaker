@@ -527,9 +527,35 @@ function showMenu(x, y, items, title) {
         b.onclick = () => { hideMenu(); resetHitCycle(); it.fn(); };
         menuDiv.appendChild(b);
     }
-    menuDiv.style.left = x + 'px';
-    menuDiv.style.top  = y + 'px';
+    // IT IS MEASURED BEFORE IT IS PLACED.  The menu is shown at the origin,
+    // measured, and then moved, all in one task, so the browser never paints
+    // the uncorrected position and there is no jump to see.
+    //
+    // A menu that would run off the BOTTOM flips UP from the click, the way a
+    // native menu does, rather than being slid up the screen away from the
+    // cursor.  Clamping is the fallback for when flipping does not fit
+    // either, and a menu taller than the window scrolls inside itself - the
+    // css caps its height - rather than losing its last items off the edge.
+
+    menuDiv.style.left = '0px';
+    menuDiv.style.top  = '0px';
     menuDiv.style.display = 'block';
+
+    const margin = 4;
+    const vw = document.documentElement.clientWidth;
+    const vh = document.documentElement.clientHeight;
+    const mw = menuDiv.offsetWidth;
+    const mh = menuDiv.offsetHeight;
+
+    let mx = x;
+    let my = y;
+    if (my + mh > vh - margin)
+        my = (y - mh >= margin) ? y - mh : Math.max(margin, vh - mh - margin);
+    if (mx + mw > vw - margin)
+        mx = (x - mw >= margin) ? x - mw : Math.max(margin, vw - mw - margin);
+
+    menuDiv.style.left = mx + 'px';
+    menuDiv.style.top  = my + 'px';
 }
 
 function gridItem() {
