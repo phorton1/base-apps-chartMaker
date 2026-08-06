@@ -68,7 +68,7 @@ author's document rather than a set of exchangeable pieces.
 | `zauthor`        | The zoom at which this region's polygon meets the tile grid.          |
 | `zmin`           | The overview floor - the coarsest level the region carries.           |
 | `zmax`           | The finest level the region itself carries.                           |
-| `source`         | The id of the TSD this is to be built from.                           |
+| `source`         | The id of the TSD this is to be built from, or empty if not yet chosen. |
 | `source_name`    | What that source was *called* when this was authored. Never resolved. |
 | `geometry`       | One or more polygons in WGS84 decimal degrees.                        |
 | `subregions`     | Zero or more detail areas nested inside this one, recursively.        |
@@ -79,6 +79,30 @@ author's document rather than a set of exchangeable pieces.
 reason is the reason a region set exists at all: a set is meant to travel. If the top of the
 tree deferred the question, what a set produced would depend on the machine it was built on,
 and the same folder handed to somebody else would build something its author never saw.
+
+**It may, however, name none at all**, and that is how every region begins. Empty is not a
+third kind of value beside an id and `inherited`; it is the **absence** of the answer, and
+the difference from `inherited` is the only thing about it worth remembering: `inherited` is
+a decision that always resolves, and empty resolves to nothing.
+
+That distinction does not weaken the travelling-set rule, it is the same rule stated
+honestly. A set that has not chosen its imagery is *undecided everywhere*, which every
+machine can see; a set that *inherited* at the top would be decided differently on each one,
+which no machine can see. The first is a question waiting to be answered and the second is a
+wrong answer.
+
+**Nothing guesses it.** A region used to be born naming whatever the map happened to be
+showing, if that could build, and a shipped default otherwise - so drawing a region while
+looking at a global viewer quietly named it after a country the author may never have chosen.
+The order of work the application means is *decide the ground, then the imagery*, and a guess
+at the second makes the first look like it was never asked.
+
+**What an unsourced region can still do is most of it.** It is drawn, edited, nested,
+checked, counted, and it appears in the tile footprint, because none of that needs to know
+where the pixels would come from. What refuses is everything that needs imagery: fetch, both
+builds, and preview. They refuse by **naming the nodes**, because finding that region in the
+tree is the reader's next act. Probing is not refused - a probe carries its own source and is
+asking what a service has over this ground, which is often exactly how somebody decides.
 
 **A subregion may inherit**, with the reserved value `inherited`, which is also its default.
 That stays completely determined - it resolves to its parent's answer, and the chain

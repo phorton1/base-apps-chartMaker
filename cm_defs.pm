@@ -23,7 +23,6 @@ BEGIN
 		$appVersion
 		$app_dir
 		$DEFAULT_VIEW_SOURCE_ID
-		$DEFAULT_BUILD_SOURCE_ID
 		$SOURCE_INHERITED
 
 		$WIN_REGIONS
@@ -74,85 +73,47 @@ our $app_dir = $^O eq 'MSWin32' ?
 	'/base/apps/chartMaker';
 
 
-# TWO DEFAULTS, BECAUSE THEY ANSWER TWO DIFFERENT QUESTIONS, and one
-# constant answering both was wrong in a way that only showed on a first
-# run: what the MAP OPENS ON, and what a NEW REGION IS BORN NAMING.
+# WHAT THE MAP OPENS ON when nothing has been selected, or what was
+# selected is gone.
 #
-# They pull in opposite directions.  The map should open on imagery a
-# newcomer recognises anywhere in the world, which is a global viewer.  A
-# region must name something that can BUILD, which a global viewer is not
-# - both of the ones shipped here are display-only by their operators'
-# terms.  Held in one constant, satisfying either broke the other:
-# whichever way it was set, the application either opened on a blank
-# ocean somewhere or created regions naming a source no build could read.
+# ESRI, because it has imagery everywhere.  Wherever the user first looks
+# there is something there, and a first run should not depend on their
+# happening to live in one of the two countries whose national orthophoto
+# this application ships.  It is display-only and that is fine: nothing is
+# ever built from what the map is showing.
 #
-# THE MAP OPENS ON ESRI.  It has imagery everywhere, so wherever the user
-# first looks there is something there, and a first run should not depend
-# on happening to live in one of two countries.  It is display-only and
-# that is fine: nothing is built from what the map is showing.
-#
-# It is also why this is NOT the answer to the second question.  A region
-# born naming esri would name a source that fails at the only moment it
-# matters, hours into a build.
-
-our $DEFAULT_VIEW_SOURCE_ID = 'esri_world_imagery';
-
-# THE SOURCE A NEW REGION IS BORN NAMING, and everything below is about
-# this one.
-#
-# IT MUST BE ONE THAT CAN BUILD.  Two of the four shipped files are
-# display-only by their operators' terms, so a new region born naming either
-# of them would name something no build could ever read.  That narrows it to
-# the two national orthophoto services, and between those it is decided by
-# what a FIRST chartset looks like.
-#
-# SPAIN, BECAUSE OF WHAT EACH ONE DOES WHERE IT STOPS.  Both are national
-# land products whose coverage reaches about one z15 tile past the shore,
-# and neither footprint follows a tile boundary, so both leave partly filled
-# tiles all along their edge.  What they fill them WITH is the whole
-# difference.  IGN France sends flat white - the brightest thing on a
-# composited chart, glaring against the imagery beside it, and impossible to
-# trim because a partial tile is unique bytes that no fingerprint can catch.
-# Spain sends its upsampled global backdrop, which over water is a dark blue
-# that simply reads as water.  A first build wants the forgiving edge.
-#
-# Spain also measures deeper where it matters: real detail flat at about 4.0
-# from z14 through z18 over north Ibiza, against a declared z20.
-#
-# IGN FRANCE STILL SHIPS, AND IS STILL THE ANSWER OVER FRENCH WATER -
-# including the overseas departments, where nothing else open reaches chart
-# depth at all.  This decides which imagery a NEW REGION is born naming; it
-# is not a ranking of the two.
-#
-# BOTH REPLACED THE LANDSAT WELD MOSAIC, which was global and buildable but
-# only to z12.  That combination read well and meant little: z12 is far
-# below anything worth carrying to sea, so nothing was ever going to be
-# built from it.  A default that can produce a real chartset somewhere
-# beats one that can produce a useless chartset anywhere.
+# THERE IS NO COMPANION 'DEFAULT BUILD SOURCE', and there was one until a
+# region could be created without a source.  It existed only to be guessed
+# with - a new region was born naming whatever the map showed if that could
+# build, and this constant otherwise - and the guess is what made drawing a
+# region while looking at a global viewer quietly name it after Spain.  Now
+# nothing guesses, so nothing needs a build default.  Which of the shipped
+# sources suits which water is a question for the user and is answered in
+# docs/design/tsd.md, not by a constant.
 #
 # A PREFERENCE, NOT A REQUIREMENT.  Sources are found by scanning, so this
 # id may name nothing; whoever resolves it falls through to the first
 # source in tree order.  The alternative of a 'default' flag inside a TSD
 # was rejected: two files could claim it and it would need this same
 # tiebreak anyway.
-#
-# THIS ONE IS EXPECTED TO GO.  It exists because a region is currently
-# born with a source already chosen for it, guessed from what the map
-# happens to be showing.  Once a region can be created with NO source and
-# the user names one when the program first needs it, nothing has to guess
-# and there is nothing left for this to answer.
 
-our $DEFAULT_BUILD_SOURCE_ID = 'ign_es_pnoa';
+our $DEFAULT_VIEW_SOURCE_ID = 'esri_world_imagery';
 
 # THE SOURCE A REGION DID NOT CHOOSE.  A region or subregion names the
 # source it is to be built from; this is the value meaning "not my
 # decision", and it is what everything is created with, so adding the
 # field changed no existing behaviour.
 #
-# It resolves DOWNWARD: a subregion inherits its parent's answer, and a
-# region that inherits falls through to whatever source the application
-# would use anyway.  A chain of inheritance therefore always terminates,
+# It resolves DOWNWARD: a subregion inherits its parent's answer, and the
+# chain terminates at the region, which names one outright or names none
+# at all.  A subregion is therefore always as decided as its region is,
 # which is the property that lets the field be optional.
+#
+# IT IS NOT THE SAME AS NAMING NONE, and the difference is the whole of why
+# both exist.  'inherited' is a decision - defer to my parent - and always
+# resolves to whatever the parent decided.  Empty is the ABSENCE of a
+# decision and resolves to nothing, so a subregion inheriting from a region
+# that has named nothing gets nothing, which is exactly right.
 #
 # It is a RESERVED SOURCE ID, not a separate kind of value, so one string
 # field holds both answers and no reader has to test two things.  A TSD

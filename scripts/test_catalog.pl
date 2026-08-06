@@ -245,26 +245,32 @@ if (-f $view)
 		"and esri.tsd is the file that declares that id");
 }
 
-# THE BUILD DEFAULT MUST BE ONE THAT CAN BUILD, and it is the one thing in
-# this set that a later edit could quietly break: moving it to a viewer
-# would make every new region name a source no build can read.  That is not
-# hypothetical - it is exactly what pointing one shared constant at esri
-# would have done, which is why there are two.
+# AT LEAST ONE SHIPPED SOURCE MUST BE ABLE TO BUILD, which is what makes a
+# new installation able to produce a chartset without visiting the catalog
+# first.
+#
+# THERE IS NO LONGER A 'BUILD DEFAULT' TO CHECK.  A constant named one
+# until a region could be created without a source; it existed only to be
+# guessed with, and nothing guesses now.  What survives is the weaker and
+# more honest requirement: the user has to be offered something.
 
-my $def = "$app_dir/_res/user_data/sources/$DEFAULT_BUILD_SOURCE_ID.tsd";
-ok(-f $def,"the build default '$DEFAULT_BUILD_SOURCE_ID' is one of the shipped files");
-if (-f $def)
+my @buildable;
+for my $leaf (glob("$app_dir/_res/user_data/sources/*.tsd"))
 {
-	open(my $dh,'<',$def);
+	open(my $dh,'<',$leaf) or next;
 	binmode $dh;
 	local $/ = undef;
 	my $d = eval { JSON::PP::decode_json(<$dh>) };
 	close $dh;
-	ok($d && grep({ $_ eq 'build' } @{$d->{uses} || []}),
-		"and it declares 'build'");
-	ok($d && ($d->{redistributable} // '') eq 'yes',
-		"and it is redistributable");
+	next if !$d || !grep { $_ eq 'build' } @{$d->{uses} || []};
+	push @buildable,$d;
 }
+
+ok(scalar(@buildable) >= 1,
+	"at least one shipped source declares 'build' (got ".scalar(@buildable).")");
+ok(scalar(grep { ($_->{redistributable} // '') eq 'yes' } @buildable)
+		== scalar(@buildable),
+	"and every buildable one is redistributable");
 
 ok(!-f "$app_dir/_res/user_data/sources/bluemarble.tsd",'bluemarble no longer ships');
 ok(!-f "$app_dir/_res/user_data/sources/weld_annual.tsd",'weld_annual no longer ships');

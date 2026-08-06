@@ -19,11 +19,15 @@ and they encode what was learned by getting things wrong.
 | `tool_*` | Does a job and reports what it found. No pass or fail. |
 | `_` prefix | **Less durable.** Spent one-offs, or things resting on something transient. |
 | `my_` prefix | **Needs the author's own data**, and cannot run anywhere else. Not a candidate for deletion - the data is the point. |
-| `old` in the name | **Depends on something outside this repo that is going away** - `chartMaker_old` or the pre-rewrite card in `OLD_RASTER`. Delete these before the repo is published. |
 
-`my_` and `old` are opposite marks and must not be confused. `old` says *this will stop
-working and should go*; `my_` says *this works, and only here*. `my_test_rct.pl` is the
-clearest case: it checks the exporter against a card that actually ran on the plotter, which
+There was a fourth mark, `old` in the name, meaning *depends on something outside this repo
+that is going away*. Everything carrying it has gone, along with the old chartMaker it
+pointed at. It is worth knowing the mark existed, because it is the one that says
+**delete me eventually** and it did its job.
+
+`my_` was its opposite and the two must not be confused. `old` said *this will stop working
+and should go*; `my_` says *this works, and only here*. `my_test_rct.pl` is the clearest
+case: it checks the exporter against a card that actually ran on the plotter, which
 is the only evidence that the semicircle projection is right - a synthetic fixture would
 prove nothing except that the exporter agrees with itself.
 
@@ -82,7 +86,7 @@ read that**, rather than streaming it into a terminal that will be confused by i
 | `run_chartmaker.bat` | **launch the app in a window that shows the log** - and that window is where console commands are typed. Hardcoded to this machine's Perl and repo root, which is what a launcher is |
 | `tool_app_command.pl` | send one console command to the **running** application and print only that command's output |
 | `tool_check_docs.pl` | run from a docs folder: every relative link and `<img src>` resolved against disk, every file checked for a byte over 0x7F, and every image on disk checked for a reference. Three ways a doc folder rots silently - a renamed file, a re-encoded image, an orphan nobody deletes - and none of them shows up until GitHub renders a broken box. Written while renaming seventeen manual images from `.png` to `.jpg` |
-| `tool_rct_inspect.pl` | run the firmware's own arithmetic over a card - the zero-step blocks it would silently skip, and the reveal-mask rectangle count against its budget |
+| `tool_rct_inspect.pl` | run the firmware's own arithmetic over a card - the zero-step blocks it would silently skip, and the reveal-mask rectangle count against its budget. With no argument it inspects the **newest** card under `RASTER_DIR`, which is essentially always the one you just built; it used to default to a hard path under `C:/dat/openCPN`, which is somebody else's machine described as if it were everybody's |
 | `tool_coverage_time.pl` | what coverage costs cold, warm, and after one region is edited |
 | `tool_shot.ps1` | a screenshot of the running window, found by owning process - and **refusing** rather than guessing when more than one instance is up, since picking wrong means measuring somebody else's process. `-procId` says which |
 | `tool_click.ps1` | the other half of `tool_shot.ps1`: brings a window to the front by pid and clicks a point in it, in the same window-relative coordinates a capture is read in. `AttachThreadInput` is the whole trick - Windows refuses `SetForegroundWindow` unless the caller already owns the foreground, so a bare call silently does nothing and the click lands on whatever was in front |
@@ -92,36 +96,31 @@ read that**, rather than streaming it into a terminal that will be confused by i
 | `tool_engine_soak.pl` | thousands of jobs across several sources at once, checking the things that should be INVARIANT rather than true once: every job collected exactly once, every permit returned, no duplicate tickets, nothing in flight at the end. These fail silently in production and never once in a short test |
 | `tool_thread_spike.pl` | what this Perl's threads actually cost and can carry, measured **before** the engine was written because its shape depended on the answers. Spawn cost against a small and a loaded interpreter, whether a binary blob survives a queue, and whether a shared gate really paces |
 | `tool_thread_cost.pl` | **the measurement behind the ceiling of 12** - address space per ithread with the application loaded, in a 32-bit process with 2 GB to spend. The number is a hard constant in `dm_engine` and in `Pub::HTTP::ServerBase`, so it should be reproducible rather than quoted |
+| `tool_js_brackets.pl` | **the only verification the applet can get here** - there is no JavaScript engine on this machine, so `_res/site/*.js` cannot be run or linted before a browser sees it. Balanced brackets catch the one mistake an editing pass actually makes, a block left half closed, and prove nothing else. The hard part is knowing which brackets are CODE: a first version stripped each quote type in turn and reported errors in two untouched files (`"' "` in map.js, `/[&<>"]/g` in cmProbe.js), which is the worst failure a checker can have. One left-to-right pass now, with the standard regex-versus-division heuristic |
 | `tool_lwp_preload.pl` | **what LWP loads lazily on the fetch path, measured rather than reasoned.** The engine pool is cloned before the application has made any http request, so anything LWP defers gets required by four threads at the same instant - which in a packaged build returns garbage from the packed loader and permanently poisons `%INC` in the losers. `dm_fetch` preloads the list; this is what produces it, by snapshotting `%INC` around one real fetch. **An empty report is the passing result.** Re-run it after any change to the fetch path or the Perl tree - guessing the list cost two rounds, because fixing one module only reveals the next |
 | `tool_fetch_bench.pl` | does concurrency actually buy wall clock against a **real** tile server - the one claim in the engine that was asserted rather than measured, because a stub answers in 2 ms and at 2 ms there is no latency to cover. Its own cache under `C:/_temp`, so the real one is never touched |
 | `tool_hold_port.pl` | occupy the HTTP port and sit on it, to see what a chartMaker started afterwards does. Binds the **wildcard**, because binding `127.0.0.1` does NOT collide with a wildcard bind - both succeed and the only symptom is a browser silently talking to the wrong listener |
 | `tool_backoff_starve.pl` | reproduces a **known unfixed fault**: a worker backing off holds its slot, so a source being rate limited can occupy the whole pool and an interactive tile from a healthy source waits behind it. A tool and not a test precisely because it fails |
 | `tool_probe_at.pl` | run the application's own probe over a **box of ground given on the command line**, for the survey. A probe needs a region and a survey question does not have one, so this plants a disposable data dir and one box region under `C:/_temp` and runs the real `sampleService` over it - nothing in `$data_dir` is read or written and the running application is untouched. The candidate fingerprints it prints are the point: a repeated body is only a sentinel if the SAME md5 comes back over ground that has nothing in common, so this exists to be run twice, far apart, and compared |
 | `_tool_esri_probe.pl` | what resolution Esri actually holds over an area, by `MaxMapLevel` |
-| `_old_test_rct_merc.pl` | the E80 semicircle projection, against the pre-rewrite card |
-| `_old_tool_rct_compare.pl` | old card versus new, by byte region |
-| `_old_tool_rct_bitmaps.pl` | old card versus new, presence bitmap by presence bitmap |
 
-## The `_old_` group
+## The `_old_` group is gone
 
-Three of these were **deleted in Phase F**: `_old_test_region.pl`, `_old_test_coverage.pl`
-and `_old_test_server.pl` all called a KML importer that no longer exists. It was the
-one-way path out of the old chartMaker, its job is done, and the application has no notion
-of importing a region set - it creates, modifies and saves them. The scripts could not run,
-and most of what they covered is now in `test_doc.pl`, `test_set.pl` and `test_edit.pl`.
+There is no longer anything here that depends on the old chartMaker. The group existed to
+compare this exporter's output against the card the pre-rewrite Python toolchain produced,
+and it finished: every block descriptor and every presence bitmap matched, the card ran on
+the plotter, and the semicircle projection - the one thing in the format that fails
+invisibly - was proven.
 
-The three that remain compare this exporter's output against the card the OLD chartMaker
-produced, and both reference files still exist, so they still do real work:
+Recorded because deleting a comparison looks careless without it. Three of the group went
+in Phase F (`_old_test_region.pl`, `_old_test_coverage.pl`, `_old_test_server.pl`, all
+calling a KML importer that no longer exists); the last three went with the old chartMaker
+itself and the reference cards under `C:/dat/openCPN/OLD_RASTER`.
 
-```
-    C:/dat/openCPN/OLD_RASTER/BOCAS.RCT     the pre-rewrite card
-    C:/dat/openCPN/RASTER/Bocas.rct         what this one wrote
-```
-
-**The comparison is finished, and these three are inert.** They did their job: every block
-descriptor and every presence bitmap matched the card the old toolchain produced, the card
-ran on the plotter, and the semicircle projection - the one thing that fails invisibly - is
-proven. Nothing further is asked of them.
+**What the comparison proved is not lost with it.** `my_test_rct.pl` still asserts the
+exporter against a card that actually ran on the plotter, and it derives what the card
+should contain from the model rather than from a stored file - which is why it survives the
+reference cards being deleted.
 
 **They also cannot pass any more, by construction.** A card now carries an attribution blob
 at the end and a pointer to it at `0x38`, which the old exporter never wrote, so a

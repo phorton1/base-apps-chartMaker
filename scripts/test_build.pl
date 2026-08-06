@@ -391,6 +391,19 @@ sub guardTest
 	return $rep;
 }
 
+# NOT CHOSEN YET IS ITS OWN GUARD, and it comes first because it is the
+# state every region starts in.  Nothing guesses a source for a new region
+# any more, so the very first thing a build can refuse is a set nobody has
+# finished setting up - and the refusal has to NAME THE NODES, because
+# going and setting them is the user's next act.
+#
+# The subregion inherits, so it is unsourced too, which is the case worth
+# pinning: an empty source resolves DOWNWARD exactly as a real one does,
+# and both nodes are named.
+
+guardTest('GNoSel',regionJson('Alpha','','inherited'),'no_source',
+	"a region that has not chosen a source",{});
+
 guardTest('GNoSrc',regionJson('Alpha','no_such_source','inherited'),'source',
 	"a source that is not installed",{});
 

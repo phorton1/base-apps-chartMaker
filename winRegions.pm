@@ -49,6 +49,16 @@ use base qw(Wx::SplitterWindow Pub::WX::Window);
 
 
 our $dbg_win:shared = 1;
+
+# WHAT AN UNCHOSEN SOURCE IS CALLED ON SCREEN.  The model stores the empty
+# string; a combo cannot usefully show that, and a blank row in a read-only
+# control reads as a rendering fault rather than as a state.
+#
+# It is safe as a list entry because a source id is [a-z0-9_-] and this is
+# not, so it can never collide with a real one - and _saveFields translates
+# it back to '' at the single place the control is read.
+
+my $NO_SOURCE = '(none)';
 	# 1 = quiet
 	# 0 = rebuilds and checkbox clicks
 
@@ -1016,14 +1026,30 @@ sub _fillSources
 	# and a set is meant to travel - see dm_region's validator, which
 	# refuses it outright rather than relying on this list.
 
-	my @ids = ($is_root ? () : $SOURCE_INHERITED, getBuildSourceIds());
+	# A REGION IS OFFERED '(none)' AND A SUBREGION IS OFFERED 'inherited',
+	# and they are not the same offer.  'inherited' is a decision - defer
+	# to my parent - and always resolves.  '(none)' is the absence of one,
+	# which is how every region now begins, and it resolves to nothing.
+	#
+	# It is in the list rather than being an empty first entry because a
+	# blank row in a read-only combo reads as a rendering fault. Something
+	# has to be selected and it has to say what it means.
+
+	my @ids = ($is_root ? $NO_SOURCE : $SOURCE_INHERITED, getBuildSourceIds());
 	push @ids,$want
 		if defined($want) && $want ne '' && !grep { $_ eq $want } @ids;
 
 	my $ctl = $this->{ctl_source};
 	$ctl->Clear();
 	$ctl->Append($_) for @ids;
-	$ctl->SetStringSelection($want) if defined($want) && $want ne '';
+
+	# SOMETHING IS ALWAYS SELECTED.  An empty source is a real state and
+	# has its own entry, so there is no case left where the control shows
+	# nothing at all.
+
+	$ctl->SetStringSelection(
+		defined($want) && $want ne '' ? $want :
+		$is_root ? $NO_SOURCE : $SOURCE_INHERITED);
 }
 
 
@@ -1036,7 +1062,21 @@ sub _showSourceName
 	my $bad  = 0;
 	my $show = '';
 
-	if ($id eq $SOURCE_INHERITED)
+	if ($id eq '')
+	{
+		# NOT AN ERROR, AND DELIBERATELY NOT RED.  A region begins here,
+		# and deciding the ground before the imagery is the order this
+		# application means people to work in.  Red is reserved below for
+		# an id that names something not installed, which IS a problem
+		# somebody has to go and solve.
+		#
+		# It still says what it costs, because the consequence is not
+		# guessable from a blank field: the region is editable, drawable
+		# and countable, and it will not build.
+
+		$show = 'no source chosen - this region cannot be built yet';
+	}
+	elsif ($id eq $SOURCE_INHERITED)
 	{
 		# Deliberately blank.  What it inherits is a fact about the build,
 		# not about this region, and naming a source here would read as a
@@ -1260,11 +1300,18 @@ sub onSave
 	# record of what the author was building from, and this Save might
 	# only have been a rename.
 
+	# '(none)' IS A LABEL AND NOT AN ID.  It exists so the combo has
+	# something to show for an unchosen source; what the model stores is
+	# the empty string, and the translation happens here, at the only
+	# place the control is read.
+
 	my $source = $this->{ctl_source}->GetStringSelection();
-	$why .= " source $source"
+	$source = '' if $source eq $NO_SOURCE;
+
+	$why .= " source ".($source eq '' ? '(none)' : $source)
 		if $source ne ($reg->{source} // $SOURCE_INHERITED);
 	$reg->{source} = $source;
-	if ($source eq $SOURCE_INHERITED)
+	if ($source eq '' || $source eq $SOURCE_INHERITED)
 	{
 		$reg->{source_name} = '';
 	}

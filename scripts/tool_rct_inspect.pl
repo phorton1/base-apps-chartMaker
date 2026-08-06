@@ -9,10 +9,53 @@
 # it will not draw, will not contribute a coverage outline, and will not
 # say anything.  Also counts the reveal-mask rectangles at zoom_author
 # against MASK_MAX_RECTS, since overflow silently reveals the whole plane.
+#
+# THE CARD IS NAMED ON THE COMMAND LINE, or found under RASTER_DIR.
+#
+#	perl tool_rct_inspect.pl                  the newest card built
+#	perl tool_rct_inspect.pl <path.rct>       that one
+#
+# It used to default to a hard path under C:/dat/openCPN, which was where
+# the old toolchain wrote and where nothing writes now.  A hardcoded output
+# path in a published repo is somebody else's machine described as if it
+# were theirs; RASTER_DIR is a preference and asking it is the only answer
+# that is true on more than one computer.
+
 use strict;
 use warnings;
+use FindBin;
+use lib "$FindBin::Bin/..";
+use Pub::Utils;
+use cm_defs;
 
-my $CARD = shift || 'C:/dat/openCPN/RASTER/Bocas.rct';
+# NAMED EXPLICITLY, as every headless tool here must: a bare script leaves
+# $data_dir empty and the folder resolvers then answer from the root of the
+# drive.
+
+$Pub::Utils::data_dir = 'C:/base_data/data/chartMaker';
+
+use cm_prefs;
+use dm_set;
+
+sub newestCard
+	# The most recently written .rct anywhere under RASTER_DIR, which is
+	# one folder per set.  NEWEST rather than a remembered name, because
+	# the card somebody wants to inspect is essentially always the one
+	# they just built.
+{
+	my $dir = rasterDir();
+	return undef if !$dir || !-d $dir;
+
+	my @cards = sort { (stat($b))[9] <=> (stat($a))[9] }
+		glob("$dir/*/*.rct"), glob("$dir/*.rct");
+	return $cards[0];
+}
+
+my $CARD = shift || newestCard();
+die "no .rct found under ".(rasterDir() // '(no RASTER_DIR)')."\n".
+	"build one, or name a card on the command line\n"
+	if !$CARD;
+
 my $MASK_MAX_RECTS = 128;
 
 open(my $fh,'<',$CARD) or die "$CARD: $!\n";

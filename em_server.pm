@@ -532,6 +532,31 @@ sub _workingCoverage
 }
 
 
+sub _unsourcedNodes
+	# The paths of every node in the working set that resolves to no build
+	# source, sorted.  Empty in the ordinary case.
+	#
+	# THE PATH IS THE ANSWER, as it is everywhere else that reports a node -
+	# 'Bocas', 'Bocas/Popa00' - because the user's next act is to go and
+	# find that one in the tree.
+{
+	my @out;
+	for my $id (getWorkingSet())
+	{
+		my $reg = getRegion($id) or next;
+
+		# The fallback is '' rather than the display source.  A region
+		# that has not chosen must stay unchosen here: resolving it
+		# against whatever the map happens to be showing is precisely the
+		# guess this whole change removed.
+
+		my $map = regionSourceMap($reg,'');
+		push @out,grep { !$map->{$_} } sort keys %$map;
+	}
+	return [ sort @out ];
+}
+
+
 sub applet_preview
 	# GET /preview?z=<zoom>&w=&s=&e=&n=
 	#
@@ -550,8 +575,21 @@ sub applet_preview
 	($x0,$x1) = ($x1,$x0) if $x0 > $x1;
 	($y0,$y1) = ($y1,$y0) if $y0 > $y1;
 
+	# WHAT CANNOT BE PREVIEWED, AND WHY, travels with the answer.
+	#
+	# previewTiles omits a tile whose source resolves to nothing, which is
+	# truthful - there is no imagery to show - but on its own it is silent,
+	# and silence here is indistinguishable from "outside coverage". The
+	# tile footprint draws those same tiles, so the user sees outlines with
+	# nothing in them and no reason given.
+	#
+	# So the nodes are named. A preview is the surface where somebody is
+	# deciding whether their set is right, and "these have not chosen their
+	# imagery yet" is the most useful thing this endpoint can say.
+
 	return $this->api_json_response($request,{
-		zoom	=> 0 + $z,
+		zoom		=> 0 + $z,
+		unsourced	=> _unsourcedNodes(),
 		tiles	=> previewTiles(_workingCoverage(),$z,$x0,$y0,$x1,$y1),
 	});
 }

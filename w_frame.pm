@@ -930,12 +930,26 @@ sub onUpdateUI
 	if ($id == $COMMAND_FETCH || $id == $COMMAND_BUILD_RCT ||
 		$id == $COMMAND_BUILD_MBTILES)
 	{
-		# A set with regions in it, and a source for the ones that inherit.
-		# Both acts read the cache through a source, so neither has
-		# anything to do without one.
+		# A SET WITH REGIONS IN IT, AND NOTHING MORE.  These are disabled
+		# when there is nothing to act ON, and enabled whenever there is,
+		# even if acting would fail.
+		#
+		# IT USED TO REQUIRE A SOURCE TOO, and that was a category error
+		# once a region could name none.  Having no set open and having a
+		# region that has not chosen its imagery are different situations:
+		# the first means the command is meaningless, and the second means
+		# the user has one thing left to do and needs to be TOLD WHICH
+		# REGION.  A greyed-out menu item cannot say that - it is the one
+		# state in the application that explains nothing - so these stay
+		# live and the preflight refuses by name.  See
+		# dm_build::_validateSources.
+		#
+		# (The clause it lost tested getDefaultSource(), the DISPLAY
+		# source, which was standing in for "something for the inheriting
+		# ones to fall back to" from when a region could inherit.  It
+		# cannot, so there was nothing left for it to guard.)
 
-		$event->Enable(setIsOpen() && getRegionIds() && getDefaultSource()
-			? 1 : 0);
+		$event->Enable(setIsOpen() && getRegionIds() ? 1 : 0);
 		return;
 	}
 	$event->Enable(setIsOpen() ? 1 : 0);

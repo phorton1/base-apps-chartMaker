@@ -70,6 +70,7 @@ function ensurePreviewData() {
 
     previewWait = fetchJson(q, STATE_TIMEOUT_MS).then(data => {
         const z = data.zoom;
+        cmShowUnsourced(data.unsourced);
         for (const k in data.tiles) {
             const [x, y] = k.split('_');
             previewCache.set(z + '/' + x + '/' + y, data.tiles[k]);
@@ -84,6 +85,30 @@ function ensurePreviewData() {
     });
 
     return previewWait;
+}
+
+// WHY SOME OUTLINES ARE EMPTY.  A region that has not chosen its build
+// source has nothing to preview, so /preview simply omits its tiles -- but
+// the footprint, which preview turns on, still draws their outlines. Left
+// alone that reads as a bug: outlines with nothing in them and no reason.
+//
+// It goes in the palette row's own value cell, the one that says 'on',
+// because that is where the reader already looks to see what preview is
+// doing and it costs no new furniture. The node paths are in the tooltip
+// rather than the row -- there may be many, and the row is one line.
+function cmShowUnsourced(list) {
+    if (!previewOn) return;
+    const n = (list || []).length;
+    if (!n) {
+        previewRow.value.textContent = 'on';
+        previewRow.value.title = '';
+        return;
+    }
+    previewRow.value.textContent =
+        'on - ' + n + (n === 1 ? ' region has' : ' regions have') + ' no source';
+    previewRow.value.title =
+        'nothing to preview for: ' + list.join(', ') +
+        '\nset a build source on them in the Regions pane';
 }
 
 function cmMarkOutside(data, z) {
@@ -229,6 +254,7 @@ function togglePreview() {
         cmFootprintSet(footprintWasOn);
 
         previewRow.value.textContent = '';
+        previewRow.value.title = '';
     }
 }
 

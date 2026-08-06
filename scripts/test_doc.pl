@@ -284,13 +284,16 @@ ok(getRegion('Alpha')->{name} ne 'In The Copy',
 print "\n--- the build source\n";
 
 # The fixtures carry no source at all, which is what a hand written file
-# looks like.  A REGION MAY NOT INHERIT, so the loader has to give it one
-# outright; with no sources installed in the fixture data dir that falls
-# through to the shipped default.
+# looks like.  IT KEEPS NONE.  The loader used to hand it one - whatever
+# the map was showing if that could build, and a shipped default otherwise
+# - and that guess is what made drawing a region while looking at a global
+# viewer quietly name it after a country.  Nothing guesses now, so a file
+# that named no source still names none, and it says so downstream instead
+# of being wrong quietly.
 
 my $alpha = getRegion('Alpha');
-ok($alpha && $alpha->{source} eq $DEFAULT_BUILD_SOURCE_ID,
-	"a region file with no source is given one ('".
+ok($alpha && $alpha->{source} eq '',
+	"a region file with no source keeps none ('".
 	($alpha->{source} // 'undef')."')");
 ok($alpha && $alpha->{source} ne $SOURCE_INHERITED,
 	"and never '$SOURCE_INHERITED' - a set that inherits is indeterminate");

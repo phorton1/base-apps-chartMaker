@@ -294,6 +294,33 @@ sub _validateSources
 	{
 		my $who = join(', ',@{$seen{$src_id}});
 
+		# 0 - NAMED AT ALL, and it is first because it is the only one of
+		# these that is not about a source.  '' is what regionSourceMap
+		# reports for a node whose region has not chosen one, which is how
+		# every region now begins: nothing is guessed for the user any
+		# more, so nothing can be built until they have said.
+		#
+		# There is nothing to install, convert or authorise here - the
+		# whole of the answer is WHICH NODES, because the user's next act
+		# is to go and set them.  '' sorts first, so this is also the
+		# first refusal they see when several things are wrong at once.
+
+		# ITS OWN GUARD NAME, not 'source'.  The guard is what the report
+		# and the tests key on, and "you have not chosen yet" and "what
+		# you chose is not installed" want different words in front of the
+		# user and are different things to assert.
+
+		if ($src_id eq '')
+		{
+			_refuse($report,'no_source',
+				"no build source has been chosen for: $who",
+				"a region names the imagery it is built from, and these ".
+					"have not named one yet",
+				"set it in the Regions pane, whose source column offers ".
+					"every installed source that can build");
+			return (0,undef);
+		}
+
 		# 1 - INSTALLED.  Named against the node that names it, because
 		# "which one do I fix" is the only useful part of this message.
 

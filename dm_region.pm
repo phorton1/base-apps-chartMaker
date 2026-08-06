@@ -377,29 +377,6 @@ sub _numify
 # validation
 #---------------------------------------------
 
-sub _newRegionSource
-	# THE SOURCE A REGION IS BORN NAMING.  What the map is currently
-	# showing, if that source can build; otherwise the shipped default.
-	#
-	# THE FALLBACK IS THE *BUILD* DEFAULT AND NOT THE VIEW ONE, which is
-	# the whole reason those are two constants.  The map opens on a global
-	# viewer that cannot build, so with one constant this line handed every
-	# new region a source that would fail at the only moment it mattered.
-	#
-	# The fallback is a plain string and does not have to resolve to
-	# anything installed -- an id naming a source this machine does not
-	# have is a condition the format already tolerates, and is exactly
-	# what a set arriving from somebody else looks like.  So this always
-	# has an answer and a region is never left without one.
-{
-	my $id  = getDefaultSource();
-	my $src = $id ? getSource($id) : undef;
-	return $id
-		if $src && grep { $_ eq 'build' } @{$src->{uses} || []};
-	return $DEFAULT_BUILD_SOURCE_ID;
-}
-
-
 sub _validatePolygon
 {
 	my ($where,$poly,$n) = @_;
@@ -530,10 +507,28 @@ sub _validateRegion
 	# arrived from somebody else, and the recipient has to be able to open
 	# it to find out what it wants.
 
-	$reg->{source} = $depth ? $SOURCE_INHERITED : _newRegionSource()
+	# EMPTY IS LEGAL ON A REGION AND MEANS NOT DECIDED YET.  It is not a
+	# third kind of value beside an id and '$SOURCE_INHERITED'; it is the
+	# ABSENCE of the answer, and the difference is that it does not resolve.
+	# 'inherited' always terminates somewhere; empty terminates nowhere, so
+	# every reader downstream has to be able to say "this node has no
+	# source" rather than assuming it will be handed an id.
+	#
+	# WHAT IT REPLACED WAS A GUESS.  A region used to be born naming
+	# whatever the map happened to be showing, if that could build, and the
+	# shipped build default otherwise - so drawing a region while looking at
+	# a global viewer quietly named it after a country the user may never
+	# have heard of.  Nothing guesses now.  Fetch, build and preview refuse
+	# until somebody says, and saying so is one click in the Regions pane.
+	#
+	# A FILE THAT ARRIVES WITHOUT ONE KEEPS IT EMPTY, which is the same
+	# rule as an id that is not installed: the recipient opens the set to
+	# find out what it wants, and is told rather than guessed at.
+
+	$reg->{source} = $depth ? $SOURCE_INHERITED : ''
 		if !defined $reg->{source};
-	return _err($where,"source must be [a-z0-9_-]")
-		if $reg->{source} !~ /^[a-z0-9_-]+$/;
+	return _err($where,"source must be [a-z0-9_-] or empty")
+		if $reg->{source} ne '' && $reg->{source} !~ /^[a-z0-9_-]+$/;
 	return _err($where,"a region may not have source '$SOURCE_INHERITED' ".
 			"- only a subregion may inherit, because a set that inherits ".
 			"its build source builds differently in different hands")
@@ -1278,7 +1273,10 @@ sub newRegion
 		zauthor			=> $zauthor,
 		zmin			=> $zmin,
 		zmax			=> $zmax,
-		source			=> _newRegionSource(),
+		# BORN WITH NO SOURCE.  See the validator: the user names one when
+		# they have decided, and nothing is built until they have.
+
+		source			=> '',
 		source_name		=> '',
 		geometry		=> [],
 		subregions		=> [],
@@ -1667,10 +1665,24 @@ sub regionSourceMap
 	# PATH - 'Bocas', 'Bocas/Popa00' - which is the shape the coverage walk
 	# reports nodes in.
 	#
-	# THE CHAIN ALWAYS TERMINATES.  A subregion inherits its parent's
-	# answer and a region that inherits falls through to $fallback -- so one
-	# pass down the tree resolves every node, and no reader has to walk back
-	# up to find out what it got.
+	# THE CHAIN ALWAYS TERMINATES, but it may terminate at NOTHING.  A
+	# subregion inherits its parent's answer and a region that inherits
+	# falls through to $fallback, so one pass down the tree resolves every
+	# node and no reader has to walk back up to find out what it got.
+	#
+	# WHAT IS NOT PROMISED IS THAT THE ANSWER IS AN ID.  A region may name
+	# no source at all - the empty string, meaning nobody has decided yet -
+	# and then it and every subregion under it map to ''.  That is a real
+	# answer and not a failure: it is what a freshly drawn region looks
+	# like, and the map draws it, the tile footprint counts it, and the
+	# tree edits it perfectly happily.
+	#
+	# SO EVERY READER MUST HANDLE ''.  The ones that only ask WHICH TILES -
+	# the footprint, the cleanup's reachability walk - do not care and
+	# never look at the value.  The ones that need imagery - fetch, both
+	# builds, preview - have to refuse, and refuse by NAMING THE NODE,
+	# because the key here is its path and the user's next act is to go and
+	# set it.
 	#
 	# It lives here, on the model, because more than one thing needs the
 	# same answer: the cache filler fetches by it and the preview renders by
