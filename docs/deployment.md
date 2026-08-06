@@ -319,18 +319,35 @@ A build is made from four repositories, and a release stamps the **same tag stri
 `chartMaker<version>`, across all four. `git checkout chartMaker<ver>` in each reconstructs
 exactly the source a release was built from.
 
-| Repository | Holds | Gets |
-| ---------- | ----- | ---- |
-| chartMaker | the application | the tag, and the GitHub Release |
-| Pub | the shared Perl library | the tag, as provenance |
-| base_dist/chartMaker | the packaging project | the tag, as provenance |
-| Perl | the exact interpreter bundled | the tag, as provenance |
+| Repository | Path | GitHub | Gets |
+| ---------- | ---- | ------ | ---- |
+| chartMaker | `C:\base\apps\chartMaker` | base-apps-chartMaker (public) | the tag, and the GitHub Release |
+| Pub | `C:\base\Pub` | base-Pub (public) | the tag, as provenance |
+| base_dist/chartMaker | `C:\base_dist\chartMaker` | base_dist-chartMaker (private) | the tag, as provenance |
+| Perl | `C:\Perl` | Perl (private) | the tag, as provenance |
+
+**The private ones are tagged and pushed too.** A provenance freeze with a hole in it
+freezes nothing, and two of the four things a build is made from are private.
 
 Only chartMaker gets an actual Release, with the installer as its asset. The repository
 itself stays text-only: `/releases` holds the release **log**, not the installers.
 
-**The log is not a changelog.** One row per release, plus the four commits it was built
-from. Every release is tagged in every repository, so `git log chartMaker<old>..<new>`
+**Anything linking to a download points at the `/releases` PAGE and never at
+`latest/download`.** GitHub excludes a pre-release from `latest`, so a one-click link to the
+newest asset would resolve to nothing at all for as long as this is below 1.0. Pointing at
+the page costs the reader one click and has the side effect of putting the pre-release
+marking in front of them on the way past. At `1.0.0` that reverses and a direct link becomes
+correct.
+
+**The tag IS the provenance, and nothing else records it.** No list of commit hashes is
+written anywhere - not in the log, not in the release notes. A hash block is a second
+account of what the tags already say exactly, it has to be transcribed by hand at the one
+moment when care is most expensive, and being wrong is indistinguishable from being right
+until somebody tries to reconstruct a build. `git checkout chartMaker<ver>` in each of the
+four is the whole mechanism.
+
+**The log is not a changelog.** One row per release, and optionally a few lines of
+highlights. Every release is tagged in every repository, so `git log chartMaker<old>..<new>`
 reconstructs the changes on demand and no second account of them has to be maintained.
 
 The packaging procedure itself - the toolchain, its configuration, and the steps that turn

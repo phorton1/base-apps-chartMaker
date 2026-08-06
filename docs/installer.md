@@ -198,14 +198,70 @@ The four-repository provenance freeze is specified in
 [Deployment](deployment.md#a-release-is-a-tag-in-four-repositories). The order matters more
 than the commands do:
 
-1. Commit the source repositories clean.
-2. Bump the version and build, which dirties only the packaging repository.
-3. Commit the packaging repository.
+1. Commit the source repositories clean - chartMaker, `Pub`, and `Perl`.
+2. Bump the version and build. `_installer/make_cava_project.pl --version <ver>` sets it, and
+   the build then dirties only the packaging repository.
+3. Commit the packaging repository. That commit is the recipe that produced this exe.
 4. Install the built executable and test it.
 5. **Commit nothing further to any of the four**, or the tags will not pin what shipped.
-6. Tag all four with `chartMaker<version>` and push the tags, noting each commit.
-7. Append the release-log entry and commit it.
-8. Create the GitHub Release with the installer as its asset, review it as a draft, publish.
+6. Tag all four and push, private ones included:
+
+   ```
+       git tag chartMaker<ver> && git push origin chartMaker<ver>
+   ```
+
+7. Append the release-log entry and commit it in the chartMaker repo, with the message
+   `commit release.md for <ver>` - single author, no co-author trailer.
+8. Publish, as a **draft** first, then review it on GitHub and release it:
+
+   ```
+       gh release create chartMaker<ver> <installer.exe> \
+           --title "chartMaker <ver>" --notes-file <notes> --draft --prerelease
+   ```
+
+   Note the title carries a **space** and the tag does not.
 9. **Download the published asset and install it again.** It is the only step that proves
    the uploaded file is intact, and it is the only one that tests what a user will actually
    receive.
+
+**Which exe.** `base_dist/chartMaker/installer/` holds two, and they differ by more than
+their names. The asset is `chartMaker-msw-x86-<dashed-version>.exe`, the smaller one. The
+`chartmaker-mswin-x86-...` build beside it is Cava's self-extracting form and is not what
+ships.
+
+### The release notes
+
+The notes are a **user-facing account of what changed** and nothing else. Provenance is not
+in them, because it is in the tags.
+
+They open with a **direct download link** rather than a mention of the asset, so a reader
+never has to find and expand GitHub's Assets drop-down. The url is the release-download form,
+which is the tag and the asset name and nothing else:
+
+```
+    <repo url>/releases/download/<tag>/<asset>
+```
+
+so for 0.1.0 the notes begin with a line reading `**Download the Windows installer:**`
+followed by a markdown link whose text is `chartMaker-msw-x86-0-1-0.exe` and whose target is
+that url with `chartMaker0.1.0` as the tag. Then:
+
+```
+    ### Changes in 0.1.0
+    - <one idea per bullet>
+```
+
+Three rules about the bullets, each of which exists because a draft broke it:
+
+- **One idea per bullet.** "Updates the manual and fixes the connection advice" is two.
+- **What changed, not why.** The reasoning belongs in the manual; a changelog that explains
+  itself is a changelog nobody finishes reading.
+- **No claims about users that cannot be substantiated.** Nothing about what people were
+  seeing, or wanted, or had trouble with, unless it is known.
+
+**No pre-release disclaimer in the notes.** GitHub already marks the release as a
+pre-release, and a paragraph repeating it is redundant on the one surface that has already
+said it.
+
+**The notes are drafted and reviewed before they are published**, which is the reason
+step 8 creates a draft rather than a release.

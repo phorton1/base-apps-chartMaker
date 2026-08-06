@@ -23,20 +23,16 @@ history is authoritative: `git log chartMaker<older>..chartMaker<newer>`.
 | ---- | ------- | ----- |
 
 Each release is the same tag `chartMaker<version>` stamped across the four repositories it
-was built from, so it is fully reproducible; the tags in git are the authoritative
-provenance.
+was built from, so `git checkout chartMaker<version>` in each reconstructs exactly the
+source it came from. **The tags are the provenance and no commit hashes are recorded here** -
+a written list of hashes is a second account of what the tags already say, transcribed by
+hand at the one moment when care is most expensive.
 
-<!-- Entry template (newest first, added when a release is cut).  The four commits are
-     recorded here because a tag can be moved and a written commit cannot.
+<!-- Entry template (newest first, added when a release is cut).
 
 ### chartMaker0.1.0 -- YYYY-MM-DD (pre-release)
 
-<one terse line of highlights>
+<a few lines of highlights, or nothing at all - the table row is the record>
 
-built from (the `chartMaker0.1.0` tag in each repo):
-
-    chartMaker            <sha>
-    Pub                   <sha>
-    base_dist/chartMaker  <sha>  (private)
-    Perl                  <sha>  (private)
+No SHA block: the `chartMaker0.1.0` tag in each of the four repositories is the provenance.
 -->

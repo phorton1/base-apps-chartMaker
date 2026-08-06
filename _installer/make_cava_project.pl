@@ -58,6 +58,29 @@ my $FORCE = grep { $_ eq '--force' } @ARGV;
 
 my $ICONS_ONLY = grep { $_ eq '--icons' } @ARGV;
 
+# --version SETS THE VERSION AND TOUCHES NOTHING ELSE, for the same reason
+# --icons exists: it is step 2 of cutting a release, and the alternative is
+# hunting three fields across the packager's Distribution tab by hand on
+# the one day when getting it wrong is expensive.
+#
+# THE VERSION LIVES IN THE PROJECT AND NOT IN THE SOURCE.  Cava stamps it
+# into the executables, and cm_utils::appVersion() reads it back out of the
+# packaged build - so this is the single place it is written, and
+# $appVersion in cm_defs is only the string a run from source falls back to.
+#
+# Cava maintains version_build itself; this sets the three that name the
+# release, which are also the three the installer filename is built from.
+
+my $SET_VERSION = '';
+for my $i (0..$#ARGV)
+{
+	next if $ARGV[$i] ne '--version';
+	$SET_VERSION = $ARGV[$i+1] // '';
+	die "--version needs a version like 0.1.0\n"
+		if $SET_VERSION !~ /^(\d+)\.(\d+)\.(\d+)$/;
+	last;
+}
+
 my $TEMPLATE = 'C:/base_dist/navMate/cava20.cpkgproj';
 my $DIST     = 'C:/base_dist/chartMaker';
 my $PROJ     = "$DIST/cava20.cpkgproj";
@@ -319,6 +342,12 @@ sub main
 		return;
 	}
 
+	if ($SET_VERSION)
+	{
+		setVersion($SET_VERSION);
+		return;
+	}
+
 	die "template not found: $TEMPLATE\n" if !-f $TEMPLATE;
 
 	if (-f $PROJ && !$FORCE)
@@ -422,6 +451,49 @@ sub main
 	print "wrote $ICFG\n";
 
 	writeIconBundle();
+}
+
+
+sub setVersion
+	# Rewrite version_major/minor/release in an EXISTING project, leaving
+	# everything else -- including version_build and everything Cava has
+	# written since -- exactly as it was.
+	#
+	# CAVA MUST BE CLOSED.  It is single instance and holds the SQLite file
+	# open; worse, it writes the whole project back on exit, so a version
+	# set underneath a running Cava is silently reverted the moment the
+	# packager is shut down.  Nothing here can detect that, which is why it
+	# is said out loud.
+{
+	my ($version) = @_;
+	my ($major,$minor,$release) = $version =~ /^(\d+)\.(\d+)\.(\d+)$/;
+
+	die "no project at $PROJ - run without --version to create it\n"
+		if !-f $PROJ;
+
+	my $dbh = DBI->connect("dbi:SQLite:dbname=$PROJ","","",
+		{ RaiseError => 1, PrintError => 0, AutoCommit => 0 });
+
+	my $was = join('.',map {
+			$dbh->selectrow_array(
+				"SELECT config_value FROM config_values WHERE config_name = ?",
+				undef,$_)
+		} qw( version_major version_minor version_release ));
+
+	my $sth = $dbh->prepare(
+		"UPDATE config_values SET config_value = ? WHERE config_name = ?");
+	$sth->execute($major,'version_major');
+	$sth->execute($minor,'version_minor');
+	$sth->execute($release,'version_release');
+
+	$dbh->commit();
+	$dbh->disconnect();
+
+	print "version $was -> $version\n";
+	print "the installer will be named chartMaker-msw-x86-".
+		join('-',$major,$minor,$release).".exe\n";
+	print "\nCava must have been CLOSED when this ran - it rewrites the\n";
+	print "project on exit and would put the old version back.\n";
 }
 
 
