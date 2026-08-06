@@ -47,23 +47,28 @@ Both Fetch and Build go through two dialogs, and **every question you could be a
 before the first request goes out.** A confirmation at the end of a three hour run is one
 nobody is sitting there to answer.
 
-### One - what, and where
+### One - what, and for an RCT, where
 
-A checkbox list of the regions in your set, and for a build, the output folder. Tick
-**Ibiza** and **Formentera**.
+A checkbox list of the regions in your set. Tick **Ibiza** and **Formentera**.
 
 This is the **build configuration** and it persists, in the set's own folder. It is not
 hidden state - it means "what am I working on" stops being re-decided every single time, and
 for the ordinary case of working on one region, Build just runs.
 
-The output folder defaults sensibly and can be changed, which is what makes a trial build
-possible - somewhere other than the folder you copy onto a card. A folder you nominate must
-already exist; chartMaker creates only the folders it chose the location of, because a path
-that is not there is far more likely to be a typo or an unplugged drive than an instruction.
+**Build RCT adds an output folder to this dialog and nothing else does**, which is why its
+title says *what and where* where the other two say *what*. An `.rct` chartset is a folder
+you copy onto a card, so where it goes is a decision worth being asked; a fetch writes no
+output at all, and MBTiles has a single destination with nothing to choose - the preflight
+names it.
+
+That folder defaults sensibly and can be changed, which is what makes a trial build possible
+- somewhere other than the one you copy from. A folder you nominate must already exist;
+chartMaker creates only the folders it chose the location of, because a path that is not
+there is far more likely to be a typo or an unplugged drive than an instruction.
 
 ### Two - what it will cost
 
-<a href="../images/preflight.png" target="_blank"><img src="../images/preflight.png" width="760" alt="The second preflight dialog: tiles to fetch, cached, absent, time, size and what will be replaced"></a>
+<a href="../images/preflight.png" target="_blank"><img src="../images/preflight.png" width="636" alt="The second preflight dialog: tiles to fetch, cached, absent, time, size and what will be replaced"></a>
 
 This is where you decide. It tells you, grouped by source:
 
@@ -84,7 +89,7 @@ coverage; retrying will never change it.
 
 ## While it runs
 
-<a href="../images/progress.png" target="_blank"><img src="../images/progress.png" width="620" alt="The build progress dialog with an outer bar for regions and an inner bar for tiles"></a>
+<a href="../images/progress.png" target="_blank"><img src="../images/progress.png" width="456" alt="The build progress dialog with an outer bar for regions and an inner bar for tiles"></a>
 
 **Two bars**, because the wait has two shapes. The outer counts regions - a number you chose
 and can predict. The inner counts tiles within one region, which is thousands, and is where

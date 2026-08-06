@@ -81,6 +81,7 @@ read that**, rather than streaming it into a terminal that will be confused by i
 | `my_build_mbtiles.pl` | build one of Patrick's real regions as mbtiles, **from the cache only**, and print what it wrote by reading the files back |
 | `run_chartmaker.bat` | **launch the app in a window that shows the log** - and that window is where console commands are typed. Hardcoded to this machine's Perl and repo root, which is what a launcher is |
 | `tool_app_command.pl` | send one console command to the **running** application and print only that command's output |
+| `tool_check_docs.pl` | run from a docs folder: every relative link and `<img src>` resolved against disk, every file checked for a byte over 0x7F, and every image on disk checked for a reference. Three ways a doc folder rots silently - a renamed file, a re-encoded image, an orphan nobody deletes - and none of them shows up until GitHub renders a broken box. Written while renaming seventeen manual images from `.png` to `.jpg` |
 | `tool_rct_inspect.pl` | run the firmware's own arithmetic over a card - the zero-step blocks it would silently skip, and the reveal-mask rectangle count against its budget |
 | `tool_coverage_time.pl` | what coverage costs cold, warm, and after one region is edited |
 | `tool_shot.ps1` | a screenshot of the running window, found by owning process - and **refusing** rather than guessing when more than one instance is up, since picking wrong means measuring somebody else's process. `-procId` says which |

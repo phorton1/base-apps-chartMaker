@@ -35,91 +35,6 @@ structure of it may be changed at anytime by Patrick, and only by Patrick.
 
 
 
-## Initital implementation Phase S - USER MANUAL
-
-Reference-Like Tutorial
-
-The repo will include a User Manual of a tutorial nature that will onboard users through
-the entire process of creating region sets and doing builds within the constraints of the
-shipped TSDs, and explaining how they can use our catalog and build their own tsds.
-
-The attitude, voice, and basic structure of the user manual would be very similar to that of the
-navMate /user_manual.  You will have permission to create that folder when the in-context plan
-for the user manual is completed.
-
-One interesting question that may have changed since program inception is whether or not there
-are now any tile servers that have a TOS that we can use to drive the tutorial besides the low
-res GIBS weld tileserver.   In that regards there is a question as to whether the manual should
-only show images (screenshots) of the actual sources and the user can legimately use, or better
-ones.
-
-Another interesting question is whether or not we provide a fixture initial region set as
-demonstration data.
-
-I note that this version of claude seems to have better control of the app and leaflet at
-runtime than previous versions and my idea is for you to at least prototype actual screen
-grabbed images in the document.  I find that at least one or sometimes a few screenshots
-makes the user manual much more visually apealing to the user.
-
-We will need to start with an outline of the md files that will exist, and their contents,
-and how we guide the user through creating a region set, modifying it, adding subregions
-etc, the relationship between sources and rendering and building, previewing and probing
-sources versus regionsets,  building outputs.  I view the Catalog and building of TSDs almost
-as more reference like additional things in addition to things like managing and using the
-preferences, key store, managing the cache, and so on, so maybe the user manual itself is broken into a
-Tutorial and Reference sections, although I dont want to try to build a complete reference
-to every possible concept in the system.
-
-
-All of this must be carefully couched in the fact that we dont deliver tiles and that the
-user accepts any responsibility for the tiles they view or build.  The user manual should
-definitely include a reference and link to our own licences and main design documentation
-but should not contain many embedded references to it, although a few strategic refernces
-to technical docs might be appropriate.
-
-
-I am looking for something that we can complete in one or two context windows.
-You can do more in a single context window than you think you can.
-
-### Example Region and User Built Region
-
-I can see us providing a region around Elvissa with a few subregions as
-a standing example, and guiding the user through creating an additional
-region aroudn Formenttera with a subregion in it.  I can even see how we
-"optimize out" of the center of Elvisaa for file size by drawing our region
-correctly (possibly as two disjoint polygons).
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 ## Initital implementation Phase T - INSTALLABLE
 
 Installable Application and Release Cycle
@@ -132,6 +47,8 @@ scheme ala the way that navMate is currently released.
 
 ## OTHER
 
+
+### Documentation and User Manual/Reference Rework
 
 
 ### Overlay TSD's

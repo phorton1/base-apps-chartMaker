@@ -30,7 +30,8 @@ param(
   [int]$procId,
   [int]$x,
   [int]$y,
-  [switch]$focusOnly)
+  [switch]$focusOnly,
+  [switch]$right)
 
 Add-Type @"
 using System;
@@ -77,7 +78,19 @@ $sx = $r.L + $x
 $sy = $r.T + $y
 [void][U]::SetCursorPos($sx,$sy)
 Start-Sleep -Milliseconds 150
-[U]::mouse_event(0x0002,0,0,0,0)     # LEFTDOWN
-Start-Sleep -Milliseconds 60
-[U]::mouse_event(0x0004,0,0,0,0)     # LEFTUP
-Write-Output "clicked $sx,$sy"
+
+# -RIGHT IS FOR THE MAP, where the right-click IS the interface: every
+# verb in the applet begins with one on the thing you mean.  Same
+# focus and coordinate handling; only the two button flags differ.
+
+if ($right) {
+  [U]::mouse_event(0x0008,0,0,0,0)   # RIGHTDOWN
+  Start-Sleep -Milliseconds 60
+  [U]::mouse_event(0x0010,0,0,0,0)   # RIGHTUP
+  Write-Output "right-clicked $sx,$sy"
+} else {
+  [U]::mouse_event(0x0002,0,0,0,0)   # LEFTDOWN
+  Start-Sleep -Milliseconds 60
+  [U]::mouse_event(0x0004,0,0,0,0)   # LEFTUP
+  Write-Output "clicked $sx,$sy"
+}

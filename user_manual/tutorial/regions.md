@@ -64,7 +64,7 @@ Pan the map south until Formentera and the strait are on screen.
 **1. Right-click on open water** near the island. The only thing offered is **Create
 Region**. A small panel opens where you clicked.
 
-<a href="../images/create_region.png" target="_blank"><img src="../images/create_region.png" width="700" alt="The Create Region panel over Formentera"></a>
+<a href="../images/create_region.jpg" target="_blank"><img src="../images/create_region.jpg" width="520" alt="The Create Region panel over Formentera"></a>
 
 **2. Fill it in.**
 
@@ -82,14 +82,14 @@ Region**. A small panel opens where you clicked.
 - **zauthor 15, zmin 10, zmax 16** - matching Ibiza, and the panel confirms as you type that
   these agree with the regions already there.
 
-**3. Press Draw.** The panel closes, a bar appears across the top of the map, and you are
+**3. Press Draw.** The panel closes, a bar appears along the bottom of the map, and you are
 drawing.
 
 **4. Click your way around the island.** Each click places a vertex and the bar counts them.
 There is no need for care or for many points - a dozen is plenty, and a rough box would do.
 The bar carries **Undo vertex** if you misplace one.
 
-<a href="../images/drawing.png" target="_blank"><img src="../images/drawing.png" width="700" alt="The drawing bar with vertices placed around Formentera"></a>
+<a href="../images/drawing.jpg" target="_blank"><img src="../images/drawing.jpg" width="590" alt="The drawing bar with vertices placed around Formentera"></a>
 
 **5. Close the ring** - the **Close** button, or a double-click, or Enter. Three vertices is
 the minimum.

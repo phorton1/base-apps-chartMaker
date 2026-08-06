@@ -17,7 +17,7 @@ you own behaves the same way afterwards.
 
 ## Folders
 
-<a href="../images/prefs_folders.png" target="_blank"><img src="../images/prefs_folders.png" width="720" alt="The Folders page of the Preferences dialog"></a>
+<a href="../images/prefs_folders.png" target="_blank"><img src="../images/prefs_folders.png" width="657" alt="The Folders page of the Preferences dialog"></a>
 
 Six locations, each with a Browse button, each defaulting under your Documents folder:
 
@@ -88,7 +88,7 @@ but not faster ones, so this one is independent of the rate knobs above.
 
 **`File - Key Store`**.
 
-<a href="../images/keys.png" target="_blank"><img src="../images/keys.png" width="720" alt="The Key Store dialog listing key names, whether each is set, and which sources use it"></a>
+<a href="../images/keys.png" target="_blank"><img src="../images/keys.png" width="616" alt="The Key Store dialog listing key names, whether each is set, and which sources use it"></a>
 
 A `.tsd` declares the **names** of the values its url needs and never the values themselves.
 This is where the values live: a plain list of name to value, and nothing else.

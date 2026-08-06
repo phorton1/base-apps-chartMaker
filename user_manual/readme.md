@@ -8,7 +8,7 @@ Welcome aboard. **chartMaker** builds **offline satellite chartsets** for your b
 aerial photograph of the water you are about to anchor in, on the plotter at the helm and on
 the laptop at the chart table, working when the internet is not.
 
-<a href="images/map_xarraca.png" target="_blank"><img src="images/map_xarraca.png" width="800" alt="Cala Xarraca on the north coast of Ibiza, boats anchored on pale sand patches between dark posidonia meadows"></a>
+<a href="images/map_first_image.jpg" target="_blank"><img src="images/map_first_image.jpg" width="800" alt="Cala de Portinatx on the north coast of Ibiza, boats anchored on pale sand between dark posidonia meadows"></a>
 
 ## Why you would want one
 

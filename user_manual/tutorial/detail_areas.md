@@ -62,13 +62,15 @@ nothing, and the bar says which parent you fell outside of. Ground outside the p
 a detail area - it is another polygon on the parent, or another region, and both are one
 right-click away.
 
-Confirm, then look at the info panel. Espalmador adds a few hundred tiles across two levels.
+Confirm, then look at the info panel. A box round the island and the sandbank adds something
+like two thousand tiles across its two levels, and about four fifths of them are at z18
+alone. The next section is why.
 
 ## Reading the cost
 
-Turn on **`footprint`** in the palette and run the spinner up and down.
+Turn on **`tile footprint`** in the palette and run the spinner up and down.
 
-<a href="../images/footprint.png" target="_blank"><img src="../images/footprint.png" width="800" alt="The footprint showing z16 tiles over Formentera with the info panel counts"></a>
+<a href="../images/footprint.jpg" target="_blank"><img src="../images/footprint.jpg" width="800" alt="The footprint showing z16 tiles over Formentera with the info panel counts"></a>
 
 Each rectangle is one actual tile that will be built. The count is the whole set at that
 level, and the rectangles drawn are the ones you can see. Watch what happens as the level
@@ -84,7 +86,7 @@ area".
 Now look at **Ibiza** in the example set, and turn its checkbox on if you hid it. Two things
 about it are worth more than anything else in this chapter.
 
-<a href="../images/two_polygons.png" target="_blank"><img src="../images/two_polygons.png" width="800" alt="The Ibiza region traced around the island's coastline in two polygons"></a>
+<a href="../images/two_polygons.jpg" target="_blank"><img src="../images/two_polygons.jpg" width="800" alt="The Ibiza region traced around the island's coastline in two polygons"></a>
 
 **It is traced, not boxed.** The outline follows the coast the whole way round, in forty-odd
 vertices, keeping a modest offing rather than a wide margin. It costs a couple of minutes
@@ -143,7 +145,7 @@ the smallest shape that contains the answer.
 
 ## Snapping to the grid
 
-Turn on **`snap grid`**. Small grey dots appear at tile-grid intersections and vertices now
+Turn on **`grid`**. Small grey dots appear at tile-grid intersections and vertices now
 land on them; the number in the row is the level being snapped to - your region's `zauthor`,
 or a detail area's `zmax`.
 

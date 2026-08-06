@@ -16,7 +16,7 @@ Open the map with **`View - Map`**. It comes up in your browser and it is a char
 is anything else: pan by dragging, zoom with the wheel. With the **Example** set open you are
 looking at Ibiza, its outline drawn in yellow and its four detail areas in cyan.
 
-<a href="../images/palette.png" target="_blank"><img src="../images/palette.png" width="800" alt="The map with the palette down the left and the info panel top right"></a>
+<a href="../images/palette.jpg" target="_blank"><img src="../images/palette.jpg" width="800" alt="The map with the palette down the left and the info panel top right"></a>
 
 The map and the application are one program. Select something here and it selects in the
 Regions pane; select it there and it selects here. Neither is the fallback for the other.
@@ -24,18 +24,20 @@ Regions pane; select it there and it selects here. Neither is the fallback for t
 ## Where the imagery comes from
 
 The imagery you are looking at is fetched by the **application**, not by your browser - which
-is why a source needing a password still works and your browser never sees the password. The
-row of sources across the top of the map chooses which one you are *looking* at. That is a
-separate question from which one a region *builds* from, and chapter five is about the
-difference.
+is why a source needing a password still works and your browser never sees the password.
 
-Two overlays sit beside them - **labels** and **seamarks** - which draw somebody else's map
+**Which source you are *looking* at is chosen in the Sources pane**, not on the map: click
+the button beside a source, or select it and press **Show**. The pane says *shown on the map*
+under the one that is. That is a separate question from which one a region *builds* from, and
+chapter five is about the difference.
+
+The last two rows of the palette - **labels** and **seamarks** - draw somebody else's map
 over the imagery. They are there to help you find your way about. Nothing builds them, and
 nothing you export will contain them.
 
 ### A tile that is not there says so
 
-<img src="../images/no_data_tile.png" width="120" align="right" alt="the no-data tile">
+<img src="../images/no_data_tile.jpg" width="120" align="right" alt="the no-data tile">
 
 Sooner or later you will pan somewhere a service has nothing, and you will get a plain grey
 square with chartMaker's name on it. **That is the program telling you the imagery ran out,
@@ -53,7 +55,7 @@ Down the left, under the zoom buttons, is a stack of rows. Each is a switch and,
 rows, a number. They are the whole of the map's furniture; everything that *changes*
 something is a right-click instead.
 
-**`snap grid`** - draws small grey dots at tile-grid intersections and makes vertices land on
+**`grid`** - draws small grey dots at tile-grid intersections and makes vertices land on
 them. The number beside it is the level being snapped to. This is chapter four's subject.
 
 **`autozoom`** - when the selection changes from somewhere *else* - the Regions pane, say -
@@ -63,9 +65,9 @@ map, because moving the ground out from under the click that chose it is maddeni
 **`shade selection`** - washes the selected object with colour. Handy for finding it, and the
 first thing to switch off when you are judging the ground *under* a vertex.
 
-**`footprint`** - draws the actual tiles a level is made of, as rectangles on the water, with
-a count. The spinner picks the level. This is how "how much am I asking for" stops being an
-abstraction.
+**`tile footprint`** - draws the actual tiles a level is made of, as rectangles on the water,
+with a count. The spinner picks the level. This is how "how much am I asking for" stops being
+an abstraction.
 
 **`tile grid`** - draws where a level's tile edges fall across the whole view, whether or not
 anybody has drawn a region there. Useful for reading a coverage boundary or planning where a
@@ -85,7 +87,7 @@ your set does:
 - the **selected detail area** below that, carrying only the band it adds
 
 The blocks do not overlap, so they read down the panel as addition. Select **Ibiza** now and
-read it: about **4,650 tiles** all told, most of them at z16.
+read it: **4,316 tiles** all told, most of them at z16.
 
 The panel does not follow your hand. Drag a vertex around and it sits still, updating when
 the edit is committed - recomputing coverage under a moving mouse would cost far more than it

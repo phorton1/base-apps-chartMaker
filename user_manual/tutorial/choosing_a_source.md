@@ -65,9 +65,10 @@ nothing holds you to it.
 
 Nothing picks a source for you. The source is the *subject* of the question.
 
-<a href="../images/probe.png" target="_blank"><img src="../images/probe.png" width="800" alt="Probe marks scattered over Formentera with the probe results pane beside them"></a>
+<a href="../images/probe.jpg" target="_blank"><img src="../images/probe.jpg" width="800" alt="Probe marks scattered over Formentera, sized by level and coloured by what came back"></a>
 
-The map fills with small dots and a **Probe** pane opens with the numbers. Each dot is one
+The map fills with small dots and a **Probe** pane opens in the application window with the
+numbers - the marks are the *where* and the pane is the *what*. Each dot is one
 tile that was actually asked for, drawn at the centre of that tile, and **its size tells you
 which level it came from** - larger for coarser. Colour tells you what came back:
 
@@ -90,6 +91,8 @@ confirming something you already assigned. Any installed source can be probed, i
 display-only one.
 
 ## Reading the answer
+
+<a href="../images/probe_pane.png" target="_blank"><img src="../images/probe_pane.png" width="800" alt="The Probe pane: a row per level with samples, found, absent, no-data, flat and detail"></a>
 
 Two regimes, and the pane says which one you are in.
 
@@ -125,7 +128,7 @@ is why the example set's detail areas stop there.
 
 Switch **`preview`** on in the palette.
 
-<a href="../images/preview.png" target="_blank"><img src="../images/preview.png" width="800" alt="Preview showing built coverage stopping at the region boundary, with the context layer dimmed outside"></a>
+<a href="../images/preview.jpg" target="_blank"><img src="../images/preview.jpg" width="800" alt="Preview showing built coverage stopping at the region boundary, with the context layer dimmed outside"></a>
 
 The map stops showing you the service and starts showing you **the file you are about to
 build**:
