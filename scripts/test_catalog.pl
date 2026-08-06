@@ -169,12 +169,18 @@ ok($bm->{path} eq 'NASA GIBS / Blue Marble shaded relief and bathymetry',
 
 print "\n--- the shipped .tsd files agree with the catalog ---\n";
 
+# THE SHIPPED TREE MIRRORS THE DEFAULT DATA DIR, one folder per tree the
+# application reads, so the .tsd files are in user_data/sources and not
+# loose in user_data.  That layout IS the mapping - dm_restore copies by
+# it, and the installer seeds by it - which is why these assertions are
+# worth keeping pointed at the real path rather than a convenient one.
+
 for my $pair ( [ 'ign_es_pnoa.tsd','ign_es_pnoa' ],
 			   [ 'ign_fr_ortho.tsd','ign_fr_ortho' ],
 			   [ 'esri.tsd','esri_world_imagery' ] )
 {
 	my ($leaf,$id) = @$pair;
-	my $path = "$app_dir/_res/user_data/$leaf";
+	my $path = "$app_dir/_res/user_data/sources/$leaf";
 	my $node = catalogEntry($id);
 	if (!-f $path || !$node)
 	{
@@ -203,7 +209,7 @@ for my $pair ( [ 'ign_es_pnoa.tsd','ign_es_pnoa' ],
 # another, and this is the decision recorded where it can be broken by
 # accident.
 
-ok(-f "$app_dir/_res/user_data/google.tsd",'google.tsd still ships');
+ok(-f "$app_dir/_res/user_data/sources/google.tsd",'google.tsd still ships');
 ok(!catalogEntry('google_satellite'),
 	'google is deliberately NOT a catalog entry');
 
@@ -216,18 +222,37 @@ ok(!catalogEntry('google_satellite'),
 # without visiting the catalog first.
 
 my @shipped = sort map { my $l = $_; $l =~ s{.*/}{}; $l }
-	glob("$app_dir/_res/user_data/*.tsd");
+	glob("$app_dir/_res/user_data/sources/*.tsd");
 ok(scalar(@shipped) == 4,"exactly four .tsd files ship (got ".scalar(@shipped).")");
 ok(join(' ',@shipped) eq
 		'esri.tsd google.tsd ign_es_pnoa.tsd ign_fr_ortho.tsd',
 	"and they are the expected four: ".join(' ',@shipped));
 
-# THE DEFAULT MUST BE ONE THAT CAN BUILD, and it is the one thing in this
-# set that a later edit could quietly break: moving the default to a viewer
-# would make every new region name a source no build can read.
+# THE VIEW DEFAULT MUST SHIP, or a first run opens the map on whatever
+# happens to sort first.  It does NOT have to build - it is what the map
+# shows and nothing is built from that.
 
-my $def = "$app_dir/_res/user_data/$DEFAULT_SOURCE_ID.tsd";
-ok(-f $def,"the default source '$DEFAULT_SOURCE_ID' is one of the shipped files");
+my $view = "$app_dir/_res/user_data/sources/esri.tsd";
+ok(-f $view,"the view default '$DEFAULT_VIEW_SOURCE_ID' is one of the shipped files");
+if (-f $view)
+{
+	open(my $vh,'<',$view);
+	binmode $vh;
+	local $/ = undef;
+	my $v = eval { JSON::PP::decode_json(<$vh>) };
+	close $vh;
+	ok($v && $v->{id} eq $DEFAULT_VIEW_SOURCE_ID,
+		"and esri.tsd is the file that declares that id");
+}
+
+# THE BUILD DEFAULT MUST BE ONE THAT CAN BUILD, and it is the one thing in
+# this set that a later edit could quietly break: moving it to a viewer
+# would make every new region name a source no build can read.  That is not
+# hypothetical - it is exactly what pointing one shared constant at esri
+# would have done, which is why there are two.
+
+my $def = "$app_dir/_res/user_data/sources/$DEFAULT_BUILD_SOURCE_ID.tsd";
+ok(-f $def,"the build default '$DEFAULT_BUILD_SOURCE_ID' is one of the shipped files");
 if (-f $def)
 {
 	open(my $dh,'<',$def);
@@ -241,8 +266,8 @@ if (-f $def)
 		"and it is redistributable");
 }
 
-ok(!-f "$app_dir/_res/user_data/bluemarble.tsd",'bluemarble no longer ships');
-ok(!-f "$app_dir/_res/user_data/weld_annual.tsd",'weld_annual no longer ships');
+ok(!-f "$app_dir/_res/user_data/sources/bluemarble.tsd",'bluemarble no longer ships');
+ok(!-f "$app_dir/_res/user_data/sources/weld_annual.tsd",'weld_annual no longer ships');
 ok(catalogEntry('gibs_bluemarble') && catalogEntry('gibs_weld_annual'),
 	'and both are still catalogued, so they are two clicks away');
 

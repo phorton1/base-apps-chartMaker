@@ -22,7 +22,8 @@ BEGIN
 		$appName
 		$appVersion
 		$app_dir
-		$DEFAULT_SOURCE_ID
+		$DEFAULT_VIEW_SOURCE_ID
+		$DEFAULT_BUILD_SOURCE_ID
 		$SOURCE_INHERITED
 
 		$WIN_REGIONS
@@ -57,18 +58,47 @@ BEGIN
 
 our $appName = 'chartMaker';
 
-# Identifies the application to tile servers in dm_fetch's User-Agent.
-# A client that fetches systematically should say who it is.
+# THE VERSION A RUN FROM SOURCE HAS.  A packaged build carries the real
+# number in its version resource, stamped there by the packager, and
+# cm_utils::appVersion() prefers that; this is the fallback for everything
+# else, and the only version a development copy can honestly claim.
+#
+# IT IS NOT READ DIRECTLY.  Everything that shows or sends a version calls
+# appVersion(), which is what keeps the About box and the User-Agent from
+# disagreeing.  See cm_utils.
 
-our $appVersion = '0.1';
+our $appVersion = '0.1.0';
 
 our $app_dir = $^O eq 'MSWin32' ?
 	'C:\base\apps\chartMaker' :
 	'/base/apps/chartMaker';
 
 
-# THE OFFICIAL DEFAULT TSD.  When nothing has been selected, or what was
-# selected is gone, this is what the map opens on.
+# TWO DEFAULTS, BECAUSE THEY ANSWER TWO DIFFERENT QUESTIONS, and one
+# constant answering both was wrong in a way that only showed on a first
+# run: what the MAP OPENS ON, and what a NEW REGION IS BORN NAMING.
+#
+# They pull in opposite directions.  The map should open on imagery a
+# newcomer recognises anywhere in the world, which is a global viewer.  A
+# region must name something that can BUILD, which a global viewer is not
+# - both of the ones shipped here are display-only by their operators'
+# terms.  Held in one constant, satisfying either broke the other:
+# whichever way it was set, the application either opened on a blank
+# ocean somewhere or created regions naming a source no build could read.
+#
+# THE MAP OPENS ON ESRI.  It has imagery everywhere, so wherever the user
+# first looks there is something there, and a first run should not depend
+# on happening to live in one of two countries.  It is display-only and
+# that is fine: nothing is built from what the map is showing.
+#
+# It is also why this is NOT the answer to the second question.  A region
+# born naming esri would name a source that fails at the only moment it
+# matters, hours into a build.
+
+our $DEFAULT_VIEW_SOURCE_ID = 'esri_world_imagery';
+
+# THE SOURCE A NEW REGION IS BORN NAMING, and everything below is about
+# this one.
 #
 # IT MUST BE ONE THAT CAN BUILD.  Two of the four shipped files are
 # display-only by their operators' terms, so a new region born naming either
@@ -105,8 +135,14 @@ our $app_dir = $^O eq 'MSWin32' ?
 # source in tree order.  The alternative of a 'default' flag inside a TSD
 # was rejected: two files could claim it and it would need this same
 # tiebreak anyway.
+#
+# THIS ONE IS EXPECTED TO GO.  It exists because a region is currently
+# born with a source already chosen for it, guessed from what the map
+# happens to be showing.  Once a region can be created with NO source and
+# the user names one when the program first needs it, nothing has to guess
+# and there is nothing left for this to answer.
 
-our $DEFAULT_SOURCE_ID = 'ign_es_pnoa';
+our $DEFAULT_BUILD_SOURCE_ID = 'ign_es_pnoa';
 
 # THE SOURCE A REGION DID NOT CHOOSE.  A region or subregion names the
 # source it is to be built from; this is the value meaning "not my

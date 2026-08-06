@@ -22,6 +22,7 @@ BEGIN
 {
 	use Exporter qw( import );
 	our @EXPORT = qw(
+		appVersion
 		openMapBrowser
 		newProgress
 		progressCancelled
@@ -41,6 +42,35 @@ setStandardResourceDir("$app_dir/_res");
 # gets this from Pub::Ray::NET::a_utils, which chartMaker does not use.
 
 enableOutputRing(2000);
+
+
+#---------------------------------------------
+# version
+#---------------------------------------------
+
+sub appVersion
+	# WHAT VERSION THIS IS, asked in two places that must not be allowed to
+	# disagree: the About box on screen, and the User-Agent sent to every
+	# tile server.  A client that fetches systematically should say who it
+	# is, and two different answers to that would make both useless.
+	#
+	# THE PACKAGER STAMPS THE REAL NUMBER and a development copy has none,
+	# so a run from source says 'dev' rather than inventing one.  That word
+	# is the one honest way to tell the two builds apart, wherever the
+	# string surfaces - which is why the fallback is not silently the bare
+	# number from cm_defs.
+	#
+	# GetInfoProductVersion() IS THE ACCESSOR, and the eval around it is
+	# what makes naming the wrong one dangerous: Cava::Packager 2.10 has no
+	# GetAppVersion(), so a call to that name dies inside the guard, the
+	# fallback is taken, and a packaged build calls itself a development
+	# one with nothing anywhere saying why.
+{
+	my $ver = '';
+	eval { $ver = Cava::Packager::GetInfoProductVersion() }
+		if $Cava::Packager::PACKAGED;
+	return $ver ? $ver : "$appVersion (dev)";
+}
 
 
 #---------------------------------------------

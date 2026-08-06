@@ -45,7 +45,7 @@ use dm_source;
 use dm_clean;
 
 my $go = grep { $_ eq '--go' } @ARGV;
-my $id = (grep { !/^--/ } @ARGV)[0] || $DEFAULT_SOURCE_ID;
+my $id = (grep { !/^--/ } @ARGV)[0] || $DEFAULT_VIEW_SOURCE_ID;
 
 setStandardDataDir($appName);
 setStandardTempDir($appName);

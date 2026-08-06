@@ -289,7 +289,7 @@ print "\n--- the build source\n";
 # through to the shipped default.
 
 my $alpha = getRegion('Alpha');
-ok($alpha && $alpha->{source} eq $DEFAULT_SOURCE_ID,
+ok($alpha && $alpha->{source} eq $DEFAULT_BUILD_SOURCE_ID,
 	"a region file with no source is given one ('".
 	($alpha->{source} // 'undef')."')");
 ok($alpha && $alpha->{source} ne $SOURCE_INHERITED,

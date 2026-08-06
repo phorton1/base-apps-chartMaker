@@ -670,19 +670,6 @@ sub onCommand
 }
 
 
-sub _appVersion
-	# CAVA STAMPS A VERSION INTO A PACKAGED BUILD and there is none in a
-	# development one, so it says 'dev' rather than inventing a number.
-	# That word in an About box is the one honest way to tell the two
-	# builds apart on screen.
-{
-	my $ver = '';
-	eval { $ver = Cava::Packager::GetAppVersion() }
-		if $Cava::Packager::PACKAGED;
-	return $ver ? $ver : "$appVersion (dev)";
-}
-
-
 sub _doAbout
 	# A small modal: the name, the version, one line about what this is,
 	# the project link, and the notice that governs everything it builds.
@@ -705,7 +692,7 @@ sub _doAbout
 	my $name = Wx::StaticText->new($dlg,-1,$appName,[20,18]);
 	$name->SetFont($title_font);
 
-	Wx::StaticText->new($dlg,-1,'Version: '._appVersion(),[20,52]);
+	Wx::StaticText->new($dlg,-1,'Version: '.appVersion(),[20,52]);
 	Wx::StaticText->new($dlg,-1,
 		'Offline satellite chartsets for OpenCPN and Raymarine E-Series '.
 		'plotters.',[20,80],[420,36]);

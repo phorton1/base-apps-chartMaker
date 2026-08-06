@@ -149,7 +149,14 @@ my $command_data = {
 		'Fetch, then write the set as .mbtiles charts - one per detail area'],
 	$COMMAND_HELP_MANUAL	=> ['User Manual',
 		'Open the chartMaker User Manual on GitHub in your web browser'],
-	$COMMAND_REGEN_EXAMPLES	=> ['Regenerate Examples...',
+	# NOT 'Regenerate Examples...', which is what this said and which cost
+	# an evening: with every .tsd deleted and the map grey, its own author
+	# went to File Explorer to copy the files back rather than to this
+	# menu item, because 'examples' reads as tutorial data and what was
+	# wanted was the IMAGERY.  The hint below was right the whole time; the
+	# label was the part being read.
+
+	$COMMAND_REGEN_EXAMPLES	=> ['Restore Shipped Sources and Examples...',
 		'Put back the sources and the example region set that ship with the application'],
 	$COMMAND_ABOUT			=> ['About chartMaker',
 		'The version, and a link to the project'],

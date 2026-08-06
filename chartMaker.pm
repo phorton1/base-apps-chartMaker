@@ -36,7 +36,7 @@ use dm_observe;
 use dm_engine;
 use em_command;
 use em_server;
-use if ($^O eq 'MSWin32'), 'em_console';
+use em_console;
 use w_resources;
 use w_ini;
 use w_frame;
@@ -153,7 +153,23 @@ engineStart();
 
 openSet(getActiveSet());
 
-my $console = is_win() ? em_console->new(\&em_command::dispatchCommand) : undef;
+# THE CONSOLE IS COMPILED IN ALWAYS AND STARTED ONLY WHERE THERE IS ONE.
+#
+# Two executables are built from this one source: a console-bearing one
+# under perl and a windowed one under wperl.  They are the same program and
+# there is no packaged-only code path, so em_console is an ordinary
+# unconditional use - which is also the only form a static packaging scan
+# can see.
+#
+# WHAT DIFFERS IS THE RUN AND NOT THE BUILD.  Under wperl there is no
+# console to read, and constructing the reader there gets as far as
+# reporting that it could not open one, to nobody.  IsGUI() is true in
+# exactly that executable and false everywhere else, including a
+# development run, which keeps its console.
+
+my $console = Cava::Packager::IsGUI() ?
+	undef :
+	em_console->new(\&em_command::dispatchCommand);
 
 em_server::startServer();
 

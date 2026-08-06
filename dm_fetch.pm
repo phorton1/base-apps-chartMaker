@@ -39,7 +39,79 @@ use Digest::MD5 qw( md5_hex );
 use HTTP::Message;
 use Pub::Utils;
 use Pub::UA;
+
+# WHAT LWP LOADS LAZILY, LOADED HERE INSTEAD.  Not one of these is
+# referenced anywhere in this file, and every one must stay.
+#
+# THE RULE BEING OBEYED IS AN ITHREADS ONE: everything the workers will use
+# must be loaded BEFORE the pool is spawned, because a thread is a CLONE of
+# the interpreter and module loading is not shared afterwards.
+# chartMaker.pm spawns the pool early and deliberately, while the
+# interpreter is still small, which means the workers are cloned before
+# anything has made an http request -- so without this, all four reach
+# their first lazy 'require' at the same instant, on the same file.
+#
+# WHAT HAPPENS THEN IS PERMANENT.  Concurrent readers get garbage out of
+# the packed loader: the observed failures were SYNTAX ERRORS INSIDE MODULE
+# POD, prose being parsed as code, different nonsense each time.  A failed
+# compile leaves $INC{'...'} defined-but-false, and from that moment every
+# retry in that thread dies with "Attempt to reload ... aborted" for the
+# life of the process.  Measured in the first packaged build: sixteen tiles
+# dispatched, one fetched, three workers dead for the session.
+#
+# Packaging makes it near certain rather than rare, because every require
+# goes through Cava's packed virtual filesystem, but the hazard is plain
+# Perl's and exists here too.
+#
+# BUNDLING IS NOT ENOUGH, and this is the part that misleads: all of these
+# are already in the package. A forced include decides whether the FILE
+# ships, never when Perl loads it.
+#
+# THE LIST IS MEASURED, NOT REASONED.  Guessing it cost two rounds -- fix
+# HTTP::Config and HTTP::Request::Common fails next, fix that and
+# Encode::Locale does.  LWP defers modules from a dozen places and which
+# ones this application reaches depends on the calls it makes, so the list
+# is produced by scripts/tool_lwp_preload.pl, which snapshots %INC around
+# one real fetch and prints what appeared.  RE-RUN IT after any change to
+# the fetch path or the Perl tree; an empty report is the passing result.
+#
+# 'require' RATHER THAN 'use', deliberately.  It loads without calling
+# import, which is what LWP itself does with these, and it matters for at
+# least one: 'use utf8' would tell Perl that THIS file is utf8 and change
+# how it is parsed.
+
+require HTTP::Config;			# LWP::UserAgent::add_handler, via ssl_opts
+require LWP::Protocol::https;	# LWP::Protocol::implementor, first https
+require HTTP::Request::Common;	# LWP::UserAgent, the get/post helpers
+require Encode::Locale;			# LWP::UserAgent, decoding
+require Encode::Byte;
+require utf8;
+
+# The URI scheme handlers.  URI resolves these by name from the url.
+
+require URI::http;
+require URI::https;
+require URI::_generic;
+require URI::_query;
+require URI::_server;
+
+# Content decoding.  A tile is a jpeg, but the transfer is often gzipped
+# and this whole stack comes in with it.
+
+require Compress::Raw::Zlib;
+require IO::Uncompress::Gunzip;
+require IO::Uncompress::Base;
+require IO::Uncompress::RawInflate;
+require IO::Uncompress::Adapter::Inflate;
+require IO::Compress::Base::Common;
+require IO::Compress::Gzip::Constants;
+require IO::Compress::Zlib::Extra;
+require File::GlobMapper;
+require File::Glob;
+require IO::Select;
+
 use cm_defs;
+use cm_utils;
 use dm_source;
 use dm_cache;
 use dm_observe;
@@ -83,7 +155,7 @@ sub _ua
 	if (!$ua)
 	{
 		$ua = Pub::UA->new( timeout => 20 );
-		$ua->agent("$appName/$appVersion");
+		$ua->agent("$appName/".appVersion());
 		$ua->ssl_opts( SSL_version     => 'TLSv1_2' );
 		$ua->ssl_opts( SSL_cipher_list => 'HIGH:!aNULL:!eNULL' );
 	}

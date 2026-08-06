@@ -434,8 +434,14 @@ alongside it that could drift out of agreement with it.
 
 ## What chartMaker ships
 
-Four sources, with **`ign_es_pnoa` as the official default** - it is the imagery a new
-region is born naming, and the source the user manual is built on.
+Four sources, and **two defaults, because there are two questions**. `esri_world_imagery` is
+what the **map opens on**: it has imagery everywhere, so a first run shows something wherever
+the user happens to look rather than depending on them living in one of two countries.
+`ign_es_pnoa` is what a **new region is born naming**, and the source the user manual is
+built on.
+
+They cannot be the same id. The map should open on a global viewer, and a viewer is exactly
+what a region must not name.
 
 | id | reaches | `uses` |
 | ------------------- | ------------------------------------- | ---------------- |
@@ -445,12 +451,12 @@ region is born naming, and the source the user manual is built on.
 | `google_satellite`  | answers to z21, real detail varies    | display          |
 
 **Two of the four can build, and both are national orthophoto services.** A new region born
-naming a display-only source would name something no build could ever read, so the default
-has to be one of these two. Both carry an open licence with attribution and need no key,
+naming a display-only source would name something no build could ever read, so the **build**
+default has to be one of these two. Both carry an open licence with attribution and need no key,
 which satisfies the rule that chartMaker ships no source it is not entitled to ship, and
 both URL templates are verified by a test rather than assumed.
 
-**The default is decided by what each one does where it STOPS.** Both are land products
+**Which of the two is decided by what each one does where it STOPS.** Both are land products
 whose coverage reaches roughly one z15 tile past the shore, and neither footprint follows a
 tile boundary, so both leave partly filled tiles along their whole edge - a tile that is
 half imagery and half nothing, which is unique bytes and therefore beyond the reach of any

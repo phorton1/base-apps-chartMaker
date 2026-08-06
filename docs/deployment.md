@@ -50,7 +50,8 @@ regenerate:
   adding it. Each file is one region: geometry, nesting, and the depth each area deserves.
   See [Design: Regions](design/regions.md). One set ships - the example the
   [user manual](../user_manual/readme.md) is written against - installed under the same
-  existence guard the `.tsd` files use, and restorable from `Help - Regenerate Examples`.
+  existence guard the `.tsd` files use, and restorable from
+  `Help - Restore Shipped Sources and Examples`.
 - **TSD files** - `sources/*.tsd`, the tile source definitions the application can build
   from. Found the same way, for the same reason. See [Design: TSD](design/tsd.md).
 - **The key store** - the values for those sources whose urls need one.
@@ -276,18 +277,41 @@ The division is the whole of what makes an uninstall safe:
 | Lives in | Holds | On uninstall |
 | -------- | ----- | ------------ |
 | the installation | the executables, the bundled Perl, `_res` | removed |
-| `$data_dir` | region sets, TSDs, the key store, built output, the cache | **kept** |
-| `$temp_dir` | the ini, the per-source observation records | kept, and disposable |
+| `$data_dir` | region sets, TSDs, the key store, built output, the cache | **kept unless asked for** |
+| `$temp_dir` | the ini, the per-source observation records | removed, silently |
 
 **Nothing the user authored is inside the installation**, which is why an upgrade is an
 install over the top and a removal takes nothing away that anybody typed.
 
+`$temp_dir` goes without a question because there is nothing in it to ask about: every value
+it holds is derived and re-converges within a run or two of the next installation.
+
+**`$data_dir` is a question, and the question states what it is about to destroy.** The
+folder is walked before the prompt is shown and the prompt names the file count, the total
+size, and separately the number of **cached tiles**, because that is what makes this
+different from asking about a document folder. Tiles are bandwidth, wall clock, and for some
+sources requests that should not be repeated - a survey that may have taken hours - and a
+user who answered Yes to a bare "delete your data folder" would not know that is what they
+were discarding. It defaults to No.
+
+The walk is why the uninstaller says it is working first: a large cache is hundreds of
+thousands of files, and enumerating them is not instant.
+
+**It asks about the folder rather than about the preferences**, and the distinction is real.
+Every tree is relocatable, so a user who moved `CACHE_DIR` elsewhere has tiles the
+uninstaller will neither count nor delete. Reporting only what is actually in the folder it
+is actually about to remove is the only claim it can make honestly.
+
 ## Version scheme
 
-`0.9.x`: `0.9` marks a pre-release, `.x` the build. **`1.0.0` is the contract line.** Before
-it, formats may change and a release is throwaway. From it, releases are permanent and the
-`.tsd`, `.region` and `.RCT` formats become a backward-compatibility commitment - which is
-what the `tsd_version` and `region_version` fields exist to carry.
+A version is `major.minor.release`. A leading `0.` marks a pre-release, where formats may
+change and a release is throwaway. **`1.0.0` is the contract line**: from it, releases are
+permanent and the `.tsd`, `.region` and `.RCT` formats become a backward-compatibility
+commitment, which is what the `tsd_version` and `region_version` fields exist to carry.
+
+**Which version is current is not stated here.** The release log in
+[`releases/`](../releases/readme.md) is the record of what has been released, and a number
+written into any other document is a second account of it that will eventually disagree.
 
 ## A release is a tag in four repositories
 

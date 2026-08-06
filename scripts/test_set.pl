@@ -224,25 +224,35 @@ print "\n=== a dangling selection ===\n";
 # not the open document.  It is what the ini remembers and what the
 # application opens at startup, so it has to degrade rather than fail when
 # the folder it names is gone.
+#
+# IT DEGRADES TO NOTHING OPEN, and that is the decision this pair of
+# assertions exists to hold.  It used to fall through to the first set in
+# tree order, which sounded kinder and made CLOSING A SET IMPOSSIBLE TO
+# REMEMBER - Close stores '', the fallback turned '' back into a real name,
+# and the next startup opened it again.  A first run drew the example set's
+# regions on the map before anybody had opened anything.  Nothing open is a
+# state the whole application already understood; this was the one place
+# that would not say it.
 
 setActiveSet('Nonesuch');
-ok(getActiveSet() eq 'Caribbean',
-	"a set that does not exist falls through to the first in tree order ".
-	"(got '".getActiveSet()."')");
+ok(getActiveSet() eq '',
+	"a set that does not exist resolves to nothing open, not to some ".
+	"other set (got '".getActiveSet()."')");
 
 setActiveSet('Panama');
 rmTree("$ROOT/region_sets/Panama");
 rescanSets();
-ok(getActiveSet() eq 'Caribbean',
-	"deleting the active set's folder falls through (got '".getActiveSet()."')");
+ok(getActiveSet() eq '',
+	"deleting the active set's folder leaves nothing open ".
+	"(got '".getActiveSet()."')");
 # THE OPEN DOCUMENT DOES NOT FOLLOW THE POINTER.  It cannot: it may hold
 # unsaved work, and a folder disappearing underneath it is not a reason to
 # throw that away.  What degrades is where the next Open lands.
 
 openSet(getActiveSet());
 my @i = getRegionIds();
-ok(scalar(@i) == 1,
-	"and opening what it resolves to now gives that set (got ".scalar(@i).")");
+ok(scalar(@i) == 0,
+	"and opening what it resolves to now gives nothing (got ".scalar(@i).")");
 
 
 #---------------------------------------------
@@ -272,7 +282,7 @@ my $TSD = <<'EOJ';
 EOJ
 
 my $alpha = $TSD; $alpha =~ s/ID_HERE/aaa_first/;
-my $weld  = $TSD; $weld  =~ s/ID_HERE/$DEFAULT_SOURCE_ID/;
+my $weld  = $TSD; $weld  =~ s/ID_HERE/$DEFAULT_VIEW_SOURCE_ID/;
 
 putFile("$ROOT/sources/aaa.tsd",$alpha);
 rescanSources();
@@ -282,7 +292,7 @@ ok(getDefaultSource() eq 'aaa_first',
 
 putFile("$ROOT/sources/weld.tsd",$weld);
 rescanSources();
-ok(getDefaultSource() eq $DEFAULT_SOURCE_ID,
+ok(getDefaultSource() eq $DEFAULT_VIEW_SOURCE_ID,
 	"the official default wins when it is there (got '".getDefaultSource()."')");
 
 setDefaultSource('aaa_first');
@@ -290,11 +300,11 @@ ok(getDefaultSource() eq 'aaa_first',"an explicit choice beats both");
 
 unlink("$ROOT/sources/aaa.tsd");
 rescanSources();
-ok(getDefaultSource() eq $DEFAULT_SOURCE_ID,
+ok(getDefaultSource() eq $DEFAULT_VIEW_SOURCE_ID,
 	"deleting the chosen source falls back rather than blanking the map");
 
 setDefaultSource('never_existed');
-ok(getDefaultSource() eq $DEFAULT_SOURCE_ID,
+ok(getDefaultSource() eq $DEFAULT_VIEW_SOURCE_ID,
 	"a remembered id that names nothing resolves to the default");
 
 
@@ -303,6 +313,17 @@ ok(getDefaultSource() eq $DEFAULT_SOURCE_ID,
 #---------------------------------------------
 
 print "\n=== writing ===\n";
+
+# OPENED EXPLICITLY, because the block above deliberately leaves NOTHING
+# open.  This used to arrive here with 'Caribbean' already open as a side
+# effect of the active-set pointer falling through to the first set in tree
+# order, so every assertion below was resting on a fallback that no longer
+# exists - and on one that was wrong, since it is what made closing a set
+# impossible to remember.  A test about where writes land should name the
+# set it means anyway.
+
+openSet('Caribbean');
+ok(openSetName() eq 'Caribbean',"the set to write into is open");
 
 my $new = newRegion('Made Here',15,10,16,'MadeHere');
 ok($new,"newRegion in the open set");

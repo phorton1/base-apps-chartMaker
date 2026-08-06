@@ -429,12 +429,27 @@ sub _doFetch
 		# exception inside a pool thread would take the worker out and
 		# quietly shrink the pool for the rest of the session, which would
 		# look like the application getting slower rather than like a fault.
+		#
+		# BUT IT MUST NOT BE SILENT EITHER, and it was.  Catching the
+		# exception and keeping only a truncated copy in a result field
+		# meant the one failure mode that indicates a bug in this program
+		# was the one failure mode that printed nothing, while every
+		# ordinary failure - a 403, a timeout, a rate limit - announced
+		# itself.  A packaged build lost three of four workers to a thread
+		# race and the log showed sixteen dispatches, one fetch, and no
+		# error at all.  The text was in $why the whole time.
+		#
+		# 'internal' IS ITS OWN CLASS.  This used to say 'transport', which
+		# is retryable and means the network is having a bad day; a bug in
+		# this program is neither, and the class is what everything above
+		# reads to decide both policy and what to tell the user.
 
 		if ($died || !$result)
 		{
 			my $why = $died || 'the fetch returned nothing';
 			$why =~ s/\s+/ /g;
-			$result = { status => 'error', class => 'transport',
+			warning(0,-1,"engine internal failure $key $z/$x/$y - $why");
+			$result = { status => 'error', class => 'internal',
 				reason => "internal: ".substr($why,0,120) };
 		}
 
@@ -517,7 +532,8 @@ sub _doFetch
 			last;
 		}
 
-		if ($class eq 'auth' || $class eq 'garbage' || $class eq 'unresolved')
+		if ($class eq 'auth' || $class eq 'garbage' ||
+			$class eq 'unresolved' || $class eq 'internal')
 		{
 			# 'unresolved' NEVER REACHED THE NETWORK AT ALL.  It is here
 			# rather than above because the answer is the same -- do not ask
@@ -526,6 +542,12 @@ sub _doFetch
 			# never made.  Retrying a url with a literal brace still in it
 			# would be asking somebody else's server a malformed question
 			# once per try.
+			#
+			# 'internal' JOINS THEM FOR THE SAME REASON, one step further
+			# in: the request was never made because THIS program failed.
+			# Retrying cannot help - the case that produced this class, a
+			# module whose first load failed, is permanent for the life of
+			# the thread - and retrying only multiplies the log line.
 
 			_bump('unretried');
 			last;

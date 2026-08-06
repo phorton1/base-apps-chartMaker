@@ -1017,7 +1017,7 @@ sub getDefaultSource
 	return '' if !@ids;
 
 	return $default_source if $default_source && $sources{$default_source};
-	return $DEFAULT_SOURCE_ID if $sources{$DEFAULT_SOURCE_ID};
+	return $DEFAULT_VIEW_SOURCE_ID if $sources{$DEFAULT_VIEW_SOURCE_ID};
 	return $ids[0];
 }
 

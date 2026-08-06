@@ -148,8 +148,8 @@ card is something you make again, not something you look after.
 
 ## Getting the shipped material back
 
-**`Help - Regenerate Examples`** puts back the source definitions and the example region set
-that come with chartMaker.
+**`Help - Restore Shipped Sources and Examples`** puts back the source definitions and the
+example region set that come with chartMaker.
 
 It surveys before it does anything and shows you three states: **not there** (ticked),
 **identical** (nothing to do), and **CHANGED** - a file you have edited, which is listed but

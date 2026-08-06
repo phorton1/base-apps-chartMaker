@@ -278,15 +278,38 @@ sub setExists
 #---------------------------------------------
 
 sub getActiveSet
-	# The remembered name if it still names a set, else the first set in
-	# tree order, else ''.
+	# The remembered name if it still names a set, else ''.
 	#
 	# RESOLVED ON EVERY READ, never cached.  The remembered name is a
 	# pointer into folder contents and the folder is edited from outside
 	# this application - that is the whole point of sets being folders - so
-	# a name that resolved a moment ago can dangle now.  Falling through to
-	# the first set means deleting the active set's folder degrades to
-	# "some other set" rather than to an error the user cannot clear.
+	# a name that resolved a moment ago can dangle now.
+	#
+	# NO SET OPEN IS AN ANSWER, and it used to be unreachable.  This fell
+	# through to the first set in tree order, on the reasoning that
+	# deleting the active set's folder should degrade to "some other set"
+	# rather than to an error nobody could clear.  What that actually did
+	# was make CLOSING A SET IMPOSSIBLE TO REMEMBER: Close stores '',
+	# meaning nothing is remembered, this turned '' back into the first
+	# set, and chartMaker.pm opened it again on the next run.  Observed on
+	# a fresh install, where the map drew the example set's regions before
+	# the user had opened anything and went on drawing them after they had
+	# closed it.
+	#
+	# IT IS DEFEATED AT BOTH ENDS, which is why the one line is the whole
+	# fix.  writeIniSelections deliberately writes the RESOLVED value
+	# rather than the remembered one, so the manufactured answer was also
+	# written back to the ini as though the user had chosen it.
+	#
+	# THE MODEL ALWAYS BELIEVED THIS.  dm_region::openSet says so in as
+	# many words - no set open is what a brand new installation looks like
+	# and what Close leaves behind - and w_frame gates New Region, Fetch
+	# and both Builds on setIsOpen().  This was the one place that
+	# disagreed.
+	#
+	# What a deleted folder now degrades to is nothing open, which the user
+	# sees as the Regions window going away, and File - Open Set is how
+	# they clear it.
 {
 	my @names = getSetNames();
 	return '' if !@names;
@@ -299,7 +322,7 @@ sub getActiveSet
 			return $name if lc($name) eq $key;
 		}
 	}
-	return $names[0];
+	return '';
 }
 
 

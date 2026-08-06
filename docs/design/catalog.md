@@ -38,8 +38,8 @@ written.
 
 **What ships and what is catalogued are two lists with two jobs.** The `.tsd` files in
 `_res/user_data/sources` are installed into the user's sources folder under an existence
-guard and become ordinary editable files - by the installer, and equally by `Help -
-Regenerate Examples`, which is the same copy under the same guard performed at runtime. The
+guard and become ordinary editable files - by the installer, and equally by `Help - Restore
+Shipped Sources and Examples`, which is the same copy under the same guard at runtime. The
 catalog is a list of what the application knows about. A source can be in either, both, or
 neither, and `google.tsd` is deliberately in the first and not the second.
 
@@ -52,7 +52,7 @@ difference between "not turnkey" and "no starting point at all".
 
 **Two buildable sources rather than one, because one country is not a starting point.**
 Spain reaches real detail to z18 over its own ground and is the
-[default](tsd.md#what-chartmaker-ships); France reaches z19 and is the only open imagery at
+[build default](tsd.md#what-chartmaker-ships); France reaches z19 and is the only open imagery at
 chart depth over the overseas departments, which is Caribbean and Indian Ocean cruising
 water that nothing else in the catalog covers. Neither is a subset of the other, and a
 shipped set that had to pick one would be picking somebody's ocean.

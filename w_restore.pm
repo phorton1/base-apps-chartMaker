@@ -2,8 +2,8 @@
 #---------------------------------------------
 # w_restore.pm
 #---------------------------------------------
-# The Regenerate Examples dialog: what the application ships, what is on
-# disk, and putting back whatever is asked for.
+# The Restore Shipped Sources and Examples dialog: what the application
+# ships, what is on disk, and putting back whatever is asked for.
 #
 # THE SURVEY IS THE PREFLIGHT, exactly as it is for the cleanup.  It says
 # what it found before it offers to do anything, and the counts in front of
@@ -74,7 +74,7 @@ sub show
 sub new
 {
 	my ($class,$parent) = @_;
-	my $this = $class->SUPER::new($parent,-1,'Regenerate Examples',
+	my $this = $class->SUPER::new($parent,-1,'Restore Shipped Sources and Examples',
 		[-1,-1],[820,480],wxDEFAULT_DIALOG_STYLE | wxRESIZE_BORDER);
 
 	$this->{rows} = surveyShipped();
@@ -233,7 +233,7 @@ sub onGo
 
 	if (!@doing)
 	{
-		Wx::MessageBox('Nothing is ticked.','Regenerate Examples',
+		Wx::MessageBox('Nothing is ticked.','Restore Shipped Sources and Examples',
 			wxOK | wxICON_INFORMATION,$this);
 		return;
 	}
@@ -250,7 +250,7 @@ sub onGo
 			scalar(@over)." file(s) on disk differ from the shipped ".
 			"version and will be REPLACED:\n\n$list\n\n".
 			"Anything you changed in them will be lost. Continue?",
-			'Regenerate Examples',
+			'Restore Shipped Sources and Examples',
 			wxYES_NO | wxICON_QUESTION,$this) != wxYES;
 	}
 
@@ -275,7 +275,7 @@ sub onGo
 	$msg .= "\n\nUse File - Open Set to open a region set that has just ".
 		"come back." if grep { $_->{kind} eq 'region' } @doing;
 
-	Wx::MessageBox($msg,'Regenerate Examples',
+	Wx::MessageBox($msg,'Restore Shipped Sources and Examples',
 		wxOK | ($failed ? wxICON_EXCLAMATION : wxICON_INFORMATION),$this);
 
 	# A SECOND SURVEY, so the dialog now shows what is true rather than

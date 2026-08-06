@@ -1,11 +1,8 @@
 NOTICE TO MARINERS
 
 chartMaker builds chartsets from satellite imagery -- photographs, not
-charts. They carry no soundings, no verified datum, no aids to navigation
-and no survey authority, and the imagery may be years out of date. They
-are an aid to navigation only -- never a substitute for official charts,
-published Notices to Mariners, a proper lookout, or sound seamanship and
-judgment.
+charts. They have no soundings, no verified datum and no aids to
+navigation, may be years out of date, and never replace official charts.
 
 The sea is inherently hazardous. You alone are responsible for the safe
 operation of your vessel and every decision made aboard it. Use of this

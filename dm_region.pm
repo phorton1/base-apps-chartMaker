@@ -381,6 +381,11 @@ sub _newRegionSource
 	# THE SOURCE A REGION IS BORN NAMING.  What the map is currently
 	# showing, if that source can build; otherwise the shipped default.
 	#
+	# THE FALLBACK IS THE *BUILD* DEFAULT AND NOT THE VIEW ONE, which is
+	# the whole reason those are two constants.  The map opens on a global
+	# viewer that cannot build, so with one constant this line handed every
+	# new region a source that would fail at the only moment it mattered.
+	#
 	# The fallback is a plain string and does not have to resolve to
 	# anything installed -- an id naming a source this machine does not
 	# have is a condition the format already tolerates, and is exactly
@@ -391,7 +396,7 @@ sub _newRegionSource
 	my $src = $id ? getSource($id) : undef;
 	return $id
 		if $src && grep { $_ eq 'build' } @{$src->{uses} || []};
-	return $DEFAULT_SOURCE_ID;
+	return $DEFAULT_BUILD_SOURCE_ID;
 }
 
 

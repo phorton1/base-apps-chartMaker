@@ -121,6 +121,17 @@ sub handle_request
 
 	display($dbg_request+1,0,"request method=$request->{method} uri=$uri");
 
+	# THE BROWSER ASKS FOR /favicon.ico UNBIDDEN, on every map load, and
+	# with nothing there that is a 404 apiece for the life of the session.
+	#
+	# IT IS ANSWERED WITH A PNG RATHER THAN AN .ICO.  An icon file is what
+	# the two EXECUTABLES need and it is a packaging input, kept with the
+	# rest of the packaging material; a browser will take a png perfectly
+	# well, and taking one keeps an image type nothing else here uses out
+	# of the static extension whitelist above.
+
+	$request->{uri} = $uri = '/favicon.png' if $uri eq '/favicon.ico';
+
 	# /api/... is the drive surface -- the console vocabulary over HTTP,
 	# which is what tests and a developer call by hand.  Everything else
 	# is the applet's own protocol, a private contract between this
@@ -893,8 +904,43 @@ sub applet_tile
 			{ 'x-chartmaker-tile' => 'absent' })
 		if $result->{status} eq 'absent';
 
+	# A FAILURE SAYS WHOSE IT WAS.  Every one of these used to be a 502,
+	# which specifically asserts that an upstream server answered badly -
+	# and the failure that actually shipped in the first packaged build had
+	# contacted nobody at all.  It was this program breaking, announced in
+	# the vocabulary of somebody else's outage, which is the wrong machine
+	# to go and look at.
+	#
+	# The classification already exists and is made once, in dm_fetch,
+	# where the evidence is; this only translates it, so there is no second
+	# opinion about what went wrong:
+	#
+	#	internal      500 - our bug.  Nothing was asked of anyone.
+	#	rate_limited  503 - a real answer, and 'come back later' is
+	#	                    exactly what 503 means
+	#	everything    502 - we asked and could not get a usable answer,
+	#	  else              which is what a gateway error is for
+	#
+	# THE HEADER IS THE PART ANYONE WILL ACTUALLY SEE.  An <img> failure
+	# carries no status code into the page (see the note above), so the
+	# code alone only reaches curl or a network log, and it identifies the
+	# application while it is there - the absent reply above already does.
+	#
+	# 503 COMES OUT WITH AN EMPTY REASON PHRASE, which is valid HTTP and
+	# looks odd in a log: Pub::HTTP::Response knows the text for 200, 302,
+	# 401, 404, 500 and 502 and has no entry for it.  Adding one is a line
+	# in Pub, which is shared with applications that are working as they
+	# are, so the right code is used here and the cosmetic gap is left
+	# where it belongs rather than worked around by sending a wrong one.
+
+	my $class = $result->{class} || '';
+	my $code  = $class eq 'internal'     ? 500 :
+				$class eq 'rate_limited' ? 503 : 502;
+
 	return Pub::HTTP::Response->new($request,
-		$result->{reason} // 'fetch failed',502,'text/plain');
+		$result->{reason} // 'fetch failed',$code,'text/plain',
+		{ 'x-chartmaker-tile'  => 'error',
+		  'x-chartmaker-class' => $class || 'unknown' });
 }
 
 

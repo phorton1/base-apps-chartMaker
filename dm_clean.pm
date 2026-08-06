@@ -106,7 +106,7 @@ sub cleanShippedLeaves
 	# The .tsd files that ship with the application, by leaf.
 	#
 	# READ FROM THE SHIPPED TREE RATHER THAN LISTED HERE, because that
-	# folder is what the installer and Regenerate Examples both copy, and a
+	# folder is what the installer and Restore Shipped both copy, and a
 	# list in code would be a second answer to "what ships" that nobody
 	# would think to update when a fifth source was added.
 	#

@@ -117,7 +117,7 @@ anything that matters, because:
 - Nothing reaches your disk until **`File - Save`**.
 - Closing the set without saving throws the whole session away.
 - And if you ever want the shipped material back exactly as it came - the four sources, the
-  example set, or all of it - **`Help - Regenerate Examples`** puts it back.
+  example set, or all of it - **`Help - Restore Shipped Sources and Examples`** puts it back.
 
 That last one is worth knowing now rather than later. It shows you what ships, what is on
 your disk, and what differs; a file that is simply missing is ticked, and a file **you have

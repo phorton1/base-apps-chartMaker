@@ -43,6 +43,36 @@ This application will have a sister repo in /base_dist that is used to build a r
 Windows EXE installation program.  There will be a defined release mechanism and versioning
 scheme ala the way that navMate is currently released.
 
+chartMaker has a slightly different set of needs than navMate -
+there is only one application as opposed to three in navMate,
+and chartMaker has a need to populate the new users $data_dir
+in a different way than navMate did.
+
+Thus chartMaker will have its own, slightly different repo /
+_installer/PreInstallApp.pm.   It will use a similar releases/
+folder, versioning scheme (begining at 0.1.1 pre-release) and
+so on.
+
+
+You have permission to create /base_dist/chartMaker and populate it.
+
+We will need a shell chartMakerGUI.pm scrip like navMate has
+and an icon pair for the "pure guid" vs "console + app" executables
+that cava will build for us.  For the initial test builds use
+the navMate icons (copy them to our appropriate folder). We also
+need a favicon in _res/site for the brownser to find.
+
+You are already familiar with how CAVA packager works generally and
+specifically via its SQLite database files, icon collections, and so
+forth.
+
+Please survey the entire situation,in detail, and show me a plan
+and any questions before you create base_dist/chartMaker and we
+try a build.
+
+We will only push the 1st pre-release to github after we have built
+and tested at least one, but probably several versions.
+
 
 
 ## OTHER
