@@ -99,11 +99,27 @@ my @build_menu = (
 	$COMMAND_BUILD_MBTILES );
 
 
+# THE HELP MENU.  The manual, the way to put the shipped material back,
+# and the version - three answers to "what is this and how do I use it",
+# which is the one menu a user looks in without being told to.
+#
+# REGENERATE SITS BETWEEN THEM DELIBERATELY.  The manual walks a reader
+# through opening the example set and changing it, so the way back belongs
+# next to the manual that told them to do it.
+
+my @help_menu = (
+	$COMMAND_HELP_MANUAL,
+	$COMMAND_REGEN_EXAMPLES,
+	$ID_SEPARATOR,
+	$COMMAND_ABOUT );
+
+
 my @main_menu = (
 	'file_menu,&File',
 	'edit_menu,&Edit',
 	'view_menu,&View',
-	'build_menu,&Build' );
+	'build_menu,&Build',
+	'help_menu,&Help' );
 
 
 my $command_data = {
@@ -131,6 +147,12 @@ my $command_data = {
 	$COMMAND_BUILD_RCT	=> ['Build RCT','Fetch, then write the set as .rct files'],
 	$COMMAND_BUILD_MBTILES => ['Build MBTiles',
 		'Fetch, then write the set as .mbtiles charts - one per detail area'],
+	$COMMAND_HELP_MANUAL	=> ['User Manual',
+		'Open the chartMaker User Manual on GitHub in your web browser'],
+	$COMMAND_REGEN_EXAMPLES	=> ['Regenerate Examples...',
+		'Put back the sources and the example region set that ship with the application'],
+	$COMMAND_ABOUT			=> ['About chartMaker',
+		'The version, and a link to the project'],
 };
 
 
@@ -142,6 +164,7 @@ $resources = { %$resources,
 	edit_menu		=> \@edit_menu,
 	view_menu		=> \@view_menu,
 	build_menu		=> \@build_menu,
+	help_menu		=> \@help_menu,
 };
 
 

@@ -46,6 +46,11 @@ BEGIN
 		$COMMAND_BUILD_MBTILES
 		$COMMAND_FETCH
 		$COMMAND_PROBE
+		$COMMAND_HELP_MANUAL
+		$COMMAND_REGEN_EXAMPLES
+		$COMMAND_ABOUT
+		$USER_MANUAL_URL
+		$REPO_URL
 	);
 }
 
@@ -217,6 +222,36 @@ our $COMMAND_BUILD_MBTILES	= 10043;
 # one you run FIRST, before deciding the zmax the other three build to.
 
 our $COMMAND_PROBE			= 10044;
+
+
+# THE HELP MENU, and the middle one is the reason it exists.
+#
+# REGENERATE EXAMPLES IS NOT A CONVENIENCE.  _res/user_data is copied into
+# the user's folders BY THE INSTALLER, under an existence guard, and that
+# was the only path to it - so a deleted source cost a reinstall and a
+# development copy could not be seeded with the shipped bundle at all.  The
+# user manual tells its reader to open the example set and break it, which
+# is only honest if there is a way back.
+#
+# It is HERE rather than in the File menu beside the key store and the
+# cleanup, even though it is the same kind of thing - the user's own
+# material on this machine.  What separates it is that the other two act on
+# what the USER accumulated and this one puts back what the APPLICATION
+# shipped, which is a question about the program rather than about the
+# work: the same shelf the manual and the version number sit on.
+
+our $COMMAND_HELP_MANUAL	= 10051;
+our $COMMAND_REGEN_EXAMPLES	= 10052;
+our $COMMAND_ABOUT			= 10053;
+
+# THE MANUAL IS OPENED ON GITHUB rather than from a bundled copy, which is
+# what navMate does.  It renders there, it never has to be packed, and a
+# reader who followed a link from the repository and a reader who used the
+# menu are looking at the same page.  The cost is that it needs a
+# connection, and that is a cost navMate already accepts.
+
+our $REPO_URL = 'https://github.com/phorton1/base-apps-chartMaker';
+our $USER_MANUAL_URL = "$REPO_URL/blob/master/user_manual/readme.md";
 
 
 1;

@@ -45,6 +45,34 @@ use base 'Wx::App';
 
 setStandardTempDir($appName);
 setStandardDataDir($appName);
+
+# A NAMED PROFILE MOVES BOTH ROOTS, and it is one more environment-keyed
+# default rather than a development-only path -- it behaves identically in
+# a packaged build, which is the rule Deployment states.
+#
+# BOTH roots move, and $temp_dir is the one that is easy to forget.  It
+# holds the ini (the pane layout, the active set, the display source), the
+# single-instance lock and the observation records, so a profile sharing it
+# would fight the ordinary copy for all three.  Moving it is what lets two
+# profiles run AT THE SAME TIME.
+#
+# The port must differ, since two instances cannot bind one, and a profile
+# that wants the ordinary cache says so -- both are ordinary preferences in
+# the profile's own chartMaker.prefs, so neither needs anything here.
+
+my $profile = $ENV{CHARTMAKER_PROFILE} || '';
+if ($profile ne '')
+{
+	$profile =~ s/[^A-Za-z0-9_-]//g;
+	if ($profile ne '')
+	{
+		$data_dir .= ".$profile";
+		$temp_dir .= ".$profile";
+		my_mkdir($data_dir) if !-d $data_dir;
+		my_mkdir($temp_dir) if !-d $temp_dir;
+	}
+}
+
 $ini_file = "$temp_dir/$appName.ini";
 init_prefs();
 

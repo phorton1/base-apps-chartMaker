@@ -37,10 +37,11 @@ and would have gone stale silently, in a file the user could not tell from one t
 written.
 
 **What ships and what is catalogued are two lists with two jobs.** The `.tsd` files in
-`_res/user_data` are installed into the user's sources folder under an existence guard and
-become ordinary editable files. The catalog is a list of what the application knows about.
-A source can be in either, both, or neither, and `google.tsd` is deliberately in the first
-and not the second.
+`_res/user_data/sources` are installed into the user's sources folder under an existence
+guard and become ordinary editable files - by the installer, and equally by `Help -
+Regenerate Examples`, which is the same copy under the same guard performed at runtime. The
+catalog is a list of what the application knows about. A source can be in either, both, or
+neither, and `google.tsd` is deliberately in the first and not the second.
 
 **Four files ship, in two pairs.** `esri.tsd` and `google.tsd` are the viewers - global,
 deep, and display only, which is what their operators' terms permit. `ign_es_pnoa.tsd` and

@@ -40,6 +40,7 @@ use w_resources;
 use w_ini;
 use w_keys;
 use w_clean;
+use w_restore;
 use w_prefs;
 use w_progress;
 use w_probe;
@@ -87,6 +88,9 @@ sub new
 	EVT_MENU($this, $COMMAND_FETCH,       \&onCommand);
 	EVT_MENU($this, $COMMAND_BUILD_RCT,   \&onCommand);
 	EVT_MENU($this, $COMMAND_BUILD_MBTILES, \&onCommand);
+	EVT_MENU($this, $COMMAND_HELP_MANUAL,   \&onCommand);
+	EVT_MENU($this, $COMMAND_REGEN_EXAMPLES,\&onCommand);
+	EVT_MENU($this, $COMMAND_ABOUT,         \&onCommand);
 
 	# A MENU ITEM ANSWERS FOR ITSELF rather than being switched on and off
 	# by whatever last changed the state.  There is no list of places that
@@ -646,6 +650,83 @@ sub onCommand
 	{
 		$this->onLongAct($id);
 	}
+	elsif ($id == $COMMAND_HELP_MANUAL)
+	{
+		Wx::LaunchDefaultBrowser($USER_MANUAL_URL);
+	}
+	elsif ($id == $COMMAND_REGEN_EXAMPLES)
+	{
+		# IT DOES NOT CARE WHETHER A SET IS OPEN, and it must not touch
+		# one.  Restoring writes files; what the open document holds is
+		# the user's, possibly unsaved, and File - Open Set is how they
+		# choose to go and look at what came back.
+
+		w_restore->show($this);
+	}
+	elsif ($id == $COMMAND_ABOUT)
+	{
+		$this->_doAbout();
+	}
+}
+
+
+sub _appVersion
+	# CAVA STAMPS A VERSION INTO A PACKAGED BUILD and there is none in a
+	# development one, so it says 'dev' rather than inventing a number.
+	# That word in an About box is the one honest way to tell the two
+	# builds apart on screen.
+{
+	my $ver = '';
+	eval { $ver = Cava::Packager::GetAppVersion() }
+		if $Cava::Packager::PACKAGED;
+	return $ver ? $ver : "$appVersion (dev)";
+}
+
+
+sub _doAbout
+	# A small modal: the name, the version, one line about what this is,
+	# the project link, and the notice that governs everything it builds.
+{
+	my ($this) = @_;
+
+	my $dlg = Wx::Dialog->new($this,-1,"About $appName",
+		wxDefaultPosition,wxDefaultSize,wxDEFAULT_DIALOG_STYLE);
+
+	# SetClientSize, NOT a size passed to the constructor.  Everything
+	# below is positioned in CLIENT coordinates, and a constructor size is
+	# the WINDOW - so the title bar and the borders came off the bottom and
+	# took the OK button with them.  Asking for the client area states what
+	# is actually meant and does not depend on guessing the chrome.
+
+	$dlg->SetClientSize(470,266);
+
+	my $title_font = Wx::Font->new(14,wxFONTFAMILY_DEFAULT,
+		wxFONTSTYLE_NORMAL,wxFONTWEIGHT_BOLD);
+	my $name = Wx::StaticText->new($dlg,-1,$appName,[20,18]);
+	$name->SetFont($title_font);
+
+	Wx::StaticText->new($dlg,-1,'Version: '._appVersion(),[20,52]);
+	Wx::StaticText->new($dlg,-1,
+		'Offline satellite chartsets for OpenCPN and Raymarine E-Series '.
+		'plotters.',[20,80],[420,36]);
+
+	Wx::HyperlinkCtrl->new($dlg,-1,$REPO_URL,$REPO_URL,[20,124]);
+	Wx::StaticText->new($dlg,-1,'Copyright (c) 2026 Patrick Horton',[20,150]);
+
+	# THE NOTICE BELONGS HERE.  A chartset is a photograph rather than a
+	# chart, and the About box is the one place in the application that is
+	# about the application rather than about the work.
+
+	Wx::StaticText->new($dlg,-1,
+		'Chartsets built with this program are an aid to navigation only, '.
+		'never a substitute for official charts. See NOTICE_TO_MARINERS.txt.',
+		[20,178],[420,44]);
+
+	my $ok = Wx::Button->new($dlg,wxID_OK,'OK',[370,222],[80,28]);
+	$ok->SetDefault();
+
+	$dlg->ShowModal();
+	$dlg->Destroy();
 }
 
 

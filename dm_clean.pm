@@ -69,6 +69,7 @@ use dm_region;
 use dm_coverage;
 use dm_cache;
 use dm_fetch;
+use dm_restore;
 
 
 BEGIN
@@ -104,18 +105,24 @@ my $CANCEL_EVERY = 256;
 sub cleanShippedLeaves
 	# The .tsd files that ship with the application, by leaf.
 	#
-	# READ FROM _res/user_data RATHER THAN LISTED HERE, because the
-	# installer copies that folder into the user's data dir and a list in
-	# code would be a second answer to "what ships" that nobody would think
-	# to update when a fifth source was added.
+	# READ FROM THE SHIPPED TREE RATHER THAN LISTED HERE, because that
+	# folder is what the installer and Regenerate Examples both copy, and a
+	# list in code would be a second answer to "what ships" that nobody
+	# would think to update when a fifth source was added.
 	#
 	# A shipped source is not protected - it is a normal file the user may
 	# delete - but it is never swept up by "check all unused", because a
 	# first run has used none of them and the sweep would empty a new
 	# install in one click.
+	#
+	# THROUGH dm_restore::shippedDir, which resolves $resource_dir - the
+	# in-repo _res in development and the bundled resources when packaged.
+	# This composed "$app_dir/_res" itself and was therefore looking at a
+	# path that does not exist in a packaged build, where it would have
+	# quietly reported that nothing ships.
 {
 	my %shipped;
-	my $dir = "$app_dir/_res/user_data";
+	my $dir = shippedDir().'/sources';
 	my $dh;
 	return \%shipped if !-d $dir || !opendir($dh,$dir);
 	$shipped{$_} = 1 for grep { /\.tsd$/i } readdir($dh);

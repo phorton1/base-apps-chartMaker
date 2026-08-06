@@ -63,9 +63,25 @@ application:
 the embedded HTTP server. It bundles wholesale, and `$resource_dir` is what the application
 resolves it through in both environments.
 
-Two other things live there and are reached the same way. `_res/user_data` holds the `.tsd`
-files copied into the user's sources folder under an existence guard, which is what makes a
-shipped source an ordinary editable file. `_res/catalog.json` is the
+Two other things live there and are reached the same way. **`_res/user_data` mirrors the
+default data dir**, one folder per tree the application reads:
+
+```
+    _res/user_data/sources/*.tsd
+    _res/user_data/region_sets/<set>/*.region
+```
+
+Its contents are copied into the user's own folders under an existence guard, which is what
+makes a shipped source an ordinary editable file. **The layout is the mapping** - in the
+ordinary case, where nobody has moved a folder, each destination is identical to its source,
+so the copy is the simple thing. It is still a *mapping* rather than a recursive copy,
+because every one of those trees is a preference and may point elsewhere; a blind copy into
+`$data_dir` would put a shipped source where a user who moved `SOURCES_DIR` would never find
+it.
+
+**The installer is no longer the only path to it** - `Help - Regenerate Examples` performs
+the same copy at runtime, which is what lets a deleted source come back without a reinstall
+and what seeds a development installation. `_res/catalog.json` is the
 [tile source catalog](design/catalog.md) and is **not** copied anywhere: it is read where it
 lies, because it is application material that has to stay coherent with the code rather than
 user data that may be edited.

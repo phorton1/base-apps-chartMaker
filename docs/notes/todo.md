@@ -81,6 +81,17 @@ to technical docs might be appropriate.
 I am looking for something that we can complete in one or two context windows.
 You can do more in a single context window than you think you can.
 
+### Example Region and User Built Region
+
+I can see us providing a region around Elvissa with a few subregions as
+a standing example, and guiding the user through creating an additional
+region aroudn Formenttera with a subregion in it.  I can even see how we
+"optimize out" of the center of Elvisaa for file size by drawing our region
+correctly (possibly as two disjoint polygons).
+
+
+
+
 
 
 

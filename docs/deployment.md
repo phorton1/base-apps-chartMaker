@@ -31,6 +31,15 @@ Nothing else differs between the two. There is no packaged-only code path and no
 development-only feature - only environment-keyed defaults, which is what keeps the
 installed application testable by running the development one.
 
+**`CHARTMAKER_PROFILE` is one more such default**, and it moves **both** roots to a suffixed
+sibling - `chartMaker.manual` for `CHARTMAKER_PROFILE=manual`. Moving `$temp_dir` with
+`$data_dir` is what makes a profile independent rather than cosmetic: the ini holding the
+selections, the single-instance lock and the observation records all live there, so two
+profiles that shared it would contend for all three. Because they do not, **two profiles run
+at the same time** - which is the case it exists for, an application whose panes hold nothing
+but the shipped material, beside one holding real work. The port and the cache location are
+ordinary preferences and are set in the profile's own `chartMaker.prefs`.
+
 ## `$data_dir` - the user's material
 
 `$data_dir` holds everything the user authored or acquired, and nothing chartMaker can
@@ -39,7 +48,9 @@ regenerate:
 - **Region sets** - `region_sets/<set>/`, one folder per chartset. The files present in a folder
   ARE the set; there is no index, so dropping in a region somebody sent you is the whole of
   adding it. Each file is one region: geometry, nesting, and the depth each area deserves.
-  See [Design: Regions](design/regions.md).
+  See [Design: Regions](design/regions.md). One set ships - the example the
+  [user manual](../user_manual/readme.md) is written against - installed under the same
+  existence guard the `.tsd` files use, and restorable from `Help - Regenerate Examples`.
 - **TSD files** - `sources/*.tsd`, the tile source definitions the application can build
   from. Found the same way, for the same reason. See [Design: TSD](design/tsd.md).
 - **The key store** - the values for those sources whose urls need one.

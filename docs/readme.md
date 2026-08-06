@@ -37,6 +37,11 @@ chartMaker is a Windows application, distributed as a versioned installer with n
 prerequisites to install. It is not turnkey, and does not pretend to be - it asks you to
 bring a source and make a decision or two - but everything after that is meant to just work.
 
+**If you want to *use* chartMaker rather than understand how it is built, start with the
+[User Manual](../user_manual/readme.md)** - a tutorial that takes you from installation to a
+finished chartset, and a short reference beside it. These documents describe the program's
+architecture and design.
+
 ## Documentation Outline
 
 - **[Architecture](architecture.md)** -
