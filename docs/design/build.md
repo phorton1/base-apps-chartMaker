@@ -372,6 +372,21 @@ not have with a uniform blank image and HTTP 200. Hashing tiles catches that cas
 matters because the alternative is a chartset full of grey squares that the application
 believed were imagery.
 
+**Asking what a source has cost is not free, so the answer is remembered.** Totalling one
+source's cache means stating every file in it: measured on 29,127 Esri tiles, **3.6 seconds**,
+on whichever thread asked - which on the Sources pane is the one drawing the window. So the
+cache keeps a per-source integer that is bumped whenever a tile or an absence is written, or
+anything is removed, and the totals are memoised against it. Switching between two sources to
+compare them costs nothing after the first look at each, because nothing was fetched in
+between and the integer did not move.
+
+**A counter and not a running total**, deliberately. Maintaining the numbers as tiles arrive
+would put arithmetic on the hot path for a figure nobody is reading, and it would go silently
+wrong the day something wrote to the cache by another route. An integer that only says
+*something changed* cannot drift, and it moves the whole expense to the one window that wanted
+the answer, at the one moment the answer would be different. It is not a count of anything and
+means nothing on its own.
+
 Nothing here ever removes anything. What a build leaves behind, and what browsing to find a
 region leaves beside it, is dealt with by [Cleanup](cleanup.md) and only when asked.
 

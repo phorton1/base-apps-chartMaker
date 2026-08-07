@@ -216,12 +216,63 @@ sub _writeAtomic
 }
 
 
+#---------------------------------------------
+# what has changed, as one integer
+#---------------------------------------------
+# cacheStats STATS EVERY FILE A SOURCE HAS, and on a real cache that is
+# seconds: measured on 29,127 Esri tiles, 3.594s, on the thread drawing the
+# window.  The Sources pane calls it every time it regenerates its text, so
+# switching back and forth between two sources froze the interface for
+# three seconds a time while producing an identical answer, because nothing
+# had been fetched in between.
+#
+# A COUNTER, NOT A RUNNING TOTAL.  Maintaining the counts as tiles arrive
+# was considered and rejected: it puts arithmetic on the hot path for a
+# number nobody is reading, and it goes silently wrong the day a new write
+# path appears - which has happened here before, when caching lived in
+# getTile and dm_fill stopped going through it.  An integer that only says
+# SOMETHING CHANGED cannot drift, costs one increment, and moves the whole
+# expense to the one window that wanted the answer, at the one moment the
+# answer would actually be different.  Patrick: "a simple incrementing
+# integer would be fast in all cases and only pay the price when that one
+# window wanted to redraw anyways."
+#
+# '*' IS THE KEY FOR A CHANGE WHOSE SOURCE IS NOT KNOWN.  cacheRemoveFile
+# is handed a path rather than a cache_key, and parsing one out of the
+# other would be a second place that knows the layout.  Every version
+# therefore includes '*', so a single-file removal invalidates everything -
+# which is right, because it is rare and it is a cleanup.
+
+my %cache_version:shared;
+
+sub _bumpVersion
+{
+	my ($key) = @_;
+	return if !defined($key) || !length($key);
+	lock(%cache_version);
+	$cache_version{$key} = ($cache_version{$key} || 0) + 1;
+}
+
+
+sub cacheVersion
+	# What this source's cache has been through.  Compare two of these to
+	# know whether an answer derived from it is still true.  It is not a
+	# count of anything and means nothing on its own.
+{
+	my ($key) = @_;
+	lock(%cache_version);
+	return ($cache_version{$key} || 0) + ($cache_version{'*'} || 0);
+}
+
+
 sub cachePutTile
 {
 	my ($source,$z,$x,$y,$format,$dataref) = @_;
 	my $path = _stem($source,$z,$x,$y).".$format";
 	display($dbg_cache,0,"cache put  $source->{cache_key} $z/$x/$y ($format, ".length($$dataref)." bytes)");
-	return _writeAtomic($path,$dataref);
+	return 0 if !_writeAtomic($path,$dataref);
+	_bumpVersion($source->{cache_key});
+	return 1;
 }
 
 
@@ -251,7 +302,9 @@ sub cachePutMiss
 	unlink("$stem.$_") for @EXTS;
 
 	my $body = $sentinel ? "sentinel\n" : '';
-	return _writeAtomic("$stem.none",\$body);
+	return 0 if !_writeAtomic("$stem.none",\$body);
+	_bumpVersion($source->{cache_key});
+	return 1;
 }
 
 
@@ -336,6 +389,9 @@ sub cacheCount
 }
 
 
+my %stats_memo;			# PER THREAD: cache_key => { version, stats }
+
+
 sub cacheStats
 	# Walk one source's cache and count what is in it, by zoom.  Returns
 	# { total_tiles, total_misses, total_bytes, zooms => { z => {...} } }.
@@ -344,8 +400,29 @@ sub cacheStats
 	# bytes or none, and adding them to a total that is read as "what this
 	# source has cost" would be noise in the one number somebody is
 	# actually looking at.
+	#
+	# MEMOISED AGAINST cacheVersion, and it is the CACHE that memoises it
+	# rather than any of the three callers.  The Sources pane, /counts and
+	# the console verb all want the same numbers and all used to pay for
+	# them separately; one of them had grown a timer-based cache of its own
+	# in self defence, which is stale at exactly the moment the number
+	# matters - right after a fetch.  A version is not.
+	#
+	# PER THREAD, like every other cache here, because a walk of the disk
+	# is not worth sharing across threads and a shared nested structure in
+	# this Perl is painful to build and easy to get subtly wrong.  The cost
+	# is that each thread pays once; a build's worker never asks at all.
+	#
+	# The memo holds one entry per source, so it is bounded by the number
+	# of installed sources.
 {
 	my ($source) = @_;
+	my $key = $source->{cache_key};
+	my $version = cacheVersion($key);
+
+	my $had = $stats_memo{$key};
+	return $had->{stats} if $had && $had->{version} == $version;
+
 	my $stats = { total_tiles => 0, total_misses => 0, total_bytes => 0, zooms => {} };
 
 	cacheWalk($source->{cache_key},sub {
@@ -363,6 +440,7 @@ sub cacheStats
 		$stats->{total_bytes} += $size;
 	});
 
+	$stats_memo{$key} = { version => $version, stats => $stats };
 	return $stats;
 }
 
@@ -381,6 +459,7 @@ sub cacheRemoveFile
 		return 0;
 	}
 	display($dbg_cache,0,"removed $path");
+	_bumpVersion('*');
 	return 1;
 }
 
@@ -420,6 +499,7 @@ sub cacheRemoveKey
 	}
 
 	display($dbg_cache,0,"cacheRemoveKey($key) removed $files files");
+	_bumpVersion($key);
 	return ($files,$bytes,$errors);
 }
 

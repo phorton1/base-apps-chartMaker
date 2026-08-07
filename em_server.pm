@@ -705,24 +705,19 @@ sub applet_coverage
 # it came from -- so a stale answer is visibly stale rather than quietly
 # wrong.
 
-my %stats_cache;			# per thread, like every other cache here
-my $STATS_TTL = 60;
-
 sub _cacheStats
-	# cacheStats() stats every file in a source's cache -- thousands of
-	# syscalls, to produce an average.  Held for a minute: the estimate
-	# does not get meaningfully better by being recomputed per request,
-	# and a fetch running underneath it changes it slowly.
+	# ONE LINE NOW, AND IT USED TO BE A TIMER.  cacheStats() stats every
+	# file a source has, which is seconds on a real cache, so this held the
+	# answer for a minute rather than recomputing it per request.
+	#
+	# dm_cache memoises it against a version counter now, which is better in
+	# the one case that matters: a timer is stale exactly when the number
+	# just changed, which is right after a fetch.  Kept as a name because it
+	# says at the call site that this is not free the first time.
 {
 	my ($src) = @_;
 	return undef if !$src;
-
-	my $have = $stats_cache{$src->{id}};
-	return $have->{stats} if $have && (time() - $have->{at}) < $STATS_TTL;
-
-	my $stats = cacheStats($src);
-	$stats_cache{$src->{id}} = { at => time(), stats => $stats };
-	return $stats;
+	return cacheStats($src);
 }
 
 

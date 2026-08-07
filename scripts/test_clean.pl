@@ -462,5 +462,52 @@ ok($pre->{sent_bytes} + $pre->{trim_bytes} ==
 	"and so is the number of bytes it promised to free");
 
 
+print "\n=== cacheStats is remembered until something changes ===\n";
+
+# TOTALLING ONE SOURCE'S CACHE STATS EVERY FILE IN IT - 3.6 seconds on a
+# real Esri cache, on whichever thread asked, which for the Sources pane is
+# the one drawing the window.  So the answer is memoised against a counter
+# the cache bumps on every write and every removal.
+#
+# THE RULE IS THAT THE COUNTER MOVES WHEN THE ANSWER WOULD, AND ONLY THEN.
+# Both halves matter: never moving makes the pane lie after a fetch, and
+# moving when nothing happened puts the three seconds back.
+
+my $vsrc = getSource('main_test') or die "no main_test source\n";
+my $v0   = dm_cache::cacheVersion($vsrc->{cache_key});
+
+my $s1 = cacheStats($vsrc);
+my $s2 = cacheStats($vsrc);
+ok($s1 == $s2,
+	"asking twice with nothing changed returns the very same structure");
+ok(dm_cache::cacheVersion($vsrc->{cache_key}) == $v0,
+	"and reading does not move the counter");
+
+my $blob = $IMAGE;
+cachePutTile($vsrc,7,3,3,'jpeg',\$blob);
+my $v1 = dm_cache::cacheVersion($vsrc->{cache_key});
+ok($v1 != $v0,"a written tile moves it");
+
+my $s3 = cacheStats($vsrc);
+ok($s3 != $s1,"so the answer is computed again");
+ok($s3->{total_tiles} == $s1->{total_tiles} + 1,
+	"and it counts the new tile ($s1->{total_tiles} -> $s3->{total_tiles})");
+
+cachePutMiss($vsrc,7,4,4,0);
+ok(dm_cache::cacheVersion($vsrc->{cache_key}) != $v1,
+	"a recorded absence moves it too");
+ok(cacheStats($vsrc)->{total_misses} == $s3->{total_misses} + 1,
+	"and is counted as an absence rather than a tile");
+
+# REMOVAL IS THE HALF THAT IS EASY TO FORGET, because a cleanup is the one
+# operation certain to change the number the pane is showing.
+
+my $v2 = dm_cache::cacheVersion($vsrc->{cache_key});
+ok(cacheRemoveFile(cacheDir()."/mainkey/7/3_3.jpeg"),"the tile is removed");
+ok(dm_cache::cacheVersion($vsrc->{cache_key}) != $v2,"which moves it as well");
+ok(cacheStats($vsrc)->{total_tiles} == $s1->{total_tiles},
+	"and the count comes back to where it started");
+
+
 print "\n".($fails ? "$fails TEST(S) FAILED" : "ALL PASSED")."\n";
 exit($fails ? 1 : 0);
