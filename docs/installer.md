@@ -168,13 +168,14 @@ and the **console** one from the real script.
 writes only to the user's own directories. **The installer is elevated**, which is a
 different question with a different answer: it writes to Program Files.
 
-The one thing the application asks of the machine that a user will be asked about is the
-**listening socket**. It is bound on every interface rather than on the loopback alone -
-that is `Pub::HTTP::ServerBase`'s doing and not a decision taken here - so Windows Firewall
-will offer its "allow access" prompt the first time an installed build runs. Nothing
-depends on the answer: the only client is a browser on the same machine, and a blocked rule
-still permits loopback. The installer deliberately adds **no** firewall exception, because
-an exception would grant reachability the application has no use for.
+The **listening socket** is bound to the loopback interface alone, and that is a decision
+taken here: `em_server` passes `HTTP_HOST => '127.0.0.1'`, which `Pub::HTTP::ServerBase`
+hands to `IO::Socket::INET` as its `LocalAddr` in place of the wildcard address. The only
+client is a browser on the same machine, so binding every interface would buy nothing, and
+it would cost the user a question - Windows Firewall offers its "allow access" prompt, per
+executable path, the first time a program listens somewhere reachable. A loopback socket
+needs no rule, so the prompt never appears. The installer adds **no** firewall exception
+and has nothing to add one for.
 
 ## The build
 

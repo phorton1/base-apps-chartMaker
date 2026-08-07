@@ -19,16 +19,20 @@ $| = 1;
 
 my $port = shift(@ARGV) || 9884;
 
-# NO LocalAddr, DELIBERATELY - the WILDCARD, because that is what
-# ServerBase binds.  Binding 127.0.0.1 specifically does NOT collide with
-# a wildcard bind: both succeed, the server comes up perfectly happy, and
-# windows then routes incoming connections to the MOST SPECIFIC listener -
-# so the only symptom is that a browser talks to the holder instead, and
-# nothing that looks like a port conflict is reported anywhere.
-# Reproduced exactly that, and spent a test on it.
+# 127.0.0.1 DELIBERATELY, because that is the address chartMaker's server
+# binds - em_server passes HTTP_HOST, so ServerBase gives IO::Socket a
+# LocalAddr instead of the wildcard.  The holder has to bind the SAME
+# address to contend for the port at all.  MEASURED, all four orderings,
+# Reuse off: two loopback binds collide and two wildcard binds collide,
+# but a wildcard and a loopback bind on one port BOTH SUCCEED in either
+# order.  A mismatched holder therefore reports nothing that looks like a
+# conflict - the server comes up perfectly happy, windows routes incoming
+# connections to the most specific listener, and the only symptom is a
+# browser talking to the wrong process.
 
 my $sock = IO::Socket::INET->new(
 	Proto     => 'tcp',
+	LocalAddr => '127.0.0.1',
 	LocalPort => $port,
 	Listen    => 5 );
 

@@ -94,6 +94,7 @@ sub new
 		if !defined getPref($PREF_HTTP_PORT);
 
 	my $params = {
+		HTTP_HOST				=> '127.0.0.1',
 		HTTP_PORT				=> getPref($PREF_HTTP_PORT),
 		HTTP_DOCUMENT_ROOT		=> "$resource_dir/site",
 		HTTP_GET_EXT_RE			=> 'html|js|css|png|jpg|jpeg',
