@@ -21,12 +21,22 @@ history is authoritative: `git log chartMaker<older>..chartMaker<newer>`.
 
 | date | version | notes |
 | ---- | ------- | ----- |
+| 2026-08-07 | 0.1.0 | First public pre-release |
 
 Each release is the same tag `chartMaker<version>` stamped across the four repositories it
 was built from, so `git checkout chartMaker<version>` in each reconstructs exactly the
 source it came from. **The tags are the provenance and no commit hashes are recorded here** -
 a written list of hashes is a second account of what the tags already say, transcribed by
 hand at the one moment when care is most expensive.
+
+### chartMaker0.1.0 -- 2026-08-07 (pre-release)
+
+The first pre-release, and the start of this log.
+
+chartMaker builds offline satellite charts for a boat. You
+draw regions on a map, pick an imagery source and the detail
+each deserves, and it packages the result as `.mbtiles` for
+OpenCPN and `.RCT` for Raymarine E-Series aerial overlay.
 
 <!-- Entry template (newest first, added when a release is cut).
 
