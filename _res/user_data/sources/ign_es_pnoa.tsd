@@ -13,6 +13,5 @@
   "attribution": "PNOA cedido por (c) Instituto Geografico Nacional de Espana",
   "terms_url": "https://www.ign.es/web/ign/portal/olicencia-cc-by",
   "license": "CC BY 4.0 scne.es, as declared in the service's own WMTS AccessConstraints. Attribution required.",
-  "policy": {"max_concurrency": 2, "min_interval_ms": 0},
   "notes": "A WMTS KVP endpoint, so the address is in the query string. The service publishes several tile matrix sets; GoogleMapsCompatible is the one this application can read, and its own set declares z0 to z20. IT NEVER REFUSES A TILE, at any level, in Spain or far outside it. Beyond its orthophoto footprint it serves an upsampled global backdrop rather than a refusal or a fixed 'no data' body, and at fine zoom that backdrop averages down to a single flat colour that varies with the ground beneath it - dark blue over deep water, dark green over forest - so repeated bodies here are a property of the backdrop and not a marker the service is sending. Real detail measured over north Ibiza reads flat at about 4.0 from z14 through z18, falls to 2.5 at z19 and 1.9 at z20, so the ortho holds solidly to z18 and z20 is marginal. The coastal footprint reaches roughly one z15 tile beyond the shore."
 }

@@ -16,6 +16,5 @@
   "absent_fingerprints": [
     { "bytes": 2521, "md5": "f27d9de7f80c13501f470595e327aa6d" }
   ],
-  "uses": ["display"],
-  "policy": { "max_concurrency": 6, "min_interval_ms": 0 }
+  "uses": ["display"]
 }

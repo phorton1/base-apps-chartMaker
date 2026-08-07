@@ -151,12 +151,24 @@ my %defaults = (
 	# loaded - measured on this machine, and the reason the pool is not
 	# resized on the fly.
 	#
-	# FOUR, because it is the useful worker count at a typical 200 ms round
-	# trip and 50 ms interval, and because a client-wide cap is the only
-	# limiter measured in the right unit: a ban is per client rather than
-	# per source, and several services share infrastructure.
+	# EIGHT, AND IT IS MEASURED RATHER THAN REASONED.  It used to be four
+	# on the argument that four is the useful worker count at a typical
+	# 200 ms round trip and a 50 ms interval - but the shipped sources
+	# declare no interval, so there was nothing to cover for and the
+	# argument did not apply to any of them.  What it did instead was cap
+	# a fill at half what the network would give.
+	#
+	# The evidence is a fill of the Example region against Spain IGN:
+	# three consecutive runs at eight, zero failures and zero lost tiles,
+	# about three minutes against twenty for the same build under a
+	# guessed source ceiling of two.  Twenty minutes is longer than anyone
+	# installing this for the first time will wait.
+	#
+	# It stays a CEILING over the pool and can only ever make the client
+	# gentler, so raising the default cannot make any source's declared
+	# figure louder than the source's own.
 
-	$PREF_MAX_CONCURRENT	=> 4,
+	$PREF_MAX_CONCURRENT	=> 8,
 	$PREF_MIN_INTERVAL		=> 0,
 
 	# HOW MANY TILES THE SAMPLER DRAWS PER LEVEL, and a TABLE rather than a

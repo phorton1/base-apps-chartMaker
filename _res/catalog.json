@@ -24,8 +24,7 @@
         "terms_url": "https://www.earthdata.nasa.gov/engage/open-data-services-software/data-information-policy",
         "license": "US Government work - not subject to copyright (17 USC 105)",
         "redistributable": "yes",
-        "uses": ["display", "build"],
-        "policy": { "max_concurrency": 4, "min_interval_ms": 0 }
+        "uses": ["display", "build"]
       },
       "nodes": [
         {
@@ -78,8 +77,7 @@
         "terms_url": "https://www.esri.com/en-us/legal/terms/web-site-service",
         "license": "Esri Master License Agreement. Esri's service terms permit download, view, copy and print for internal or noncommercial external purposes, and prohibit systematically harvesting a service. The World Imagery item states the layer is not intended to be used to export tiles for offline. Shipped here for display only; read the terms before changing 'uses'.",
         "redistributable": "no",
-        "uses": ["display"],
-        "policy": { "max_concurrency": 6, "min_interval_ms": 0 }
+        "uses": ["display"]
       },
       "nodes": [
         {
@@ -129,8 +127,7 @@
           "tsd": {
             "tile_format": "jpeg",
             "uses": ["display"],
-            "redistributable": "no",
-            "policy": { "max_concurrency": 4, "min_interval_ms": 0 }
+            "redistributable": "no"
           },
           "nodes": []
         }
@@ -163,7 +160,6 @@
         "license": "US Government work - not subject to copyright (17 USC 105)",
         "redistributable": "yes",
         "uses": ["display", "build"],
-        "policy": { "max_concurrency": 4, "min_interval_ms": 0 },
         "notes": "An ArcGIS MapServer, so {z}/{y}/{x} - row before column. The service declares format MIXED, so PNG tiles can appear where JPEG is expected; tile_format is an expectation and the real format is read from the magic bytes, so this is stated rather than corrected."
       }
     },
@@ -194,7 +190,6 @@
         "license": "GSI tile terms of use. Reuse is permitted subject to the conditions published by the GSI; read them before changing 'uses'.",
         "redistributable": "unknown",
         "uses": ["display", "build"],
-        "policy": { "max_concurrency": 2, "min_interval_ms": 0 },
         "notes": "Ordinary slippy {z}/{x}/{y} order. Honest 404 outside Japan."
       }
     },
@@ -221,8 +216,7 @@
         "terms_url": "https://geoservices.ign.fr/cgu-licences",
         "license": "Etalab open licence. Attribution required.",
         "redistributable": "yes",
-        "uses": ["display", "build"],
-        "policy": { "max_concurrency": 2, "min_interval_ms": 0 }
+        "uses": ["display", "build"]
       },
       "nodes": [
         {
@@ -268,8 +262,7 @@
         "terms_url": "https://www.ign.es/web/ign/portal/olicencia-cc-by",
         "license": "CC BY 4.0 scne.es, as declared in the service's own WMTS AccessConstraints.",
         "redistributable": "yes",
-        "uses": ["display", "build"],
-        "policy": { "max_concurrency": 2, "min_interval_ms": 0 }
+        "uses": ["display", "build"]
       },
       "nodes": [
         {
@@ -315,7 +308,6 @@
         "license": "CC BY 4.0, with an added term asserting DCS Spatial Services as author of the original material.",
         "redistributable": "yes",
         "uses": ["display", "build"],
-        "policy": { "max_concurrency": 4, "min_interval_ms": 0 },
         "notes": "An ArcGIS MapServer, so {z}/{y}/{x} - row before column. format MIXED, so PNG can appear where JPEG is expected. The declared zoom max here is 21 rather than the 23 the service states, because a service that answers past its own imagery is a service whose ceiling is a data fact to be discovered rather than a protocol limit to be believed."
       }
     },
@@ -349,7 +341,8 @@
             "label": "LINZ API key",
             "obtain_url": "https://basemaps.linz.govt.nz" }
         ],
-        "policy": { "max_concurrency": 4, "min_interval_ms": 0 }
+        "notes": "The only service in this catalog that publishes a numeric limit: 1,000 tile requests per minute on standard access, uncapped on developer access. 60 ms between requests is that figure expressed as an interval, and it is the reason this is the only entry here carrying a policy at all.",
+        "policy": { "min_interval_ms": 60 }
       },
       "nodes": [
         {
@@ -395,7 +388,6 @@
         "license": "ODbL. Share-alike obligations attach to anything derived from it.",
         "redistributable": "unknown",
         "uses": ["display", "overlay"],
-        "policy": { "max_concurrency": 2, "min_interval_ms": 0 },
         "notes": "A transparent PNG overlay drawn over imagery, not a base layer. Most tiles are empty, which means byte size says nothing about whether a tile is present."
       }
     },
@@ -427,7 +419,6 @@
         "license": "The 2016 mosaic addressed here is CC BY 4.0. The 2018 to 2024 mosaics are CC BY-NC-SA 4.0 and are addressed by a different layer name; changing the layer changes the licence.",
         "redistributable": "yes",
         "uses": ["display", "build"],
-        "policy": { "max_concurrency": 2, "min_interval_ms": 0 },
         "notes": "This entry pins the 2016 mosaic deliberately, because it is the one carrying a licence without a non-commercial or share-alike condition. The later mosaics are reached by changing 's2cloudless' to 's2cloudless-2020' and so on, and doing so changes what you may do with the result."
       }
     },
@@ -458,7 +449,6 @@
         "license": "Free to use with attribution to the EMODnet Bathymetry Consortium.",
         "redistributable": "yes",
         "uses": ["display"],
-        "policy": { "max_concurrency": 2, "min_interval_ms": 0 },
         "notes": "Ordinary slippy {z}/{x}/{y} order. A depth product and not a photograph, so nothing about it is judged by looking for detail."
       }
     },
@@ -489,7 +479,6 @@
         "license": "Public domain, attribution required. GEBCO's terms of use state that the grid should not be used for navigation or for any purpose involving safety at sea, and that users must not imply IHO or IOC endorsement.",
         "redistributable": "yes",
         "uses": ["display"],
-        "policy": { "max_concurrency": 4, "min_interval_ms": 0 },
         "notes": "An ArcGIS MapServer, so {z}/{y}/{x} - row before column."
       }
     },
@@ -523,7 +512,6 @@
         "license": "CC BY 4.0. Attribution required.",
         "redistributable": "yes",
         "uses": ["display"],
-        "policy": { "max_concurrency": 2, "min_interval_ms": 0 },
         "notes": "A CLASSIFICATION and not a photograph: flat areas of colour standing for bottom type, so a flat tile here is data rather than an absence. A GeoWebCache TMS, whose rows count from the SOUTH - hence {-y}; asked with a northward row it answers 200 with the empty tile rather than an error. EPSG:900913 is the older spelling of EPSG:3857 and the same grid. Where it holds nothing it sends a fixed empty PNG rather than a 404, which is the fingerprint declared above. It renders on demand, so the floor is z8: below that a whole-hemisphere vector render does not return. The service also publishes WMS and WFS, which a tile client cannot address."
       }
     },
@@ -555,7 +543,6 @@
         "license": "Varies per image between CC BY 4.0, CC BY-SA 4.0 and public domain. The whole-of-state satellite mosaic derives from Planet and is CC BY-SA, whose share-alike condition attaches to anything built from it.",
         "redistributable": "unknown",
         "uses": ["display"],
-        "policy": { "max_concurrency": 4, "min_interval_ms": 0 },
         "notes": "An ArcGIS ImageServer rather than a MapServer, and the tile path is the same shape: {z}/{y}/{x}, row before column. THE HOST IS spatial-img AND NOT spatial-gis - both are live servers, only spatial-img publishes this service, and spatial-gis answers 200 carrying a 499 'Token Required' at every level, which is what ArcGIS says for a service that is not there. It declares compression MIXED and means it: over Moreton Bay, PNG at z6 and JPEG at z11 and z16."
       }
     },
@@ -586,7 +573,6 @@
         "license": "Open data. Contains modified Copernicus Sentinel data under the EU open data policy.",
         "redistributable": "yes",
         "uses": ["display", "build"],
-        "policy": { "max_concurrency": 2, "min_interval_ms": 0 },
         "notes": "SLOW, and it renders on demand: an unseeded level can fail to return inside 20 seconds where a seeded one answers at once. A KVP WMTS and not a RESTful one - its capabilities publish no ResourceURL, so the address comes from the GetTile operation. Two values in it are the service's own: the tile matrix set is WholeWorld_WebMercator rather than GoogleMapsCompatible, and the default style is simple_rgb, with 'default' refused by name. The annual geomedian is a composite rather than a single pass, so it has no acquisition date and no clouds."
       }
     }

@@ -75,6 +75,13 @@ use Pub::UA;
 # one real fetch and prints what appeared.  RE-RUN IT after any change to
 # the fetch path or the Perl tree; an empty report is the passing result.
 #
+# A MEASURED LIST IS ONLY AS WIDE AS WHAT IT MEASURED, and this one was
+# twice too narrow.  It filtered %INC to /\.pm$/, so it could not report
+# a .pl file however loudly one failed, and it measures ONE SUCCESSFUL
+# FETCH, so nothing on an error path and nothing loaded later is in it.
+# It now prints every %INC entry - see the utf8 warm-up below, which is
+# the part no list of names can reach.
+#
 # 'require' RATHER THAN 'use', deliberately.  It loads without calling
 # import, which is what LWP itself does with these, and it matters for at
 # least one: 'use utf8' would tell Perl that THIS file is utf8 and change
@@ -86,6 +93,48 @@ require HTTP::Request::Common;	# LWP::UserAgent, the get/post helpers
 require Encode::Locale;			# LWP::UserAgent, decoding
 require Encode::Byte;
 require utf8;
+
+# UTF8'S LAZY HALF, WARMED RATHER THAN MERELY REQUIRED.  'require utf8'
+# loads a twenty line stub whose entire job is an AUTOLOAD that requires
+# utf8_heavy.pl the first time anything needs a character table -- and
+# utf8_heavy then requires one unicore/*.pl table per character class, at
+# the moment that class is first matched.  None of it is reachable by
+# name, so a preload list built from module names loads the stub and
+# leaves every file behind it to be raced for.
+#
+# THAT IS WHAT THE SECOND PACKAGED BUILD DIED OF.  A build of the Example
+# set ran cleanly through z14 and lost three of four workers at z15,
+# every one of them on utf8_heavy.pl, with the same signature as the
+# first: syntax errors inside a file that is not broken.  z15 is simply
+# where the tile count first keeps four workers busy at the same instant.
+#
+# THE ONLY WAY TO LOAD A TABLE IS TO USE IT.  Each line below applies one
+# character class or one case fold to a wide string, and each pulls in
+# exactly one file; the list was measured by loading them one at a time
+# and watching %INC, not reasoned about.
+#
+# NO eval, DELIBERATELY.  The tables live in the Perl tree rather than in
+# this repo, so the only way this can fail is a packaging change that
+# stops carrying them - and then the right outcome is that the program
+# does not start.  Caught and warned about instead, it would start
+# perfectly and die three thousand tiles into a build when four workers
+# wanted a character class at the same instant, which is the failure that
+# cost two days.  A build that will not run is diagnosed in one second.
+
+{
+	my $wide = "\x{263A}";
+	my $touch;
+	$touch = $wide =~ /\w/;				# unicore/Heavy.pl, unicore/lib/Perl/Word.pl
+	$touch = $wide =~ /\d/;				# unicore/lib/Nt/De.pl
+	$touch = $wide =~ /\s/;				# unicore/lib/Perl/SpacePer.pl
+	$touch = $wide =~ /[[:alpha:]]/;	# unicore/lib/Alpha/Y.pl
+	$touch = $wide =~ /[[:print:]]/;	# unicore/lib/Perl/Print.pl
+	$touch = $wide =~ /[[:punct:]]/;	# unicore/lib/Gc/P.pl
+	$touch = $wide =~ /a/i;				# unicore/To/Fold.pl
+	$touch = uc($wide);					# unicore/To/Upper.pl
+	$touch = lc($wide);					# unicore/To/Lower.pl
+	$touch = ucfirst($wide);			# unicore/To/Title.pl
+}
 
 # The URI scheme handlers.  URI resolves these by name from the url.
 
@@ -158,6 +207,28 @@ sub _ua
 		$ua->agent("$appName/".appVersion());
 		$ua->ssl_opts( SSL_version     => 'TLSv1_2' );
 		$ua->ssl_opts( SSL_cipher_list => 'HIGH:!aNULL:!eNULL' );
+
+		# NO HTML HEAD PARSING.  LWP turns this on by default: when a
+		# response is html it runs HTML::HeadParser over the body so that
+		# <meta http-equiv> tags appear as though the server had sent them
+		# as HTTP headers.  For a browser that is a courtesy; for a client
+		# that asks only for tiles the only html it ever receives is an
+		# error page, and nothing here reads a header out of one.
+		#
+		# TURNED OFF FOR WHAT IT COSTS ON THAT PATH, which was WATCHED and
+		# not reasoned about.  The require is INSIDE the handler, so the
+		# first error page a worker meets makes that worker load
+		# HTML::HeadParser, HTML::Entities and HTML::Parser - three
+		# modules, one of them XS - at whatever instant a server is having
+		# a bad minute, which is exactly when the other workers are
+		# meeting the same thing.  Seen in a packaged build: worker 3
+		# loading all three on a 502 while workers 1 and 4 were mid fetch.
+		# It is the last lazy load on the fetch path we know of.
+		#
+		# Not preloaded instead: that would carry three modules into every
+		# thread to serve a path that no longer exists.
+
+		$ua->parse_head(0);
 	}
 	return $ua;
 }

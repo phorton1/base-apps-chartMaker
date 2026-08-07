@@ -500,6 +500,116 @@ my $r2 = engineCollect($j2);
 ok($r2->{status} eq 'ok',
 	"and so do submit/collect - one API, not two (got '$r2->{status}')");
 
+#---------------------------------------------
+# a lost require race is recovered from, not merely survived
+#---------------------------------------------
+# THE FAILURE THIS PINS COST TWO PACKAGED BUILDS.  Pure Perl modules come
+# out of the executable rather than off disk, and two threads reaching the
+# same unloaded file at the same instant get fragments of it - so the
+# error is a syntax error, at a line number, in a file that is not broken.
+#
+# WHAT MADE IT PERMANENT WAS PERL'S BOOKKEEPING AND NOT THE RACE.  A
+# require that fails to compile leaves the %INC entry present and undef,
+# and every attempt after that dies without going near the file.  So there
+# are two separate claims here and both need asserting: that the engine
+# RECOGNISES the message, and that forgetting the entry really does let a
+# later attempt load the file for the first time again.
+#
+# NOTHING HERE TOUCHES THE NETWORK OR THE POOL.  It plants a module,
+# breaks it, and watches Perl.
+
+my $POISON_DIR = "$ROOT/poison";
+mkdir $POISON_DIR if !-d $POISON_DIR;
+push @INC,$POISON_DIR;
+
+sub plantModule
+{
+	my ($body) = @_;
+	open(my $fh,'>',"$POISON_DIR/cmPoisonTest.pm") or die $!;
+	print $fh $body;
+	close $fh;
+}
+
+sub tryLoad
+	# Load it and hand back the failure text, or '' for success.
+{
+	my $okay = eval { require 'cmPoisonTest.pm'; 1 };
+	my $why  = $okay ? '' : ($@ || 'no message');
+	$why =~ s/\s+/ /g;
+	return $why;
+}
+
+# THE MESSAGES ARE THE REAL ONES, off the log of the build that failed at
+# z15 on the Ibiza region of the Example set.
+
+my @REAL = (
+	"Unmatched right curly bracket at C:/PROGRA~2/chartMaker/lib/std/".
+		"utf8_heavy.pl line 6, at end of line syntax error at ".
+		"utf8_heavy.pl line 176, near \"}\" BEGIN not safe after errors--".
+		"compilation aborted at utf8_heavy.pl line 216. Compilation ".
+		"failed in require at utf8.pm line 17.",
+	"Missing right curly or square bracket at utf8_heavy.pl line 470, at ".
+		"EOF Compilation failed in require at utf8.pm line 17.",
+	"Attempt to reload utf8_heavy.pl aborted. Compilation failed in ".
+		"require at utf8.pm line 17.",
+	);
+
+my $matched = grep { $_ =~ $dm_engine::POISON_RE } @REAL;
+ok($matched == scalar(@REAL),
+	"every message the failing build produced is recognised as a lost ".
+	"require race ($matched of ".scalar(@REAL).")");
+
+# AND THE REFUSALS MATTER MORE THAN THE MATCHES.  A pattern that caught
+# ordinary bugs too would retry a genuine fault three times and bury it
+# under two extra log lines.
+
+my @NOT = (
+	'the fetch returned nothing',
+	"Can't call method \"code\" on an undefined value at dm_fetch.pm line 500.",
+	'Illegal division by zero at dm_engine.pm line 300.',
+	"Can't locate object method \"fetchStore\" via package \"dm_fetch\"",
+	'syntax error',
+	);
+
+my $wrongly = grep { $_ =~ $dm_engine::POISON_RE } @NOT;
+ok($wrongly == 0,
+	"and an ordinary internal failure is not mistaken for one ".
+	"($wrongly of ".scalar(@NOT)." wrongly matched)");
+
+# NOW THE MECHANISM, END TO END.
+
+plantModule("package cmPoisonTest;\nmy \$x = ;\n1;\n");
+
+my $first = tryLoad();
+ok($first =~ /Compilation failed in require/,
+	"a module that will not compile fails the first time it is required");
+
+my $second = tryLoad();
+ok($second =~ /Attempt to reload/,
+	"and after that Perl refuses to even look at it again - which is ".
+	"what killed a worker for the life of the process");
+
+my $forgot = dm_engine::_unpoison();
+ok($forgot >= 1,
+	"_unpoison forgets the failed load ($forgot entry/entries)");
+
+ok(defined $INC{'Pub/Utils.pm'},
+	"and leaves every module that DID load alone");
+
+# THE PROOF: with the entry forgotten, the next require reads the file
+# again rather than refusing.  Repair it first, because that is the real
+# case - the file was never broken, only badly read.
+
+plantModule("package cmPoisonTest;\nsub hello { return 'loaded' }\n1;\n");
+
+my $third = tryLoad();
+ok($third eq '',
+	"and the next attempt loads the file for the first time again ".
+	($third ? "(got '$third')" : ''));
+
+ok(cmPoisonTest::hello() eq 'loaded',
+	"a real module, really loaded, in a thread that had given up on it");
+
 $ua->get("$STUB/quit");
 
 print "\n".($fails ? "$fails FAILURE(S)\n" : "ALL PASSED\n");

@@ -123,13 +123,65 @@ my $RETRY_LIMIT = 3;
 	# ones for a blip, and a source that is really down produces thousands
 	# of tiles each burning three requests.
 
+our $POISON_RE = do {
+	my $alt = join('|',map { quotemeta } (
+		'Compilation failed in require',
+		'Attempt to reload',
+		'BEGIN failed--compilation aborted',
+		'BEGIN not safe after errors',
+		));
+	qr/$alt/;
+	};
+	# WHAT A LOST RACE INSIDE 'require' LOOKS LIKE FROM OUT HERE.
+	#
+	# The packaged build serves pure Perl modules out of the executable
+	# rather than off disk - lib/std holds no .pm or .pl at all - and two
+	# threads reaching the same unloaded file at the same instant get
+	# fragments of it.  What compiles then is prose out of the middle of
+	# somebody's POD, so the reported error is a syntax error, at a line
+	# number, in a file that is not broken.
+	#
+	# THE FILE IS FINE AND THE NEXT ATTEMPT WILL PROBABLY WIN, which is
+	# what makes this recoverable at all.  The one thing that made it
+	# permanent was Perl's own bookkeeping: a require that fails to
+	# compile leaves $INC{'the/file.pm'} present and undef, and from then
+	# on every attempt in that thread dies with "Attempt to reload"
+	# without going near the file.  Deleting the entry is the whole cure -
+	# measured, not assumed.
+	#
+	# MATCHED ON THE WRAPPERS, NEVER ON 'syntax error' ITSELF.  Every
+	# phrase here is one Perl only ever emits about a require, so a real
+	# fault in this program cannot be mistaken for a race and quietly
+	# retried three times.
+	#
+	# BUILT FROM A LIST RATHER THAN WRITTEN AS A PATTERN, because the
+	# obvious form of that - one qr// over four lines with /x - silently
+	# deletes the spaces inside every phrase and then matches nothing at
+	# all.  test_engine.pl caught it; reading it would not have.
+	#
+	# 'our' ONLY SO test_engine.pl CAN ASSERT AGAINST IT.  Whether this
+	# pattern matches the messages Perl really produces, and refuses the
+	# ones it must not, is the whole of the decision - and a test that
+	# asserted against its own copy of the pattern would be asserting
+	# nothing.
+
 my $BACKOFF_START_MS = 2000;
 my $BACKOFF_MAX_MS   = 60000;
 	# BACKOFF APPLIES TO THE SOURCE, NOT TO THE TILE.  A 429 slows
 	# everything aimed at that source; it does not mean retry this
 	# coordinate sooner.  It doubles to a minute and decays on success.
 
-my $DEFAULT_POOL = 4;
+my $DEFAULT_POOL = 8;
+	# ALSO THE FALLBACK WHEN A SOURCE DECLARES NO max_concurrency, which is
+	# now every shipped source but one.  A tile service that publishes no
+	# figure gets the pool and nothing narrower, because a number nobody
+	# measured is not a limit, it is an invention that costs the user
+	# wall clock forever.  See engineConcurrency.
+	#
+	# 8 RATHER THAN 4, and the evidence is a fill of the Example region
+	# against Spain IGN: three consecutive runs at 8, zero failures, zero
+	# lost tiles, about three minutes where the same build under a
+	# guessed ceiling of 2 took twenty.
 
 my $MAX_POOL = 12;
 	# THE HARD CEILING, AND IT IS AN ADDRESS SPACE LIMIT RATHER THAN A
@@ -176,6 +228,25 @@ sub _bump
 	my ($name) = @_;
 	lock(%counters);
 	$counters{$name} = ($counters{$name} || 0) + 1;
+}
+
+
+sub _unpoison
+	# FORGET EVERY MODULE THIS THREAD FAILED TO COMPILE, so it may be
+	# tried again.  Returns how many were forgotten.
+	#
+	# %INC IS PER THREAD, which is the reason this is safe and also the
+	# reason the damage was per worker: an ithread is a clone, and a
+	# module loaded after the clone is loaded in one thread only.  So this
+	# clears this worker's own record and cannot disturb another's.
+	#
+	# A SUCCESSFUL require LEAVES THE RESOLVED PATH; A FAILED ONE LEAVES
+	# undef.  That is the whole discriminator, and it is exact - there is
+	# no other way for a key to be present with no value.
+{
+	my @dead = grep { !defined $INC{$_} } keys %INC;
+	delete $INC{$_} for @dead;
+	return scalar(@dead);
 }
 
 
@@ -448,9 +519,21 @@ sub _doFetch
 		{
 			my $why = $died || 'the fetch returned nothing';
 			$why =~ s/\s+/ /g;
+
+			# CLASSIFIED HERE AND NOWHERE LATER, because the reason field
+			# is truncated to 120 characters and the phrase that names a
+			# lost require race is usually past that.
+
+			my $poisoned = 0;
+			$poisoned = _unpoison() if $why =~ $POISON_RE;
+
 			warning(0,-1,"engine internal failure $key $z/$x/$y - $why");
+			warning(0,-1,"forgot $poisoned failed module load(s) so they ".
+				"can be tried again") if $poisoned;
+
 			$result = { status => 'error', class => 'internal',
-				reason => "internal: ".substr($why,0,120) };
+				reason => "internal: ".substr($why,0,120),
+				poisoned => $poisoned };
 		}
 
 		_bump('requests');
@@ -532,6 +615,27 @@ sub _doFetch
 			last;
 		}
 
+		# A LOST require RACE IS THE ONE INTERNAL FAILURE WORTH ASKING
+		# AGAIN ABOUT, and it is the difference between a build finishing
+		# and a build losing its workers one at a time.  Nothing about the
+		# request was wrong; a module this thread happened to need was
+		# being read out of the package by somebody else at that instant.
+		# _unpoison has already removed the failed load, so the retry
+		# genuinely reloads rather than meeting "Attempt to reload".
+		#
+		# A SHORT WAIT THAT GROWS, so the two threads that collided do not
+		# collide again, and bounded by the same RETRY_LIMIT as everything
+		# else: if a module is really broken it fails three times and the
+		# tile is reported, which is the behaviour before this existed.
+
+		if ($class eq 'internal' && $result->{poisoned} &&
+			$tries <= $RETRY_LIMIT)
+		{
+			_bump('unpoisoned');
+			Time::HiRes::sleep(0.05 * $tries);
+			next;
+		}
+
 		if ($class eq 'auth' || $class eq 'garbage' ||
 			$class eq 'unresolved' || $class eq 'internal')
 		{
@@ -544,10 +648,10 @@ sub _doFetch
 			# once per try.
 			#
 			# 'internal' JOINS THEM FOR THE SAME REASON, one step further
-			# in: the request was never made because THIS program failed.
-			# Retrying cannot help - the case that produced this class, a
-			# module whose first load failed, is permanent for the life of
-			# the thread - and retrying only multiplies the log line.
+			# in: the request was never made because THIS program failed,
+			# and asking the same question of the same bug again only
+			# multiplies the log line.  The one internal failure that IS
+			# worth another try has already taken the branch above.
 
 			_bump('unretried');
 			last;

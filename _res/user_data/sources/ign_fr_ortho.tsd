@@ -16,6 +16,5 @@
   "terms_url": "https://geoservices.ign.fr/cgu-licences",
   "license": "Etalab open licence. Attribution required.",
   "redistributable": "yes",
-  "uses": ["display","build"],
-  "policy": { "max_concurrency": 2, "min_interval_ms": 0 }
+  "uses": ["display","build"]
 }

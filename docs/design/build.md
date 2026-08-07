@@ -266,6 +266,15 @@ anything added later bypass the limiter by not going through the fill.
                        ceil(round-trip / interval) )
 ```
 
+**An absent `max_concurrency` means the pool, and that is a rule about evidence rather than a
+default.** A service that publishes no figure gets no source-specific ceiling, because a
+number nobody measured is not a limit, it is an invention - and an invented ceiling costs
+every user wall clock on every build, forever, for nothing. Of everything this application
+ships, exactly one source carries a limit: LINZ, which states 1,000 tile requests per minute,
+and it is recorded as an interval because a rate is what was published. Where a figure is
+genuinely measured or genuinely published it belongs here; where it is a feeling about how
+hard it seems polite to push somebody's server, it does not.
+
 Slowest wins, fewest wins. Every knob at every tier can only make the client **gentler**, and
 no combination of settings anywhere goes faster than the TSD declared. Backoff is in the same
 `max()` for exactly that reason: it is one more voice that can only slow things down, and a
@@ -289,7 +298,7 @@ to the head of the queue rather than behind a fill's backlog. The wait is theref
 the shortest request already in flight rather than by the backlog, which is the property that
 matters and is far cheaper to provide.
 
-**Failure has five classes because each one has exactly one consequence:**
+**Failure has seven classes because each one has exactly one consequence:**
 
 | class | example | consequence |
 | --- | --- | --- |
@@ -299,10 +308,30 @@ matters and is far cheaper to provide.
 | `transport` | timeout, refused, TLS failure | retry a few times |
 | `server` | 5xx without `Retry-After` | retry a few times |
 | `garbage` | 200 that is not an image | do not retry; it will not become one |
+| `internal` | this program threw an exception | stop, and say so - unless it was a lost load |
 
 A 503 carrying `Retry-After` is rate limiting wearing a different number: a service under load
 and a service telling you to slow down are indistinguishable from the client, and the header is
 the tell.
+
+**`internal` is announced rather than absorbed, and it is the one class that means a defect in
+this program.** A worker never dies of an exception - one that did would silently shrink the
+pool for the rest of the session, which presents as the application getting slower rather than
+as a fault - so the exception becomes a result, with its text, in the log.
+
+**One internal failure is retried: a module that lost a race to load.** A worker thread is a
+clone of the interpreter, so each one loads for itself anything the program had not already
+loaded when the pool was spawned; two workers reaching the same unloaded file at the same
+instant can each get part of it, and what compiles then is a syntax error in a file that is not
+broken. Perl then remembers the failure and refuses to look at the file again for the life of
+that thread, which is what turns one bad instant into a worker that fetches nothing ever again.
+The engine recognises the message, forgets the failed load, waits, and asks again.
+
+**The point of that is the honest one: it is a net, not the fix.** The fix is that everything
+the workers use is loaded before the pool is spawned, which is why `dm_fetch` opens with a
+block of `require` lines that nothing in the file calls, and warms the character tables that
+cannot be reached by name at all. The net exists because that list can only ever be as complete
+as what has been measured, and a build is where the gaps show up.
 
 **Backoff applies to the source, not to the tile.** A 429 slows everything aimed at that
 source; it does not mean retry this coordinate sooner. It doubles on repetition, decays by

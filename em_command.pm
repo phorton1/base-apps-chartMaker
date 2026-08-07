@@ -344,7 +344,8 @@ sub _engineCommand
 	display(0,1,sprintf("%-16s %d",'queued',$stats->{queued} || 0));
 	display(0,1,sprintf("%-16s %d",$_,$stats->{$_} || 0))
 		for grep { defined $stats->{$_} }
-			qw( requests retries unretried backoffs interactive bulk );
+			qw( requests retries unretried unpoisoned backoffs
+				interactive bulk );
 	display(0,1,sprintf("%-16s %s",'backed off',
 		$stats->{backed_off} || 'nothing'));
 

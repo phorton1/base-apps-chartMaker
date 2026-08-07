@@ -14,6 +14,5 @@
   "terms_url": "https://www.google.com/help/terms_maps/",
   "license": "No licence is granted by this file. Google's published terms govern whoever operates the client, they prohibit prefetching, bulk downloading, caching for offline use and redistribution of tiles, and this endpoint is not covered by any published terms at all. Shipped here for display only; read the terms before changing 'uses'.",
   "redistributable": "no",
-  "uses": ["display"],
-  "policy": { "max_concurrency": 2, "min_interval_ms": 0 }
+  "uses": ["display"]
 }

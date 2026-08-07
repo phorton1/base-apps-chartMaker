@@ -72,7 +72,7 @@ sent you is a matter of putting the file in the folder.
 | `absent_headers`  | The same statement made in a header rather than in the bytes.              |
 | `displacement`    | A known displacement of the imagery. Recorded and shown, never acted on.   |
 | `keys`            | The key_names this source's url contains. Never the values themselves.    |
-| `policy`          | Requested limits. The application clamps regardless of what is asked for.  |
+| `policy`          | Requested limits, and **omitted unless the operator publishes a figure**.  |
 
 The fields land almost exactly on Leaflet's `L.TileLayer` options, arrived at independently
 over fifteen years of tiled maps. That convergence is a reasonable sign the shape is right.
