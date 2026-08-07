@@ -46,7 +46,7 @@ my $reg = getRegion('Bocas') or die "no Bocas\n";
 # build does the resolving and validating; here esri is simply the answer
 # for every node, which is what Bocas actually says.
 
-my $ids  = regionSourceMap($reg,'esri_world_imagery');
+my $ids  = regionSourceMap($reg);
 my $srcs = { map { $_ => getSource($ids->{$_}) } keys %$ids };
 
 # WHAT THE MODEL SAYS THIS CARD SHOULD BE.  Derived, never hardcoded:

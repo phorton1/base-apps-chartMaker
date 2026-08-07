@@ -110,6 +110,18 @@ object at the top - a subregion also naming the parent it belongs to - and then 
 groups: **Edit Polygon**, **Add Polygon**, **Add Subregion** and **Properties**, then **Delete
 Polygon** and **Delete** for the object itself, then **Probe**.
 
+**Each item gates on what it actually needs, and they need different things.** Most of them
+want a polygon or a node and nothing else, and work perfectly well on a region that has not
+chosen its imagery. **Probe** needs a source but supplies its own, so it is never gated by
+the region either. **Create Region** is the one that needs something the map cannot supply: a
+region has to go into a region set, and with none open there is nowhere to put one. It stays
+in the menu, greyed, carrying the reason on the item - a menu that is empty except for the
+grid entry teaches nothing, and *open a set first* is the whole answer.
+
+**That is a different rule from the menu bar's**, deliberately. Fetch and Build stay
+*enabled* when they cannot run, because what is wrong with them is a list of regions and a
+greyed item cannot recite one. Here the reason is one sentence, so the item can carry it.
+
 **Probe opens a dialog, and it asks which source.** The right-click says *where*; it does not
 say what to probe. Using whichever source happened to be displayed was wrong for the reason the
 feature exists: the source is the **subject**, and the point of a probe is to judge services you
@@ -368,6 +380,15 @@ The rules are in [Editing](editing.md); the applet's part is to say so rather th
 silently ignore a click. While an object is dirty, selecting something else is refused, and
 the refusal names the object and points at Confirm and Cancel - both of which are on screen,
 in the bar, at that moment.
+
+**A refusal raised outside a mode raises the bar to carry it.** The applet does not compose
+these sentences - it asks the application for its own words, over `/api/log`, so that the map
+and the console cannot disagree about why something was refused. That answer used to be
+written into the mode bar's hint, and in browse mode there is no bar and no hint, so it fell
+through to the browser's developer console: the model refused correctly, the applet asked
+correctly, and the user saw nothing at all happen. Every dialog reachable from browse mode
+was affected. So a refusal with no bar to write into now raises one, with the message and an
+OK, and it is dismissed rather than timed out.
 
 ## Probe mode
 

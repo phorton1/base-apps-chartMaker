@@ -1084,7 +1084,31 @@ sub _showSourceName
 	}
 	elsif (my $src = getSource($id))
 	{
-		$show = $src->{name};
+		# INSTALLED IS NOT THE SAME AS USABLE, and the other two ways it
+		# can fail were invisible here.  The pulldown offers only sources
+		# that declare 'build', so a display-only one can only arrive on a
+		# region authored elsewhere or edited by hand - and an unresolved
+		# key is not about the .tsd at all, it is about this machine.
+		# Neither was said anywhere until a build refused, which is a long
+		# way from the control that fixes it.
+		#
+		# The SAME predicate the preflight and the build use, so this pane
+		# and that dialog cannot come to different conclusions about the
+		# same region.  See dm_source::sourceState.
+
+		my $state = sourceState($id,'build');
+		if ($state eq $SRC_OK)
+		{
+			$show = $src->{name};
+		}
+		else
+		{
+			$bad  = 1;
+			$show = $src->{name}.'  -- '.
+				($state eq $SRC_NOT_BUILD ?
+					'display only, cannot be built from' :
+					'needs a value in Edit > Key Store');
+		}
 	}
 	else
 	{

@@ -62,14 +62,28 @@ async function postEdit(verb, args, data) {
 }
 
 // The application's own words for a refusal, rather than a guess made here.
+//
+// THE FIELD IS 'text'.  This read l.line and l.msg, neither of which
+// /api/log has ever emitted - every entry is { seq, color, text } - so the
+// map produced an array of empty strings, the filter found nothing, and
+// every refusal in the applet came out as the bare word "refused".  It had
+// a fallback for the case where there was genuinely nothing to report, and
+// that fallback was the only branch that ever ran.
+//
+// The line arrives with the process, thread, source file and level prefixed
+// by Pub::Utils, so what is wanted is the part after 'ERROR - '.
 async function refusalText(since) {
     try {
         const log = await fetchJson('/api/log?since=' + (since || 0), 4000);
         const bad = (log.lines || [])
-            .map(l => (typeof l === 'string' ? l : (l.line || l.msg || '')))
+            .map(l => (typeof l === 'string' ? l : (l.text || '')))
             .filter(t => /ERROR|WARNING/.test(t));
         if (!bad.length) return 'refused';
-        return bad[bad.length - 1].replace(/^.*?(ERROR|WARNING)[^-]*-?\s*/, '');
+
+        // The LAST one, because a refusal may report a cause and then the
+        // consequence, and the consequence is the sentence about what the
+        // user just tried to do.
+        return bad[bad.length - 1].replace(/^.*?(?:ERROR|WARNING)\s*-?\s*/, '');
     } catch (e) {
         return 'refused';
     }
@@ -522,6 +536,17 @@ function showMenu(x, y, items, title) {
         const b = document.createElement('button');
         b.textContent = it.label;
         b.disabled = !!it.disabled;
+
+        // A GREYED ITEM SAYS WHY IT IS GREY.  An item that is simply dead
+        // is the one state that explains nothing, and the note costs a
+        // span - so anything switched off here has to hand one over.
+        if (it.note) {
+            const n = document.createElement('span');
+            n.className = 'cm-ctx-note';
+            n.textContent = it.note;
+            b.appendChild(n);
+        }
+
         // Choosing an item ends the cycle: the next right-click here starts
         // at the innermost object again rather than stepping outward.
         b.onclick = () => { hideMenu(); resetHitCycle(); it.fn(); };
@@ -716,8 +741,21 @@ map.on('contextmenu', ev => {
     const hit = hitAt(ev.latlng);
 
     if (!hit) {
+        // A REGION HAS TO GO IN A REGION SET, and with none open there is
+        // nowhere to put one.  The item stays in the menu and says so
+        // rather than vanishing: a menu that is empty except for 'grid'
+        // teaches nothing, and "open a set first" is the whole answer.
+        //
+        // WHICH IS A LEAFLET RULE AND NOT THE MENU BAR'S.  Fetch and Build
+        // stay enabled in the application because what is wrong with them
+        // is a list of regions and a greyed item cannot recite one.  Here
+        // the reason is one sentence and there is nothing to enumerate.
+        const haveSet = !!(cmState && cmState.active_set);
         showMenu(ev2.clientX, ev2.clientY, [
-            { label: 'Create Region...', fn: () => newRegionDialog(ev.latlng) },
+            { label: 'Create Region...',
+              disabled: !haveSet,
+              note: haveSet ? '' : 'no region set is open',
+              fn: () => newRegionDialog(ev.latlng) },
             '-',
             gridItem(),
         ]);
@@ -785,10 +823,35 @@ function showBar(text, buttons) {
     barDiv.style.display = 'flex';
 }
 
+// THE APPLICATION'S ANSWER, PUT WHERE SOMEBODY WILL SEE IT.
+//
+// This wrote into the mode bar's hint and, finding none, wrote to the
+// BROWSER CONSOLE - so every refusal raised from browse mode was invisible.
+// Create Region with no region set open was the case that showed it: the
+// model refused correctly, this asked for the reason correctly, and the
+// reason went somewhere nobody has open.  Add Subregion, Properties and
+// Delete all took the same silent path.
+//
+// So: inside a mode, it replaces that mode's hint, which is right - the bar
+// is already the place that mode is talking from.  Outside one, it RAISES
+// the bar with the message and an OK, because a refusal that dismisses
+// itself is a refusal that can be missed.
 function banner(text, isError) {
     const hint = barDiv.querySelector('.cm-bar-hint');
-    if (hint) { hint.textContent = text; hint.style.color = isError ? '#ff6b60' : ''; }
-    else console.warn('chartMaker: ' + text);
+    if (hint && barDiv.style.display !== 'none') {
+        hint.textContent = text;
+        hint.style.color = isError ? '#ff6b60' : '';
+        return;
+    }
+    showBar(text, [{ label: 'OK', fn: hideBar }]);
+    const raised = barDiv.querySelector('.cm-bar-hint');
+    if (raised) {
+        raised.style.color = isError ? '#ff6b60' : '';
+        // A refusal is a sentence, not a label.  The mode hint is one line
+        // with an ellipsis, which would cut this off exactly where the
+        // reason is.
+        raised.style.whiteSpace = 'normal';
+    }
 }
 
 

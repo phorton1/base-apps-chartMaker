@@ -247,7 +247,6 @@ sub openDocument
 
 	clearEditState();
 
-	setActiveSet($name);
 	openSet($name);
 	bumpState("set '$name' opened");
 
@@ -405,11 +404,26 @@ sub _fetchWorker
 
 	my $stats = fillCoverage($ids,{ %$opts, progress => $prog });
 
-	# FETCH REFUSES NOTHING, because it writes no output.  A tile that never
-	# arrived is worth reporting and is not a failure of this act -- the
-	# whole point of a separate Fetch is to chip away at a big region over
-	# several sessions, and errors are never cached, so running it again
-	# is the retry.
+	# THE ONE THING A FETCH DOES REFUSE is a tree that cannot say what it
+	# is made of.  The preflight has already refused it in front of the
+	# user, so this is the backstop for the console and for a model that
+	# changed while the dialogs were open.
+
+	if ($stats->{refused})
+	{
+		$prog->{ok} = 0;
+		push @{$prog->{lines}},"Nothing was fetched.";
+		push @{$prog->{lines}},'';
+		push @{$prog->{lines}},faultLines($stats->{faults});
+		$prog->{finished} = 1;
+		return;
+	}
+
+	# A FAILED TILE REFUSES NOTHING, because a fetch writes no output.  A
+	# tile that never arrived is worth reporting and is not a failure of
+	# this act -- the whole point of a separate Fetch is to chip away at a
+	# big region over several sessions, and errors are never cached, so
+	# running it again is the retry.
 
 	my @lines;
 	push @lines,$stats->{cancelled} ?
@@ -566,7 +580,6 @@ sub onCommand
 				$$resources{app_title},wxOK | wxICON_ERROR,$this);
 			return;
 		}
-		setActiveSet($name);
 		bumpState("set saved as '$name'");
 		$this->showDocument();
 	}
@@ -765,15 +778,14 @@ sub onLongAct
 		return;
 	}
 
-	my $fallback = getDefaultSource();
-	if (!$fallback)
-	{
-		Wx::MessageBox("No source is selected.\n\n".
-			"Choose one in the Sources window first - it is what a region ".
-			"that inherits its source resolves to.",
-			$$resources{app_title},wxOK | wxICON_EXCLAMATION,$this);
-		return;
-	}
+	# THERE IS NO DISPLAY-SOURCE GATE HERE ANY MORE.  Both commands used to
+	# refuse outright unless a source was selected in the Sources window,
+	# explaining itself as "what a region that inherits resolves to" - and
+	# that was the fallback, which no longer exists.  It refused the wrong
+	# thing (a perfectly coherent set, because the map happened to be on
+	# nothing) and permitted the wrong thing (an incoherent one, because
+	# the map happened to be on something).  What a region is built from is
+	# on the region.  See dm_region::regionSourceMap.
 
 	# THE DIRTY QUESTION COMES FIRST, before anything is configured or
 	# analysed: saving changes the model, and an analysis of the old one
@@ -873,14 +885,20 @@ sub onLongAct
 
 		my $busy = Wx::BusyCursor->new();
 		my $an = analyseFetch($ids,{
-			fallback => $fallback,
 			config   => $cfg,
 			format   => ($is_rct ? 'rct' : 'mbtiles'),
 			$writes ? ( out_dir => $out_dir ) : (),
 		});
 		undef $busy;
 
-		my $pre = w_preflight->new($this,$what,$an,$out_dir);
+		# WHETHER THE SET IS DIRTY REACHES THE PREFLIGHT because the two
+		# acts answer for it differently and the difference has to be
+		# visible: a build refuses unsaved edits, and a fetch fetches from
+		# them quite happily.  It was silent on this, so the only way to
+		# discover which act you were in was to try the other one.
+
+		my $pre = w_preflight->new($this,$what,$an,$out_dir,
+			{ dirty => (isSetDirty() ? 1 : 0) });
 		my $go = $pre->ShowModal();
 		$pre->Destroy();
 
@@ -888,7 +906,6 @@ sub onLongAct
 		return if $go != wxID_OK;
 
 		my $opts = {
-			fallback => $fallback,
 			config   => $cfg,
 			allow_dirty => $allow_dirty,
 			format   => ($is_rct ? 'rct' : 'mbtiles'),
@@ -941,13 +958,15 @@ sub onUpdateUI
 		# the user has one thing left to do and needs to be TOLD WHICH
 		# REGION.  A greyed-out menu item cannot say that - it is the one
 		# state in the application that explains nothing - so these stay
-		# live and the preflight refuses by name.  See
-		# dm_build::_validateSources.
+		# live and the preflight refuses by name.
 		#
-		# (The clause it lost tested getDefaultSource(), the DISPLAY
-		# source, which was standing in for "something for the inheriting
-		# ones to fall back to" from when a region could inherit.  It
-		# cannot, so there was nothing left for it to guard.)
+		# THAT WAS TRUE OF THE BUILD AND NOT OF THE FETCH, and it was not
+		# even true of the build in the place this claims.  The build was
+		# refused by the WORKER, after both dialogs and a busy cursor;
+		# the fetch was refused by nothing at all and went and fetched
+		# from whatever the map was displaying.  Both are now refused by
+		# w_preflight, before anything is fetched, which is what this
+		# comment always said and now describes.
 
 		$event->Enable(setIsOpen() && getRegionIds() ? 1 : 0);
 		return;

@@ -61,11 +61,13 @@ anything you intend to navigate with.
 ### [Tutorial](tutorial/readme.md) - read in order
 
 - **[Getting Started](tutorial/getting_started.md)** - install it, find your way around, and
-  open the example region set.
+  open a region set.
 - **[The Map](tutorial/the_map.md)** - the chart in your browser, and what every switch on it
   answers.
-- **[Your First Region](tutorial/regions.md)** - draw Formentera from nothing, and understand
-  the three zoom numbers that decide everything.
+- **[Zoom Levels](tutorial/zoom_levels.md)** - the one piece of arithmetic behind every
+  number chartMaker asks you for.
+- **[Your First Region](tutorial/regions.md)** - draw Formentera from nothing, understand the
+  three zoom numbers that decide everything, and tell it where its pixels come from.
 - **[Detail Areas](tutorial/detail_areas.md)** - go deep where it matters, and learn to draw
   for size instead of drawing a box.
 - **[Choosing a Source](tutorial/choosing_a_source.md)** - probe a service, read what came

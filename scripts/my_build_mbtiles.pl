@@ -42,11 +42,12 @@ openSet($set) or die "cannot open set '$set'\n";
 my $reg = getRegion($WANT_REGION)
 	or die "no region '$WANT_REGION' in set '$set'\n";
 
-my $fallback = getDefaultSource() || 'esri_world_imagery';
-my $ids  = regionSourceMap($reg,$fallback);
+my $ids  = regionSourceMap($reg);
 my $srcs = {};
 for my $path (keys %$ids)
 {
+	die "node '$path' has no build source - set one in the Regions pane\n"
+		if $ids->{$path} eq '';
 	my $src = getSource($ids->{$path})
 		or die "node '$path' names source '$ids->{$path}', which is not installed\n";
 	$srcs->{$path} = $src;
@@ -58,7 +59,6 @@ mkdir $out         if !-d $out;
 
 print "set      : $set\n";
 print "region   : $WANT_REGION\n";
-print "fallback : $fallback\n";
 print "out      : $out/$WANT_REGION\n\n";
 
 $dm_mbtiles::dbg_mbt = 0;

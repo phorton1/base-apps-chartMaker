@@ -153,6 +153,12 @@ engineStart();
 
 openSet(getActiveSet());
 
+# AND THEN WHICH OF ITS REGIONS WERE HIDDEN, which has to be after the open
+# rather than with the rest of the ini: the list is keyed by the OPEN set,
+# and until the line above there is not one.
+
+applyIniUnchecked();
+
 # THE CONSOLE IS COMPILED IN ALWAYS AND STARTED ONLY WHERE THERE IS ONE.
 #
 # Two executables are built from this one source: a console-bearing one

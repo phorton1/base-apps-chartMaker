@@ -122,6 +122,9 @@ BEGIN
 		regionPointCount
 
 		regionSourceMap
+		regionFaults
+		regionsFaults
+		faultLines
 		mergedCoverageSources
 	);
 }
@@ -951,7 +954,7 @@ sub stageRegion
 
 	if (!$doc_set)
 	{
-		error("stageRegion: no region set is open");
+		error("no region set is open - open or create one first");
 		return 0;
 	}
 
@@ -1082,7 +1085,7 @@ sub _writeRegion
 	my $path = _regionPath($reg->{id});
 	if (!$path)
 	{
-		error("_writeRegion: no region set is open");
+		error("no region set is open");
 		return 0;
 	}
 	my $text = JSON::PP->new->pretty->canonical->encode(\%out);
@@ -1109,7 +1112,7 @@ sub commitRegion
 	my $reg = getRegion($id);
 	if (!$reg)
 	{
-		error("commitRegion: no region with id '$id'");
+		error("no region with id '$id'");
 		return 0;
 	}
 	return 0 if !_writeRegion($reg);
@@ -1141,7 +1144,7 @@ sub revertRegion
 	my $reg = getRegion($id);
 	if (!$reg)
 	{
-		error("revertRegion: no region with id '$id'");
+		error("no region with id '$id'");
 		return '';
 	}
 	my $key = _foldId($reg->{id});
@@ -1179,7 +1182,7 @@ sub saveSet
 	_current();
 	if (!$doc_set)
 	{
-		error("saveSet: no region set is open");
+		error("no region set is open");
 		return 0;
 	}
 
@@ -1201,7 +1204,7 @@ sub saveSet
 		next if !-f $path;
 		if (!unlink($path))
 		{
-			error("saveSet: could not delete $path: $!");
+			error("could not delete $path: $!");
 			return 0;
 		}
 		display($dbg_region,0,"removed $leaf");
@@ -1227,7 +1230,7 @@ sub saveSetAs
 
 	if (!$doc_set)
 	{
-		error("saveSetAs: no region set is open");
+		error("no region set is open");
 		return 0;
 	}
 	return 0 if !newSet($name);
@@ -1257,12 +1260,12 @@ sub newRegion
 	$id = _suggestId($name) if !defined($id) || $id !~ /\S/;
 	if ($id !~ /^[A-Za-z0-9]+$/)
 	{
-		error("newRegion: '$name' does not yield a usable id");
+		error("'$name' does not yield a usable id");
 		return undef;
 	}
 	if (getRegion($id))
 	{
-		error("newRegion: a region with id '$id' already exists");
+		error("a region with id '$id' already exists");
 		return undef;
 	}
 
@@ -1294,12 +1297,12 @@ sub renameRegion
 	my $reg = getRegion($id);
 	if (!$reg)
 	{
-		error("renameRegion: no region with id '$id'");
+		error("no region with id '$id'");
 		return 0;
 	}
 	if (!defined($name) || $name !~ /\S/)
 	{
-		error("renameRegion: a name may not be empty");
+		error("a name may not be empty");
 		return 0;
 	}
 	$reg->{name} = $name;
@@ -1324,12 +1327,12 @@ sub setRegionId
 	my $reg = getRegion($id);
 	if (!$reg)
 	{
-		error("setRegionId: no region with id '$id'");
+		error("no region with id '$id'");
 		return 0;
 	}
 	if (!defined($new_id) || $new_id !~ /^[A-Za-z0-9]+$/)
 	{
-		error("setRegionId: an id must be [A-Za-z0-9] - '".
+		error("an id must be [A-Za-z0-9] - '".
 			($new_id // '')."' is not");
 		return 0;
 	}
@@ -1339,7 +1342,7 @@ sub setRegionId
 
 	if (!$same && getRegion($new_id))
 	{
-		error("setRegionId: a region with id '$new_id' already exists");
+		error("a region with id '$new_id' already exists");
 		return 0;
 	}
 
@@ -1376,7 +1379,7 @@ sub deleteRegion
 	my $reg = getRegion($id);
 	if (!$reg)
 	{
-		error("deleteRegion: no region with id '$id'");
+		error("no region with id '$id'");
 		return 0;
 	}
 	# OUT OF THE MODEL, NOT OFF THE DISK.  The file goes when the set is
@@ -1466,29 +1469,29 @@ sub addSubregion
 	my ($reg,$parent) = _findAnywhere($parent_id);
 	if (!$reg)
 	{
-		error("addSubregion: nothing with id '$parent_id'");
+		error("nothing with id '$parent_id'");
 		return undef;
 	}
 	if (!defined($name) || $name !~ /\S/)
 	{
-		error("addSubregion: a name is required");
+		error("a name is required");
 		return undef;
 	}
 	if (!_isInt($zmax) || $zmax < 0 || $zmax > 24)
 	{
-		error("addSubregion: zmax must be an integer from 0 to 24");
+		error("zmax must be an integer from 0 to 24");
 		return undef;
 	}
 
 	my $id = _suggestId($name);
 	if ($id !~ /^[A-Za-z0-9]+$/)
 	{
-		error("addSubregion: '$name' does not yield a usable id");
+		error("'$name' does not yield a usable id");
 		return undef;
 	}
 	if ((findSubregion($reg,$id))[0] || _foldId($reg->{id}) eq _foldId($id))
 	{
-		error("addSubregion: '$reg->{id}' already contains '$id'");
+		error("'$reg->{id}' already contains '$id'");
 		return undef;
 	}
 
@@ -1540,13 +1543,13 @@ sub deleteSubregion
 	my $reg = getRegion($parent_id);
 	if (!$reg)
 	{
-		error("deleteSubregion: no region with id '$parent_id'");
+		error("no region with id '$parent_id'");
 		return 0;
 	}
 	my (undef,$parent) = findSubregion($reg,$id);
 	if (!$parent)
 	{
-		error("deleteSubregion: '$parent_id' has no subregion '$id'");
+		error("'$parent_id' has no subregion '$id'");
 		return 0;
 	}
 	$parent->{subregions} = [ grep { $_->{id} ne $id } @{$parent->{subregions}} ];
@@ -1613,7 +1616,7 @@ sub setChecked
 	my $reg = getRegion($id);
 	if (!$reg)
 	{
-		error("setChecked: no region with id '$id'");
+		error("no region with id '$id'");
 		return 0;
 	}
 	if ($on)
@@ -1643,8 +1646,13 @@ sub setUncheckedIds
 	# than dropped: a region temporarily moved out of the set folder and
 	# put back should come back hidden, as the user left it.
 {
+	# THE OPEN SET, matching _checkKey.  This read getActiveSet() - the ini
+	# pointer - while every key it was clearing and writing was built from
+	# $doc_set, so after a Close the prefix named one set and the keys
+	# another and the clear swept nothing.
+
 	my (@ids) = @_;
-	my $prefix = lc(getActiveSet())."|";
+	my $prefix = lc($doc_set)."|";
 	for my $key (keys %unchecked)
 	{
 		delete $unchecked{$key} if index($key,$prefix) == 0;
@@ -1666,9 +1674,27 @@ sub regionSourceMap
 	# reports nodes in.
 	#
 	# THE CHAIN ALWAYS TERMINATES, but it may terminate at NOTHING.  A
-	# subregion inherits its parent's answer and a region that inherits
-	# falls through to $fallback, so one pass down the tree resolves every
-	# node and no reader has to walk back up to find out what it got.
+	# subregion inherits its parent's answer and the chain ends at the
+	# region, which named a source or named none, so one pass down the tree
+	# resolves every node and no reader has to walk back up to find out
+	# what it got.
+	#
+	# THERE IS NO FALLBACK PARAMETER, AND THERE MUST NOT BE ONE.  This took
+	# a $fallback until 2026-08-07 and every caller passed
+	# getDefaultSource() - THE SOURCE THE MAP IS SHOWING.  Four of them then
+	# wrote '$map->{$path} || $fallback' on the way out, which turned a
+	# node that had chosen NOTHING into a node built from whatever basemap
+	# the viewer happened to be on.  Fetch really did go and fetch from it;
+	# preview really did paint from it while the same response listed the
+	# node as unsourced; the cleanup counted its tiles as wanted and its
+	# usage report named regions that had never chosen it.
+	#
+	# The parameter existed for a case the validator forbids: a REGION
+	# saying 'inherited', which has nothing above it to inherit from.  It
+	# was a terminator for a state that cannot occur, and it was doing
+	# something else entirely for one that occurs constantly.  A region
+	# with no source resolves to '', which is the true answer, and the
+	# readers that need imagery refuse it by name.
 	#
 	# WHAT IS NOT PROMISED IS THAT THE ANSWER IS AN ID.  A region may name
 	# no source at all - the empty string, meaning nobody has decided yet -
@@ -1701,18 +1727,144 @@ sub regionSourceMap
 	# landed on one entry, so one of them was built from the other's
 	# source. The path is the only thing that identifies a node.
 {
-	my ($reg,$fallback,$map,$path) = @_;
+	my ($reg,$map,$path,$inherit) = @_;
 	$map  ||= {};
 	$path = $reg->{id} if !defined($path);
+	$inherit = '' if !defined($inherit);
 
-	my $mine = $reg->{source} // $SOURCE_INHERITED;
-	$mine = $fallback if $mine eq $SOURCE_INHERITED;
+	# $inherit is what the PARENT resolved to, which is the only thing
+	# 'inherited' can mean.  At the top there is no parent, so a region
+	# saying it - which _validateRegion refuses - resolves to nothing
+	# rather than to the literal word.
+
+	my $mine = $reg->{source} // '';
+	$mine = $inherit if $mine eq $SOURCE_INHERITED;
 	$map->{$path} = $mine;
 
-	regionSourceMap($_,$mine,$map,"$path/$_->{id}")
+	regionSourceMap($_,$map,"$path/$_->{id}",$mine)
 		for @{$reg->{subregions} || []};
 
 	return $map;
+}
+
+
+sub regionFaults
+	# EVERY REASON THIS TREE CANNOT BE USED FOR $purpose, one entry per
+	# node, in tree order.  An empty list means the tree is coherent.
+	#
+	# Each entry is { path, id, source, state } where state is one of the
+	# $SRC_* answers and 'source' is what the node's own field says.
+	#
+	# ONLY NODES THAT SPEAK FOR THEMSELVES ARE REPORTED, and this is the
+	# rule that keeps the answer readable.  A region with five subregions
+	# that all inherit is ONE fault, against the region, not six.  The
+	# inheriting ones have nothing wrong with them - they said "whatever my
+	# parent says" and that was a perfectly good answer to a question their
+	# parent got wrong - and listing them would bury the one node the user
+	# has to go and change.
+	#
+	# A subregion that names its OWN source is reported on its own account,
+	# because that is a decision somebody made separately and has to unmake
+	# separately.
+	#
+	# THE STATE, NOT A MESSAGE.  Five surfaces show these and they want
+	# different words: the tree wants one line beside a combo box, the
+	# preflight wants them grouped, the console wants them flat.  See
+	# faultLines for the grouped rendering.
+{
+	my ($reg,$purpose,$out,$path,$inherit) = @_;
+	$out ||= [];
+	return $out if !$reg;
+
+	$path = $reg->{id} if !defined($path);
+	$inherit = '' if !defined($inherit);
+
+	my $own  = $reg->{source} // '';
+	my $mine = $own eq $SOURCE_INHERITED ? $inherit : $own;
+
+	if ($own ne $SOURCE_INHERITED)
+	{
+		my $state = sourceState($mine,$purpose);
+		push @$out,{ path => $path, id => $reg->{id},
+					 source => $mine, state => $state }
+			if $state ne $SRC_OK;
+	}
+
+	regionFaults($_,$purpose,$out,"$path/$_->{id}",$mine)
+		for @{$reg->{subregions} || []};
+
+	return $out;
+}
+
+
+sub regionsFaults
+	# The same, across several regions by id, with anything that no longer
+	# exists simply absent.  This is what every ACT asks: fetch and both
+	# builds work on a list of ids and want one answer for the lot.
+{
+	my ($ids,$purpose) = @_;
+	my @out;
+	for my $id (@$ids)
+	{
+		my $reg = getRegion($id) or next;
+		push @out,@{regionFaults($reg,$purpose)};
+	}
+	return \@out;
+}
+
+
+sub faultLines
+	# The faults grouped by state, as lines to show.  Grouped because the
+	# remedy is per STATE and not per node: eight regions with no source
+	# are one sentence and a list of eight names, not eight sentences.
+	#
+	# THE UNCHOSEN COME FIRST.  When several things are wrong at once, "you
+	# have not chosen yet" is the one the user is most likely to be able to
+	# act on immediately, and it is also the one most likely to be the
+	# cause of the others being noticed at all.
+{
+	my ($faults) = @_;
+	return () if !$faults || !@$faults;
+
+	my %by_state;
+	push @{$by_state{$_->{state}}},$_ for @$faults;
+
+	my @order = ($SRC_NONE,$SRC_MISSING,$SRC_NOT_BUILD,$SRC_NO_KEY);
+	my %said = (
+		$SRC_NONE		=> "no build source has been chosen for:",
+		$SRC_MISSING	=> "these name a source that is not installed:",
+		$SRC_NOT_BUILD	=> "these name a display-only source:",
+		$SRC_NO_KEY		=> "these name a source with no key store value:",
+	);
+	# THE REMEDY IN ONE SHORT LINE EACH.  These are read in a fixed-pitch
+	# panel that does not wrap - see w_preflight - so a sentence long
+	# enough to need wrapping is a sentence with its ending cut off.
+
+	my %next_act = (
+		$SRC_NONE		=> "choose one in the Regions pane",
+		$SRC_MISSING	=> "install the .tsd, or choose another source",
+		$SRC_NOT_BUILD	=> "a display-only source cannot be built from",
+		$SRC_NO_KEY		=> "set a value in Edit > Key Store",
+	);
+
+	my @lines;
+	for my $state (@order)
+	{
+		my $list = $by_state{$state} or next;
+		push @lines,$said{$state};
+
+		# THE PATH AND WHAT IT NAMED.  For an unchosen node there is
+		# nothing to name, so the path stands alone; for the other three
+		# the id is the whole of what is wrong and has to be visible.
+
+		for my $f (@$list)
+		{
+			push @lines,$state eq $SRC_NONE ?
+				"    $f->{path}" : "    $f->{path}  ($f->{source})";
+		}
+		push @lines,"  $next_act{$state}";
+	}
+	return @lines;
 }
 
 
@@ -1730,18 +1882,24 @@ sub mergedCoverageSources
 	# value, which is why there is one merged coverage here rather than a
 	# plain one and a sourced one that could drift apart.
 {
-	my ($regs,$fallback) = @_;
+	my ($regs) = @_;
 	my $merged = {};
 
 	for my $reg (@$regs)
 	{
 		next if !$reg;
-		my $srcs = regionSourceMap($reg,$fallback);
+		my $srcs = regionSourceMap($reg);
 		my ($cov,$nodes) = regionCoverageNodes($reg);
 
 		for my $node (@$nodes)
 		{
-			my $src = $srcs->{$node->{path}} || $fallback;
+			# THE MAP'S ANSWER, WHATEVER IT IS.  '' means this node has no
+			# imagery, and a reader that wants to know which tiles are in
+			# coverage does not care - it only asks whether the key is
+			# there.  A reader that wants to PAINT them has to test the
+			# value, and preview does.
+
+			my $src = $srcs->{$node->{path}};
 			for my $z (keys %{$node->{levels}})
 			{
 				$merged->{$z} ||= {};

@@ -60,11 +60,15 @@ Four things, and the second is the one that makes this worth showing:
 
 - a region in **any** set names it - including sets you do not have open, which nothing else
   in the application can see
-- it is the **default source**, so it is drawing your map right now
+- it is the source **shown on the map** right now
 - it **ships with chartMaker**, so a fresh installation has it
 
 A detail area that inherits counts against the source it inherits, so it keeps its parent's
 tiles alive.
+
+**A region that has not chosen a source uses nothing**, and holds nothing alive. The question
+this list answers is *who would miss this if I deleted it*, and a region that has not decided
+would not miss anything.
 
 That last one does not protect a file - it keeps it out of "check all unused", which would
 otherwise empty a fresh installation in one click, since nothing is used until a region names

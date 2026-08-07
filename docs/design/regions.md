@@ -104,6 +104,39 @@ builds, and preview. They refuse by **naming the nodes**, because finding that r
 tree is the reader's next act. Probing is not refused - a probe carries its own source and is
 asking what a service has over this ground, which is often exactly how somebody decides.
 
+### Whether a node can be built is one question with five answers
+
+Not a boolean. `sourceState(id, purpose)` in `dm_source` returns exactly one of:
+
+| answer | what it means | whose problem it is |
+| ------ | ------------- | ------------------- |
+| `ok` | it resolves and may be used for what was asked | nobody's |
+| `none` | nothing was chosen | the region's - choose one |
+| `missing` | an id was chosen and nothing is installed under it | the folder's - install the `.tsd`, or choose again |
+| `not_build` | installed, and its author says it is for display only | the region's - the wrong source was named |
+| `no_key` | installed and buildable, but its url wants a `key_name` with no value bound | this machine's - Edit > Key Store |
+
+**They are five because they are five different next acts.** Telling somebody their source is
+not installed when they simply have not chosen one sends them looking for a fault that is not
+there. The first two are the pair that matters most: *I have not decided* and *what I decided
+is wrong* are not the same sentence.
+
+**`purpose` is `build` or `display`, and display asks less.** Painting a tile needs a source
+installed and nothing more; building from one needs its author's permission and this
+machine's key store. So the same tree can preview and refuse to build, which is exactly what
+somebody exploring a new provider is doing.
+
+**`regionFaults` walks a tree with it, and reports only the nodes that spoke for
+themselves.** A region with five inheriting subregions is *one* fault, against the region. The
+subregions said "whatever my parent says", which was a perfectly good answer to a question
+their parent got wrong, and listing them would bury the one node that has to change. A
+subregion naming its *own* bad source is reported on its own account, because that is a
+separate decision and has to be separately unmade.
+
+**Fetch asks the same question a build does.** A fetch exists to put on disk exactly what a
+build is about to read, so a fetch that succeeded against a tree the build then refused would
+be an afternoon of downloading followed by a refusal. See [build.md](build.md).
+
 **A subregion may inherit**, with the reserved value `inherited`, which is also its default.
 That stays completely determined - it resolves to its parent's answer, and the chain
 terminates at a region that has named one. A subregion may equally name its own, which is
@@ -119,7 +152,8 @@ preference to the live one is when the id resolves to nothing at all.
 
 **An id naming nothing installed is accepted, not refused.** That is the normal condition of
 a set that arrived from somebody else, and the recipient has to be able to open it to find
-out what it wants. The refusal belongs to the build, which is the first moment it matters.
+out what it wants. The refusal belongs to the acts that need imagery, and it happens at
+their **preflight** - before anything is fetched, in front of somebody who can act on it.
 
 **A subregion is NOT quite a region: it has `zmax` alone.** No `zauthor`, no `zmin`. A
 region's authored level is the level its outline is cut at, and that outline is what the
@@ -479,11 +513,23 @@ before asking whether it is legal, so by the time the validator says no, the mod
 already holding what it refused. Falling back to the baseline instead would delete an hour
 of work on a region that has never been saved, whose baseline is absence.
 
-**Which set is OPEN is not the same question as which set is ACTIVE.** The active set is a
-pointer remembered in the ini and resolved against the folder on every read, so it degrades
-to some other set when the one it names is gone - the right answer for "what should be
-opened at startup" and the wrong one for "what is open now", which must be able to say
-nothing at all.
+### The open set is the document; the remembered one is a startup memory
+
+**Nothing in the application asks which set is *remembered* in order to decide anything.**
+`setIsOpen()` and `openSetName()` answer for the document, and they are the only gate on
+every command, every configuration file name, and the list of hidden regions.
+
+The remembered name has exactly two moments: it is read once at startup, to decide what to
+open, and written once at a clean exit, from whatever was open at the time. Nothing open
+writes nothing, and the next start opens nothing, which is what closing a set means.
+
+**It used to be a second copy of "what is open", and the two disagreed the moment anything
+closed one.** The frame's menus gated on the document while six console commands, the
+build's own validator, the build configuration's file name and the hidden-region list all
+gated on the pointer - so after File > Close the menus were correctly grey and a console
+build went ahead against a document that was no longer there, reading the closed set's
+`build.json` and writing to its output folder. Creating a set and saving-as also wrote the
+pointer as a side effect, which is how it drifted in the first place.
 
 ## Existence comes from the folder, selection comes from the ini
 
@@ -494,9 +540,12 @@ on a clean exit alongside the frame rectangle and the open panes:
 
 | Selection | Falls back to |
 | --------- | ------------- |
-| the active region set | the first set in tree order, then none |
+| the set to reopen at startup | nothing open |
 | the display source | the official default TSD, then the first in tree order, then none |
 | which regions are hidden | nothing hidden |
+
+The hidden list is keyed by the **open** set and is therefore applied *after* the startup
+open rather than with the rest of the ini, which is the one place this ordering is visible.
 
 Each is a **pointer into folder contents, resolved on every read and never cached**, because
 the folders are edited from outside the application by design. Deleting a set's folder

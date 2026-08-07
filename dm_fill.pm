@@ -355,7 +355,6 @@ sub fillCoverage
 	# Fill the cache for these region ids.  Returns a stats hash.
 	#
 	# opts: zmax     a hard cap, exactly as the build applies one
-	#       fallback the source a region that inherits resolves to
 	#       stop     a scalar ref polled between tiles
 	#       progress a shared record from newProgress(), written as the
 	#                walk proceeds and polled for {cancelled}
@@ -373,10 +372,34 @@ sub fillCoverage
 		tiles => 0, cached => 0, ok => 0, absent => 0, error => 0,
 		errors_seen => 0, recent => [], aborted => 0, cancelled => 0,
 		started => time(), failed_tiles => [], sub_done => 0,
-		by_source => {}, last_ui => 0,
+		by_source => {}, last_ui => 0, faults => [], refused => 0,
 	};
 
-	my $fallback = $opts->{fallback} || getDefaultSource();
+	# COHERENT FIRST, AND THE WHOLE OF IT, BEFORE ONE REQUEST GOES OUT.
+	#
+	# THE SAME RULE AS A BUILD, deliberately.  A fetch is the build's
+	# pre-flight of the network: its entire purpose is to have on disk what
+	# the build is about to read.  A fetch that succeeded against a source
+	# the build then refuses is the most expensive way there is to find out
+	# - it is an afternoon of downloading followed by a refusal - so the
+	# question asked here is 'build', not 'can something be fetched'.
+	#
+	# IT USED TO ASK NOTHING AT ALL.  Every node resolved through
+	# '|| $fallback' to whatever the map was displaying, so a set in which
+	# nothing had chosen a source fetched thousands of tiles from the
+	# viewer's basemap and reported the failures as though the user had
+	# asked for them.  See dm_region::regionSourceMap.
+
+	my $faults = regionsFaults($ids,'build');
+	if (@$faults)
+	{
+		$stats->{faults}  = $faults;
+		$stats->{refused} = 1;
+		error("fetch: this cannot be fetched as it stands");
+		display(0,1,$_) for faultLines($faults);
+		$stats->{secs} = 0;
+		return $stats;
+	}
 
 	if ($prog)
 	{
@@ -393,7 +416,7 @@ sub fillCoverage
 			next;
 		}
 
-		my $sources = regionSourceMap($reg,$fallback);
+		my $sources = regionSourceMap($reg);
 		my ($cov,$nodes) = regionCoverageNodes($reg,
 			defined $opts->{zmax} ? { zmax => $opts->{zmax} } : {});
 
@@ -415,17 +438,19 @@ sub fillCoverage
 
 		for my $node (@$nodes)
 		{
-			my $src_id = $sources->{$node->{path}} || $fallback;
+			my $src_id = $sources->{$node->{path}};
 			my $src    = $src_id ? getSource($src_id) : undef;
 
-			# REFUSED HERE RATHER THAN AT THE FIRST TILE.  A source that
-			# names nothing installed is an authoring error, and reporting
-			# it against the node that names it says which one to fix.
+			# A BACKSTOP, NOT THE CHECK.  regionsFaults above has already
+			# refused every way a node can fail to resolve, so reaching
+			# here means the model changed under a running fetch.  It skips
+			# rather than dying, because a fetch is resumable and the next
+			# run will meet the same coherence check at the top.
 
 			if (!$src)
 			{
-				warning(0,1,"'$node->{id}' names source '$src_id', ".
-					"which is not installed - skipped");
+				warning(0,1,"'$node->{id}' no longer resolves to an ".
+					"installed source - skipped");
 				next;
 			}
 

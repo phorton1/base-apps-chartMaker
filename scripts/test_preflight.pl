@@ -291,7 +291,7 @@ ok(scalar(@$gaps) == 4,"planted Alpha with four deliberate gaps");
 cachePutMiss(@{$gaps->[0]});
 cachePutMiss(@{$gaps->[1]});
 
-my $an = analyseFetch(['Alpha'],{ fallback => 'pre_a' });
+my $an = analyseFetch(['Alpha'],{ });
 ok($an->{totals}{need} == 2,"two tiles need fetching ($an->{totals}{need})");
 ok($an->{totals}{absent} == 2,"two are recorded absences ($an->{totals}{absent})");
 
@@ -300,7 +300,7 @@ ok($an->{totals}{absent} == 2,"two are recorded absences ($an->{totals}{absent})
 
 my ($p_need,$p_absent,$p_cached) = (0,0,0);
 {
-	my $srcs = regionSourceMap(getRegion('Alpha'),'pre_a');
+	my $srcs = regionSourceMap(getRegion('Alpha'));
 	my (undef,$nodes) = regionCoverageNodes(getRegion('Alpha'),{});
 	for my $node (@$nodes)
 	{
@@ -346,7 +346,7 @@ ok(scalar(grep { /No time estimate yet/ } @$al),
 closeSet();
 putFile("$ROOT/region_sets/Pre/Delta.region",regionJson('Delta','pre_slow','pre_slow'));
 openSet('Pre');
-my $an2 = analyseFetch(['Delta'],{ fallback => 'pre_slow' });
+my $an2 = analyseFetch(['Delta'],{ });
 ok($an2->{est_known},"a paced source CAN estimate with no measurement");
 ok($an2->{secs_est} > 0,"and the estimate is its declared interval x the count ".
 	sprintf("(%.0fs for %d tiles)",$an2->{secs_est},$an2->{totals}{need}));
@@ -360,14 +360,14 @@ ok(obsMsPerTile(getSource('pre_a')) == 300,
 # estimate must STILL refuse - a total that silently omitted the
 # unmeasured source would be an underestimate presented as a fact.
 
-my $an3 = analyseFetch(['Alpha'],{ fallback => 'pre_a' });
+my $an3 = analyseFetch(['Alpha'],{ });
 ok(!$an3->{est_known},
 	"measuring only ONE of the two sources still offers no total");
 ok($an3->{sources}{pre_a}{est_known} && !$an3->{sources}{pre_b}{est_known},
 	"and it is per source - pre_a knows, pre_b does not");
 
 obsRecordRate(getSource('pre_b'),300);
-my $an3b = analyseFetch(['Alpha'],{ fallback => 'pre_a' });
+my $an3b = analyseFetch(['Alpha'],{ });
 ok($an3b->{est_known},"with both measured, the estimate is offered");
 
 
@@ -385,10 +385,10 @@ mkdir $OUT if !-d $OUT;
 # only that the header reader agrees with the test's own idea of a header.
 
 my $srcs_a = { map { $_ => getSource($_ eq 'Alpha' ? 'pre_a' : 'pre_b') }
-			   keys %{regionSourceMap(getRegion('Alpha'),'pre_a')} };
+			   keys %{regionSourceMap(getRegion('Alpha'))} };
 writeRct(getRegion('Alpha'),$srcs_a,"$OUT/Alpha.rct");
 my $srcs_b = { map { $_ => getSource('pre_a') }
-			   keys %{regionSourceMap(getRegion('Beta'),'pre_a')} };
+			   keys %{regionSourceMap(getRegion('Beta'))} };
 writeRct(getRegion('Beta'),$srcs_b,"$OUT/Beta.rct");
 
 ok(-f "$OUT/Alpha.rct" && -f "$OUT/Beta.rct","two cards exist in the folder");
@@ -398,7 +398,7 @@ ok($info && $info->{zauthor} == 12,"a card's header reports its zauthor ".
 	"($info->{zauthor})");
 ok($info->{stem} eq 'Alpha',"and its stem ($info->{stem})");
 
-my $an4 = analyseFetch(['Alpha'],{ fallback => 'pre_a', out_dir => $OUT });
+my $an4 = analyseFetch(['Alpha'],{  out_dir => $OUT });
 ok(scalar(@{$an4->{overwrite}}) == 1,
 	"building Alpha alone would REPLACE one card");
 ok($an4->{overwrite}[0]{stem} eq 'Alpha',"and it is Alpha's");
@@ -419,11 +419,11 @@ closeSet();
 putFile("$ROOT/region_sets/Pre/Alpha.region",regionJson('Alpha','pre_a','pre_b',11));
 openSet('Pre');
 
-my $an5 = analyseFetch(['Alpha'],{ fallback => 'pre_a', out_dir => $OUT });
+my $an5 = analyseFetch(['Alpha'],{  out_dir => $OUT });
 ok($an5->{zagree},"a lone region at a new zauthor DOES disagree with the folder");
 ok($an5->{zagree}{zauthor},"and it is zauthor that differs");
 
-my $an6 = analyseFetch(['Alpha'],{ fallback => 'pre_a' });
+my $an6 = analyseFetch(['Alpha'],{ });
 ok(!$an6->{zagree},
 	"with no folder to compare against, one region cannot disagree with itself");
 

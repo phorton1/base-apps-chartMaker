@@ -3,6 +3,7 @@
 **[Tutorial](readme.md)** --
 **[Getting Started](getting_started.md)** --
 **The Map** --
+**[Zoom Levels](zoom_levels.md)** --
 **[Your First Region](regions.md)** --
 **[Detail Areas](detail_areas.md)** --
 **[Choosing a Source](choosing_a_source.md)** --
@@ -12,24 +13,70 @@ folders: **[Home](../readme.md)** --
 **Tutorial** --
 **[Reference](../reference/readme.md)**
 
-Open the map with **`View - Map`**. It comes up in your browser and it is a chart before it
-is anything else: pan by dragging, zoom with the wheel. With the **Example** set open you are
-looking at Ibiza, its outline drawn in yellow and its four detail areas in cyan.
+You opened the map in the last chapter and left it running. Go back to that browser tab now -
+with the **Example** set open it has changed, and this chapter is about everything on it.
 
-<a href="../images/palette.jpg" target="_blank"><img src="../images/palette.jpg" width="800" alt="The map with the palette down the left and the info panel top right"></a>
+**Find Ibiza.** In the application window, click **Ibiza** in the Regions tree, then switch to
+the map tab. If it is not on screen, tick **`autozoom`** in the palette down the left and
+click Ibiza again - the map will fly to it. (That switch is explained below; use it now and
+read about it in a minute.)
+
+You should be looking at the island with a **yellow outline** around it - that is the region -
+and four small **cyan** shapes on its north coast, which are its detail areas.
 
 The map and the application are one program. Select something here and it selects in the
 Regions pane; select it there and it selects here. Neither is the fallback for the other.
+
+## Getting about
+
+If you have used any online map you already know all of this, and if you have not, it is
+thirty seconds:
+
+| | |
+| --- | --- |
+| **drag** | pan - press anywhere that is not a handle and move |
+| **wheel** | zoom in and out at the pointer |
+| **double-click** | zoom in one level |
+| **+ / -** buttons, top left | zoom in and out one level |
+| **left-click** | select the innermost object under the pointer; on open water, deselect |
+| **right-click** | the menu for whatever is under the pointer - this is where everything happens |
+
+**It is an ordinary browser tab.** Nothing stops you bookmarking it, opening it on a second
+monitor, or having it open beside the application window - which is how most of the work
+actually gets done, since the map holds the shapes and the application window holds the
+numbers. Closing the tab does not close chartMaker; `View - Map` opens it again, back where
+you were looking.
+
+**Where you were looking is remembered by the browser**, not by chartMaker, so it survives
+closing the tab and reopening it. The first time ever, with nothing to remember, it opens on
+your regions - and with no set open, on the world.
+
+**Do not use the browser's Back button** to undo something you did on the map. Nothing on the
+map is a page navigation; Back simply leaves. Every edit has its own Cancel on screen.
 
 ## Where the imagery comes from
 
 The imagery you are looking at is fetched by the **application**, not by your browser - which
 is why a source needing a password still works and your browser never sees the password.
 
-**Which source you are *looking* at is chosen in the Sources pane**, not on the map: click
-the button beside a source, or select it and press **Show**. The pane says *shown on the map*
-under the one that is. That is a separate question from which one a region *builds* from, and
-chapter five is about the difference.
+### The source you are looking at
+
+You met this in the last chapter: the **view source** is whichever one has the radio button
+beside it in the Sources pane, exactly one is in force, and switching it is instant.
+
+Two things to add now that a set is open.
+
+**It decides nothing about your chartset.** It is not a default, it is not a fallback, and no
+region ever acquires it by accident. What a region is built from is a field on that region
+that you set yourself - see [Your First Region](regions.md#tell-it-where-the-pixels-come-from).
+Getting those two confused is the commonest early mistake there is, which is why the program
+keeps them so far apart: one lives on the map, the other lives on the region. A display-only
+source is a perfectly good view source; several of the best ones are.
+
+**Switching it is how you judge a service.** Look at Esri to find a bay, switch to the one you
+intend to build from to see whether its imagery is any good *there*, switch back. That is the
+normal working rhythm, and it is what stops you discovering after an hour of fetching that
+your chosen service is soft over the one anchorage you cared about.
 
 The last two rows of the palette - **labels** and **seamarks** - draw somebody else's map
 over the imagery. They are there to help you find your way about. Nothing builds them, and
@@ -55,8 +102,21 @@ Down the left, under the zoom buttons, is a stack of rows. Each is a switch and,
 rows, a number. They are the whole of the map's furniture; everything that *changes*
 something is a right-click instead.
 
+<a href="../images/palette.jpg" target="_blank"><img src="../images/palette.jpg" width="800" alt="The map with the palette down the left and the info panel top right, viewed on Spain IGN so its coverage edge is visible around the island"></a>
+
+**Two things in that picture are worth naming before the list.**
+
+The sea around the island is flat and featureless because the map is being shown on **Spain
+IGN**, whose imagery stops at the Spanish coastal strip - it is the same coverage edge you
+found in the last chapter by panning off Spain, seen from above. Switch the view source to
+Esri and the sea fills in. Neither is more correct; they are different services.
+
+The panel top right nests: the **set**, then the selected **region**, then a selected
+**detail area** below it. Yours will show fewer blocks until you have selected something at
+each level.
+
 **`grid`** - draws small grey dots at tile-grid intersections and makes vertices land on
-them. The number beside it is the level being snapped to. This is chapter four's subject.
+them. The number beside it is the level being snapped to. This is [Detail Areas](detail_areas.md).
 
 **`autozoom`** - when the selection changes from somewhere *else* - the Regions pane, say -
 the map flies to that object. It deliberately does not fire when you click something on the
@@ -74,7 +134,7 @@ anybody has drawn a region there. Useful for reading a coverage boundary or plan
 region should stop.
 
 **`preview`** - switches the map from *what this service holds* to *what my chartset will
-actually contain*. Chapter five.
+actually contain*. See [Choosing a Source](choosing_a_source.md).
 
 ## The info panel
 
@@ -118,4 +178,4 @@ off the tree, but which one is under discussion you cannot read anywhere else.
 
 ---
 
-**Next:** [Your First Region](regions.md)
+**Next:** [Zoom Levels](zoom_levels.md)

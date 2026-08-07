@@ -17,11 +17,21 @@
 #
 # WHAT IT SHOWS, in the order it matters:
 #
+#	whether the set can answer for itself at all, and if not, WHICH REGION
 #	how many tiles, per SOURCE, and how long
+#	whether it is working from unsaved edits, and what that means HERE
 #	whether any source declares a DISPLACEMENT
 #	which files it will REPLACE
 #	which files are in that folder and are NOT part of this build
 #	whether the build would disagree with itself about zauthor / zmin
+#
+# THE FIRST IS A REFUSAL AND THE ONLY ONE.  It is why Fetch and Build stay
+# enabled in the menu when a set has regions with no source: a greyed-out
+# menu item is the one state in the application that explains nothing, and
+# "which region" is the entire content of the answer.  So the command runs,
+# reaches here, names the regions and disables Start.  It used to be
+# refused by the WORKER, which meant an hour of preflight, dialogs and
+# waiting to be told something knowable before any of it.
 #
 # The fourth is the one nobody asks for and is the more dangerous: a file
 # left from an earlier set or a renamed region is still read by the
@@ -42,6 +52,7 @@ use Pub::Utils;
 use cm_defs;
 use cm_config;
 use dm_set;
+use dm_region;
 use dm_analysis;
 use base qw(Wx::Dialog);
 
@@ -53,8 +64,9 @@ my $ID_CANCEL	= 8833;
 
 sub new
 {
-	my ($class,$parent,$what,$an,$out_dir) = @_;
+	my ($class,$parent,$what,$an,$out_dir,$opts) = @_;
 	$what ||= 'build';
+	$opts ||= {};
 
 	# $is_rct gates what is true of the .rct output; $writes gates
 	# what is true of anything that produces files.  They were one flag
@@ -63,7 +75,17 @@ sub new
 	my $is_rct = ($what eq 'build');
 	my $writes  = ($what ne 'fetch');
 
+	# THIS IS WHERE AN INCOHERENT SET IS REFUSED, and it is the whole
+	# reason the two commands stay enabled in the menu.  A greyed-out item
+	# cannot say WHICH region has not chosen its imagery, so the item stays
+	# live and this dialog answers - by name, before anything has been
+	# fetched, and with no Start button to press past it.
+
+	my $refused = @{$an->{faults} || []} ? 1 : 0;
+
 	my $this = $class->SUPER::new($parent,-1,
+		$refused ?
+			($writes ? 'Build - not yet' : 'Fetch - not yet') :
 		$writes ? 'Build - what this will cost' : 'Fetch - what this will cost',
 		[-1,-1],[640,560]);
 
@@ -84,7 +106,7 @@ sub new
 
 	my $where = $writes ? $out_dir :
 		sprintf("%d region(s) of '%s'",
-			scalar(@{$an->{regions}}),getActiveSet() // '');
+			scalar(@{$an->{regions}}),openSetName() // '');
 	$where .= '   (will be created)' if $writes && !-d $out_dir;
 
 	my $wc = Wx::StaticText->new($this,-1,$where,[16,$y],[600,18]);
@@ -105,7 +127,7 @@ sub new
 
 	# ---- everything that wants saying before somebody commits
 
-	my @notes = _notes($an,$is_rct,$writes,$out_dir);
+	my @notes = _notes($an,$is_rct,$writes,$out_dir,$opts);
 
 	my $nc = Wx::TextCtrl->new($this,-1,join("\n",@notes),
 		[16,$y],[600,190],
@@ -117,16 +139,21 @@ sub new
 	# always coloured is a panel nobody reads.
 
 	$nc->SetForegroundColour(Wx::Colour->new(170,0,0))
-		if $an->{zagree} || @{$an->{overwrite}} || @{$an->{foreign}} ||
-		   @{$an->{missing_src}} || @{$an->{displaced}};
+		if $refused || $an->{zagree} || @{$an->{overwrite}} ||
+		   @{$an->{foreign}} || @{$an->{displaced}};
 	$y += 200;
 
 	# ---- START IS NOT THE DEFAULT BUTTON.  The whole dialog exists
 	# because this action was too easy to start by accident.
+	#
+	# AND IT IS DISABLED OUTRIGHT when the set cannot answer for itself.
+	# Back is the useful button then - the region list is one dialog away -
+	# so it is the one that keeps the focus.
 
 	my $back = Wx::Button->new($this,$ID_BACK,'< Back',[330,$y],[85,26]);
-	Wx::Button->new($this,$ID_START,
+	my $start = Wx::Button->new($this,$ID_START,
 		$writes ? 'Build' : 'Fetch',[423,$y],[100,26]);
+	$start->Enable(0) if $refused;
 	Wx::Button->new($this,$ID_CANCEL,'Cancel',[531,$y],[85,26]);
 
 	EVT_BUTTON($this,$ID_START, sub { $_[0]->EndModal(wxID_OK) });
@@ -140,13 +167,44 @@ sub new
 
 sub _notes
 {
-	my ($an,$is_rct,$writes,$out_dir) = @_;
+	my ($an,$is_rct,$writes,$out_dir,$opts) = @_;
+	$opts ||= {};
 	my @n;
 
-	if (@{$an->{missing_src}})
+	# THE REFUSAL, FIRST AND IN FULL.  It used to list "sources that are
+	# not installed" alone, which is one of the four ways a node fails to
+	# resolve and was the ONLY one this could ever be told about - the
+	# commonest by far, a region that has not chosen at all, was answered
+	# by the display source before the analysis could see it.  So a set
+	# with no sources chosen priced itself cheerfully here and was refused
+	# by the worker an hour later.
+	#
+	# faultLines groups by state and puts the unchosen first, which is
+	# both the likeliest and the easiest to act on.
+
+	if (@{$an->{faults} || []})
 	{
-		push @n,"THESE SOURCES ARE NOT INSTALLED and the build will refuse:";
-		push @n,"  $_" for @{$an->{missing_src}};
+		push @n,$writes ?
+			"THIS CANNOT BE BUILT AS IT STANDS:" :
+			"THIS CANNOT BE FETCHED AS IT STANDS:";
+		push @n,faultLines($an->{faults});
+		push @n,'';
+		return @n;
+	}
+
+	# WHICH ACT ANSWERS FOR UNSAVED EDITS, said rather than left to be
+	# discovered by trying the other one.  A build has already asked and
+	# been answered by the time this is drawn; a fetch never asks, because
+	# it writes no output that claims to be defined by the set on disk.
+
+	if ($opts->{dirty})
+	{
+		push @n,$writes ?
+			("Building from UNSAVED edits. The output will not be",
+			 "  reproducible from the set on disk.") :
+			("Fetching from UNSAVED edits, which is fine. A fetch fills the",
+			 "  cache and writes no chart, so nothing will claim to have come",
+			 "  from a set it does not match.");
 		push @n,'';
 	}
 

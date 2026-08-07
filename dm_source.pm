@@ -58,6 +58,8 @@ BEGIN
 		getSource
 		sourceTileUrl
 		sourceUnresolved
+		sourceState
+		sourceStateText
 		sourcePlaceholders
 		getDefaultSource
 		setDefaultSource
@@ -1000,6 +1002,72 @@ sub getBuildSourceIds
 		grep { $_ eq 'build' } @{$sources{$_}{uses}}
 	} keys %sources;
 	return @ids;
+}
+
+
+sub sourceState
+	# CAN THIS SOURCE ID BE USED FOR THIS PURPOSE, and if not, which of the
+	# four ways is it failing?  Returns one of the $SRC_* answers in
+	# cm_defs.
+	#
+	# $purpose is 'build' or 'display'.  Display asks only that something is
+	# installed - painting a tile needs no more than that - while build adds
+	# the author's declared use and the key store, because a build that
+	# discovers either of those at tile four thousand has already spent an
+	# hour finding out.
+	#
+	# THE ONE PLACE THIS IS DECIDED.  It was decided in dm_build alone,
+	# inside the exporter's own validator, which is why fetch could run
+	# against a source the build would have refused and why nothing but a
+	# build could say a useful word about it.  Fetch, both builds, the
+	# preflight, the tree and the cleanup now ask the same function and get
+	# the same answer.
+	#
+	# IT DOES NOT ASK ABOUT TILE FORMAT.  Whether a source's imagery can be
+	# carried by a container is a question about the OUTPUT, not about the
+	# source, and only the exporter knows which container it is filling.
+	# That check stays in dm_build where the format table is.
+{
+	my ($id,$purpose) = @_;
+	$purpose ||= 'build';
+
+	return $SRC_NONE if !defined($id) || $id eq '';
+
+	my $src = getSource($id);
+	return $SRC_MISSING if !$src;
+
+	return $SRC_OK if $purpose ne 'build';
+
+	return $SRC_NOT_BUILD
+		if !grep { $_ eq 'build' } @{$src->{uses} || []};
+
+	return $SRC_NO_KEY if sourceUnresolved($src);
+
+	return $SRC_OK;
+}
+
+
+sub sourceStateText
+	# The $SRC_* answer as a sentence about THIS id, for the surfaces that
+	# show one node at a time.  The surfaces that report a list of faults
+	# want dm_region::faultLines instead, which groups by state.
+	#
+	# THE NEXT ACT IS IN THE SENTENCE.  A state with no remedy in it is a
+	# state the reader has to come and ask about.
+{
+	my ($id,$state) = @_;
+	$id = '' if !defined $id;
+
+	return ''									if $state eq $SRC_OK;
+	return 'no source chosen - this cannot be built yet'
+												if $state eq $SRC_NONE;
+	return "'$id' is not installed - install the .tsd, or choose another"
+												if $state eq $SRC_MISSING;
+	return "'$id' is for display only - it does not declare 'build'"
+												if $state eq $SRC_NOT_BUILD;
+	return "'$id' needs a value in Edit > Key Store"
+												if $state eq $SRC_NO_KEY;
+	return "'$id' cannot be used";
 }
 
 

@@ -165,22 +165,29 @@ sub cleanSourceUsage
 	# EVERY SET, not the open one, and the paths carry the set name because
 	# two sets may each hold a region called Bocas and they are not the same
 	# region.
+	#
+	# A NODE THAT CHOSE NOTHING USES NOTHING.  This resolved every unsourced
+	# node to getDefaultSource() - the source the map was displaying - so
+	# the usage report named regions that had never chosen it, and the one
+	# question this answers is 'who would miss this if I deleted it'.  A
+	# region that has not decided would not miss anything.
 {
-	my $fallback = getDefaultSource();
 	my %usage;
 
 	for my $set (getSetNames())
 	{
 		for my $reg (@{_setRegions($set)})
 		{
-			# regionSourceMap follows 'inherited' downward and terminates at
-			# $fallback, so one pass answers for every node.  It lives on the
-			# model because the filler and the preview read the same answer;
-			# this is the third caller and must not be a fourth rulebook.
+			# regionSourceMap follows 'inherited' downward and terminates
+			# at the region, so one pass answers for every node.  It lives
+			# on the model because the filler and the preview read the same
+			# answer; this is the third caller and must not be a fourth
+			# rulebook.
 
-			my $map = regionSourceMap($reg,$fallback);
+			my $map = regionSourceMap($reg);
 			for my $path (sort keys %$map)
 			{
+				next if $map->{$path} eq '';
 				push @{$usage{$map->{$path}}},"$set/$path";
 			}
 		}
@@ -204,9 +211,21 @@ sub _keepSets
 	# The merged map for a set is dropped as soon as it has been folded in,
 	# so what is held at the peak is the answer plus one set - not every
 	# set at once.
+	#
+	# UNWANTED IS WHAT NO COHERENT SET WANTS.  A node that has chosen no
+	# source values its tiles at '', which is in no id2key entry, so those
+	# tiles are simply not kept - correctly, because there is no source
+	# they could be tiles OF.  It used to value them at the displayed
+	# source, which pinned that source's cache as wanted on behalf of
+	# regions that had never named it, and the tiles could then never be
+	# reclaimed.
+	#
+	# SEVERAL SOURCE IDS MAY SHARE ONE CACHE KEY, which is why the fold is
+	# by key and not by id: two .tsd files addressing the same service
+	# store into the same folder deliberately, and a tile wanted through
+	# either of them is wanted.
 {
 	my ($want) = @_;			# { cache_key => 1 } - only these are asked about
-	my $fallback = getDefaultSource();
 
 	my %id2key;
 	for my $id (getSourceIds())
@@ -221,7 +240,7 @@ sub _keepSets
 		my $regs = _setRegions($set);
 		next if !@$regs;
 
-		my $merged = mergedCoverageSources($regs,$fallback);
+		my $merged = mergedCoverageSources($regs);
 		for my $z (keys %$merged)
 		{
 			my $level = $merged->{$z};

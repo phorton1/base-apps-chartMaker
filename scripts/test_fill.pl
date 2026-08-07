@@ -218,7 +218,7 @@ my $total_a = coverageTotal($cov_a);
 
 ok($planted >= $total_a,"planted $planted tiles across both nodes ($total_a merged)");
 
-my $st = fillCoverage(['Alpha'],{ fallback => 'fill_a' });
+my $st = fillCoverage(['Alpha'],{ });
 ok($st->{tiles} == $total_a,
 	"the walk visited every tile the build would ($st->{tiles} of $total_a)");
 ok($st->{cached} == $st->{tiles},
@@ -245,7 +245,7 @@ plant($nodes_b->[1],'fill_a');
 # chain fell through to the fallback instead of stopping at the region,
 # these tiles would be looked for under fill_b and missed.
 
-my $st_b = fillCoverage(['Beta'],{ fallback => 'fill_b' });
+my $st_b = fillCoverage(['Beta'],{ });
 ok($st_b->{cached} == $st_b->{tiles} && $st_b->{tiles} > 0,
 	"a subregion inherits its REGION's source, not the fallback ".
 	"($st_b->{cached} of $st_b->{tiles})");
@@ -257,7 +257,7 @@ ok($st_b->{cached} == $st_b->{tiles} && $st_b->{tiles} > 0,
 
 print "\n=== a zmax cap prunes arithmetically ===\n";
 
-my $st_cap = fillCoverage(['Alpha'],{ fallback => 'fill_a', zmax => 11 });
+my $st_cap = fillCoverage(['Alpha'],{  zmax => 11 });
 ok($st_cap->{tiles} < $total_a,
 	"capping at z11 visits fewer tiles ($st_cap->{tiles} against $total_a)");
 ok($st_cap->{error} == 0 && !$st_cap->{aborted},
@@ -265,21 +265,68 @@ ok($st_cap->{error} == 0 && !$st_cap->{aborted},
 
 
 #---------------------------------------------
-# a source naming nothing installed
+# a tree that cannot say what it is made of
 #---------------------------------------------
+# THE WHOLE TREE IS ANSWERED FOR BEFORE ONE REQUEST GOES OUT, and this
+# section used to assert the opposite: that a node naming nothing installed
+# was skipped with a warning while the rest of the region fetched happily.
+#
+# That was wrong in the direction that costs money and time.  A fetch
+# exists to put on disk exactly what a build is about to read, so a fetch
+# that succeeds against a tree the build will refuse is an afternoon of
+# downloading followed by a refusal.  Worse, the commonest incoherence of
+# all - a region that has chosen no source - never reached this code at
+# all: it resolved through a fallback to whatever the map was displaying
+# and was fetched in earnest from a source nobody had named.
 
-print "\n=== an uninstalled source is skipped, not fatal ===\n";
+print "\n=== an incoherent tree is refused, and nothing is fetched ===\n";
 
 my ($cov_g,$nodes_g) = nodesOf('Gamma');
 plant($nodes_g->[0],'fill_a');
 
-my $st_g = fillCoverage(['Gamma'],{ fallback => 'fill_a' });
-ok($st_g->{cached} == $st_g->{tiles} && $st_g->{tiles} > 0,
-	"the region's own tiles were still filled ($st_g->{tiles})");
-ok(!$st_g->{aborted},"an uninstalled source on ONE node does not abort the run");
-ok($st_g->{tiles} < coverageTotal($cov_g),
-	"and the unresolvable node contributed nothing (".$st_g->{tiles}.
-	" of ".coverageTotal($cov_g).")");
+my $st_g = fillCoverage(['Gamma'],{ });
+ok($st_g->{refused},"a node naming an uninstalled source refuses the run");
+ok($st_g->{tiles} == 0,
+	"and NOTHING is fetched, not even the coherent part ($st_g->{tiles})");
+ok(!$st_g->{aborted},"a refusal is not an abort - nothing was attempted");
+
+# THE FAULT NAMES THE NODE AND WHICH KIND IT IS.  'which one do I fix' is
+# the whole content of the answer, and the four states are four different
+# next acts.
+
+ok(scalar(@{$st_g->{faults}}) == 1,
+	"one fault, reported once (".scalar(@{$st_g->{faults}}).")");
+ok($st_g->{faults}[0]{state} eq $SRC_MISSING,
+	"and it is 'not installed' rather than 'not chosen' ".
+	"($st_g->{faults}[0]{state})");
+ok($st_g->{faults}[0]{path} eq 'Gamma/Deep',
+	"named by its PATH, which is where to go and fix it ".
+	"($st_g->{faults}[0]{path})");
+
+# A REGION THAT HAS CHOSEN NOTHING IS A DIFFERENT ANSWER, and it is the one
+# every region starts life with.
+
+closeSet();
+# THE SUBREGION INHERITS, which is what addSubregion creates and what the
+# Regions pane offers for one.  Writing '' on it instead would be a
+# subregion that had explicitly chosen nothing, which is a decision of its
+# own and is reported on its own account - a different test.
+
+putFile("$ROOT/region_sets/Fill/Unset.region",
+	regionJson('Unset','',$SOURCE_INHERITED));
+openSet('Fill');
+
+my $st_u = fillCoverage(['Unset'],{ });
+ok($st_u->{refused},"a region that has chosen no source refuses too");
+ok($st_u->{tiles} == 0,"and fetches nothing at all ($st_u->{tiles})");
+ok(scalar(@{$st_u->{faults}}) == 1,
+	"ONE fault for the tree, not one per node - the subregion inherits ".
+	"and has nothing wrong with it (".scalar(@{$st_u->{faults}}).")");
+ok($st_u->{faults}[0]{state} eq $SRC_NONE,
+	"and the state is 'nothing chosen' ($st_u->{faults}[0]{state})");
+ok($st_u->{faults}[0]{path} eq 'Unset',
+	"against the REGION, which is the node that has to choose ".
+	"($st_u->{faults}[0]{path})");
 
 
 #---------------------------------------------
@@ -290,7 +337,7 @@ ok($st_g->{tiles} < coverageTotal($cov_g),
 
 print "\n=== a dead source aborts ===\n";
 
-my $st_d = fillCoverage(['Dead'],{ fallback => 'fill_a' });
+my $st_d = fillCoverage(['Dead'],{ });
 ok($st_d->{aborted},"a source that cannot be reached aborts the run");
 ok($st_d->{error} >= 10,"after the consecutive-failure limit ($st_d->{error})");
 ok($st_d->{tiles} < coverageTotal((nodesOf('Dead'))[0]),
@@ -300,7 +347,7 @@ ok($st_d->{tiles} < coverageTotal((nodesOf('Dead'))[0]),
 # so a run after the source comes back must fetch these rather than skip
 # them -- this is what makes 'run it again' a real resume.
 
-my $again = fillCoverage(['Dead'],{ fallback => 'fill_a' });
+my $again = fillCoverage(['Dead'],{ });
 ok($again->{cached} == 0,"and cached no absences, so a retry really retries");
 
 

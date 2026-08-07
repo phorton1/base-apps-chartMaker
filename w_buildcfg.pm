@@ -25,6 +25,13 @@
 # changes nothing on disk, and Reset is not a destructive button with no
 # undo.
 #
+# WHAT IS SHOWN IS NOT ALL THAT IS STORED, in one direction only.  A region
+# whose source is not settled is drawn with the reason, cannot be ticked,
+# and is not counted when deciding whether "everything" was selected.  None
+# of that is written: it is recomputed every time this opens, so a region
+# fixed in the Regions pane is simply available again the next time, with
+# no memory anywhere of having been excluded.  See onOk.
+#
 # THE DEFAULT FOLDER IS CREATED AS NEEDED; A CHOSEN ONE MUST ALREADY
 # EXIST.  That asymmetry is the application's standing rule - it creates
 # only the folders it chose the location of - and the browser's own
@@ -35,12 +42,13 @@ package w_buildcfg;
 use strict;
 use warnings;
 use Wx qw(:everything);
-use Wx::Event qw( EVT_BUTTON );
+use Wx::Event qw( EVT_BUTTON EVT_CHECKLISTBOX );
 use Cwd;
 use Pub::Utils;
 use cm_defs;
 use cm_config;
 use dm_set;
+use dm_source;
 use dm_region;
 use w_resources;
 use w_ini;
@@ -82,7 +90,21 @@ sub new
 	$this->{cfg}		= buildConfig();
 	$this->{ids}		= [ getRegionIds() ];
 
-	my $set = getActiveSet() // '';
+	# WHICH REGIONS CANNOT ANSWER FOR THEMSELVES, worked out fresh every
+	# time this dialog opens and never written anywhere.  See onOk.
+	#
+	# Fetch asks the same question as a build, because a fetch exists to
+	# put on disk exactly what a build is about to read - see
+	# dm_fill::fillCoverage.
+
+	$this->{bad} = {};
+	for my $id (@{$this->{ids}})
+	{
+		my $faults = regionFaults(getRegion($id),'build');
+		$this->{bad}{lc($id)} = $faults->[0] if @$faults;
+	}
+
+	my $set = openSetName() // '';
 
 	Wx::StaticText->new($this,-1,
 		"Region set '$set' - ".scalar(@{$this->{ids}})." region(s)",
@@ -95,9 +117,13 @@ sub new
 	# A CHECK LIST, NOT THE REGION TREE.  What gets built and what is
 	# on the map are different questions and have to look different - the
 	# tree's own checkboxes mean show-on-map and always have.
+	#
+	# A REGION THAT CANNOT BE BUILT SAYS SO ON ITS OWN ROW, because this is
+	# the list somebody is looking at when they decide what to run, and
+	# sending them to the next dialog to find out is one dialog too late.
 
 	$this->{list} = Wx::CheckListBox->new($this,-1,[16,60],[480,180],
-		$this->{ids});
+		[ map { $this->_label($_) } @{$this->{ids}} ]);
 
 	Wx::Button->new($this,$ID_ALL, 'All', [16,248],[70,24]);
 	Wx::Button->new($this,$ID_NONE,'None',[94,248],[70,24]);
@@ -127,6 +153,13 @@ sub new
 	Wx::Button->new($this,$ID_OK,    'Next >',   [316,$y+8],[85,24]);
 	Wx::Button->new($this,$ID_CANCEL,'Cancel',   [409,$y+8],[85,24]);
 
+	# A ROW THAT CANNOT BE BUILT REFUSES TO BE TICKED, and says why at the
+	# moment of the click.  wx has no per-item disable on a check list, so
+	# the tick is taken back - which is the honest thing anyway: letting it
+	# stand and refusing two dialogs later would be worse.
+
+	EVT_CHECKLISTBOX($this,$this->{list},\&onTick);
+
 	EVT_BUTTON($this,$ID_ALL,	 \&onAll);
 	EVT_BUTTON($this,$ID_NONE,	 \&onNone);
 	EVT_BUTTON($this,$ID_BROWSE, \&onBrowse);
@@ -140,9 +173,42 @@ sub new
 }
 
 
+sub _label
+	# The row: the id, and what is wrong with it if anything is.
+	#
+	# THE STATE IN THREE WORDS, not the remedy.  The remedy is a sentence
+	# and there is no room for one on a list row; the preflight says it in
+	# full and the Regions pane says it beside the control that fixes it.
+	# What this has to do is stop somebody wondering why the box will not
+	# tick.
+{
+	my ($this,$id) = @_;
+	my $bad = $this->{bad}{lc($id)} or return $id;
+
+	my $why =
+		$bad->{state} eq $SRC_NONE		? 'no source chosen'		:
+		$bad->{state} eq $SRC_MISSING	? "source '$bad->{source}' not installed" :
+		$bad->{state} eq $SRC_NOT_BUILD	? "source '$bad->{source}' is display only" :
+		$bad->{state} eq $SRC_NO_KEY	? "source '$bad->{source}' needs a key" :
+										  'cannot be built';
+
+	# THE PATH WHEN IT IS NOT THE REGION ITSELF.  A region is fine and one
+	# subregion is not, and naming the region alone would send somebody to
+	# the wrong row of the tree.
+
+	my $where = $bad->{path} eq $id ? '' : "  $bad->{path}:";
+	return "$id      --$where $why";
+}
+
+
 sub _show
 	# Push a configuration into the controls.  Used by the constructor and
 	# by Reset, which is why Reset needs no separate code path.
+	#
+	# A REGION THAT CANNOT BE BUILT IS NEVER TICKED, whatever the stored
+	# configuration says, and All does not tick it either.  It is a
+	# suppression computed here and now - see onOk for why it must never
+	# become a stored choice.
 {
 	my ($this,$cfg) = @_;
 
@@ -150,7 +216,8 @@ sub _show
 	my $i = 0;
 	for my $id (@{$this->{ids}})
 	{
-		$this->{list}->Check($i,$on{lc($id)} ? 1 : 0);
+		$this->{list}->Check($i,
+			($on{lc($id)} && !$this->{bad}{lc($id)}) ? 1 : 0);
 		$i++;
 	}
 
@@ -192,10 +259,35 @@ sub _showDir
 }
 
 
+sub onTick
+{
+	my ($this,$event) = @_;
+	my $i  = $event->GetInt();
+	my $id = $this->{ids}[$i];
+	return if !defined($id);
+
+	my $bad = $this->{bad}{lc($id)};
+	return if !$bad || !$this->{list}->IsChecked($i);
+
+	$this->{list}->Check($i,0);
+	Wx::MessageBox(
+		"'$bad->{path}' ".sourceStateText($bad->{source},$bad->{state})."\n\n".
+		"Set it in the Regions pane, then come back.",
+		$$resources{app_title},wxOK | wxICON_INFORMATION,$this);
+}
+
+
 sub onAll
+	# EVERY REGION THAT CAN BE BUILT.  All that could not would be a
+	# button that produces a selection the next dialog refuses.
 {
 	my ($this) = @_;
-	$this->{list}->Check($_,1) for (0..$#{$this->{ids}});
+	my $i = 0;
+	for my $id (@{$this->{ids}})
+	{
+		$this->{list}->Check($i,$this->{bad}{lc($id)} ? 0 : 1);
+		$i++;
+	}
 }
 
 
@@ -323,9 +415,12 @@ sub onOk
 
 	if (!@on)
 	{
-		Wx::MessageBox("Nothing is selected - there is nothing to ".
-			$this->{what}.".",$$resources{app_title},
-			wxOK | wxICON_INFORMATION,$this);
+		Wx::MessageBox(%{$this->{bad}} ?
+			"Nothing is selected.\n\nThe regions that cannot be ".
+				$this->{what}."ed are listed with the reason - set a ".
+				"source on them in the Regions pane." :
+			"Nothing is selected - there is nothing to ".$this->{what}.".",
+			$$resources{app_title},wxOK | wxICON_INFORMATION,$this);
 		return;
 	}
 
@@ -334,9 +429,23 @@ sub onOk
 	# builds whole and a region added later joins it, while a deliberate
 	# subset must NOT silently acquire a region added next week.  Storing
 	# the list either way would collapse the two.
+	#
+	# 'ALL' IS MEASURED AGAINST WHAT COULD BE TICKED, and this is the whole
+	# of why the unbuildable ones are suppressed here rather than filtered
+	# out somewhere durable.  A region this dialog unticked FOR the user
+	# was never their decision, and writing it into build.json would make
+	# it one: the set would stop meaning "build it all" from then on, and
+	# would go on meaning that long after the region was fixed, so a region
+	# added next week would silently not be built.  Nobody would ever
+	# connect the two.
+	#
+	# So the comparison ignores them.  Tick every region that can be built
+	# and the answer is still "the whole set".
+
+	my $can = grep { !$this->{bad}{lc($_)} } @{$this->{ids}};
 
 	my $cfg = $this->{cfg};
-	$cfg->{regions} = (scalar(@on) == scalar(@{$this->{ids}})) ? undef : \@on;
+	$cfg->{regions} = (scalar(@on) == $can) ? undef : \@on;
 	$cfg->{out_dir} = $this->{is_build} ? ($this->{out_dir} // '') : $cfg->{out_dir};
 
 	saveBuildConfig($cfg);

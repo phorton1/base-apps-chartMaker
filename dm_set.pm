@@ -15,17 +15,25 @@
 # there.  File Explorer is the set editor, and a set is a folder you can
 # zip and send to another mariner.
 #
-# ONE SET IS ACTIVE AT A TIME.  The map shows one set, and one set (or
-# one region of it) builds, because a working set assembled ACROSS sets
-# would be one no output could express.
+# ONE SET IS OPEN AT A TIME, OR NONE.  The map shows one set, and one set
+# (or one region of it) builds, because a working set assembled ACROSS
+# sets would be one no output could express.
 #
-# EXISTENCE COMES FROM THE FOLDER, SELECTION COMES FROM THE INI.  Which
-# set is active is not a fact about the folder, so it is not stored in
-# one; it is a per-machine selection remembered in the ini file and
-# written on clean exit.  This module holds the selection in memory and
-# resolves it -- see getActiveSet for what happens when the remembered
-# name points at a set that is gone, which it will, because folders are
-# renamed and deleted outside this application by design.
+# WHICH SET IS OPEN IS NOT KEPT HERE.  It is the document, and it lives in
+# dm_region as $doc_set, answered by setIsOpen() and openSetName().  What
+# is kept here is a much smaller thing: the name to reopen NEXT TIME.
+#
+# THE POINTER IS A STARTUP MEMORY AND NOT A STATE.  It is read once from
+# the ini as the application starts and written once as it exits cleanly,
+# and between those two moments nothing consults it to decide anything.
+# It used to be the gate on six console commands, on the build's own
+# validator, on the build configuration's file name and on the hidden
+# region list, while the frame's menus gated on the document - so File >
+# Close left the two disagreeing for the rest of the session, and those
+# commands went on acting for a set that was no longer open.
+#
+# So: ask setIsOpen() for whether there is a document, openSetName() for
+# which one, and getActiveSet() for nothing at all except what to reopen.
 #
 # A SET NAME IS A FOLDER NAME, and it becomes the name of the folder
 # copied onto a card, so it carries the same [A-Za-z0-9] restriction a
@@ -278,7 +286,14 @@ sub setExists
 #---------------------------------------------
 
 sub getActiveSet
-	# The remembered name if it still names a set, else ''.
+	# WHICH SET TO REOPEN, and nothing else.  The remembered name if it
+	# still names a set, else ''.
+	#
+	# THERE ARE EXACTLY TWO LEGITIMATE CALLERS: chartMaker.pm at startup,
+	# which opens what it returns, and w_ini::writeIniSelections on the way
+	# out.  Everything that wants to know what is open asks the document -
+	# setIsOpen() and openSetName() in dm_region.  If you are reaching for
+	# this to gate a command, you want those instead; see the header.
 	#
 	# RESOLVED ON EVERY READ, never cached.  The remembered name is a
 	# pointer into folder contents and the folder is edited from outside
@@ -327,10 +342,16 @@ sub getActiveSet
 
 
 sub setActiveSet
-	# Remembers a set as the active one.  The name is stored even when it
-	# does not currently resolve, because the ini is read before the first
-	# scan and a set the user is about to create should not be forgotten
-	# by the act of starting up.
+	# SEEDS THE STARTUP POINTER FROM THE INI, and that is its only caller.
+	# The name is stored even when it does not currently resolve, because
+	# the ini is read before the first scan and a set the user is about to
+	# create should not be forgotten by the act of starting up.
+	#
+	# NOTHING CALLS THIS DURING A SESSION any more.  Opening, creating and
+	# saving-as all used to, which made the pointer a running second copy
+	# of "what is open" that Close then failed to clear.  What gets written
+	# on the way out is openSetName() - the document, at the moment of a
+	# graceful exit - so there is nothing to keep in step in between.
 {
 	my ($name) = @_;
 	$name = '' if !defined $name;
@@ -373,9 +394,13 @@ sub newSet
 		return 0;
 	}
 
+	# THE FOLDER, AND NOTHING ELSE.  This used to make the new set active
+	# as a side effect, which was the pointer being written mid-session by
+	# something that is not the act of exiting.  Opening it is the caller's
+	# separate decision and every caller already makes it.
+
 	display($dbg_set,0,"created set '$name'");
 	rescanSets();
-	setActiveSet($name);
 	return 1;
 }
 

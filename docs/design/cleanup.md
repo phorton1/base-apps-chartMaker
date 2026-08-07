@@ -70,6 +70,18 @@ installation in one click, every one of whose sources is unused until a region n
 A subregion that inherits counts against the source it inherits, so a detail area keeps its
 parent's tiles alive.
 
+**A node that has chosen no source uses nothing, and holds nothing alive.** The question this
+survey answers is "who would miss this if I deleted it", and a region that has not decided
+would not miss anything. It used to resolve such a node to whatever the map was displaying,
+which named regions in the usage report that had never chosen that source and pinned its
+cache as wanted on their behalf - so those tiles could never be reclaimed, by anybody, for a
+reason nothing on screen explained.
+
+**Several source ids may share one cache key**, which is why reachability is folded by key
+rather than by id: two `.tsd` files addressing the same service store into the same folder
+deliberately, and a tile wanted through either of them is wanted. In practice it is usually
+one to one.
+
 ## The three sweeps
 
 None is a deletion in the sense the two tick columns are, and each applies across every row

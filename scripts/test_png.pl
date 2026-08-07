@@ -319,7 +319,7 @@ sub plant
 {
 	my ($id,$bytes) = @_;
 	my $reg  = getRegion($id) or die "no region $id\n";
-	my $map  = regionSourceMap($reg,undef);
+	my $map  = regionSourceMap($reg);
 	my $fmt  = (substr($$bytes,0,3) eq "\xFF\xD8\xFF") ? 'jpeg' : 'png';
 
 	my (undef,$nodes) = regionCoverageNodes($reg,{});

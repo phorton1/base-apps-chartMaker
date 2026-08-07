@@ -147,7 +147,7 @@ newSet('Prev');
 putFile("$ROOT/region_sets/Prev/Alpha.region",regionJson('Alpha','wide','deep'));
 openSet('Prev');
 
-my $cov = mergedCoverageSources([ getRegion('Alpha') ],'fallback_src');
+my $cov = mergedCoverageSources([ getRegion('Alpha') ]);
 
 # The tile containing the region's centre, at each level of interest.
 sub at { my ($z) = @_; my ($x,$y) = lonLatToTile($LON,$LAT,$z); return ($x,$y) }

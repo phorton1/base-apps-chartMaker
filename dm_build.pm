@@ -268,8 +268,48 @@ sub _validateSources
 	# Returns ($ok,$by_region) where $by_region is { id => source map },
 	# the same maps the exporter is handed, so the thing that was
 	# validated is the thing that gets used.
+	#
+	# THE FIRST FOUR CHECKS ARE NOT HERE ANY MORE.  Whether a node resolves
+	# to something installed, buildable and authorised is a question about
+	# a REGION TREE rather than about an export, and it lived here alone -
+	# which is why a fetch could run against imagery a build would refuse,
+	# and why nothing but a build could say a useful word about an
+	# unsourced region.  dm_source::sourceState answers it now, and
+	# dm_region::regionFaults walks the tree with it.  What is left below
+	# is the one question that genuinely belongs to the exporter: whether
+	# THIS CONTAINER can carry what the source serves.
 {
-	my ($ids,$fallback,$report,$fmt) = @_;
+	my ($ids,$report,$fmt) = @_;
+
+	# THE FAULTS FIRST AND WHOLE.  One call, every node, every reason -
+	# and reported per node that chose its own source, so a region with
+	# five inheriting subregions is one line rather than six.
+
+	my $faults = regionsFaults($ids,'build');
+	if (@$faults)
+	{
+		# THE GUARD IS THE STATE OF THE FIRST FAULT, not a single name for
+		# all of them.  The report and the tests key on the guard, and
+		# "you have not chosen yet" and "what you chose is not installed"
+		# are different things to assert.  faultLines orders the states so
+		# the unchosen come first, which is also the order of what a user
+		# can act on soonest.
+
+		my %guard = ( $SRC_NONE      => 'no_source',
+					  $SRC_MISSING   => 'source',
+					  $SRC_NOT_BUILD => 'uses',
+					  $SRC_NO_KEY    => 'key' );
+		my @lines = faultLines($faults);
+		my ($first) = sort { $a <=> $b }
+			map { my $s = $_->{state};
+				  $s eq $SRC_NONE ? 0 : $s eq $SRC_MISSING ? 1 :
+				  $s eq $SRC_NOT_BUILD ? 2 : 3 } @$faults;
+		my $state = (($SRC_NONE,$SRC_MISSING,$SRC_NOT_BUILD,$SRC_NO_KEY)[$first]);
+
+		_refuse($report,$guard{$state},
+			"this cannot be built as it stands",@lines);
+		return (0,undef);
+	}
 
 	my %by_region;
 	my %seen;			# source id => [ the nodes that named it ]
@@ -277,7 +317,7 @@ sub _validateSources
 	for my $id (@$ids)
 	{
 		my $reg = getRegion($id) or next;
-		my $map = regionSourceMap($reg,$fallback);
+		my $map = regionSourceMap($reg);
 		$by_region{$id} = $map;
 
 		# THE KEY IS ALREADY THE ANSWER.  A node's key is its path -
@@ -287,70 +327,14 @@ sub _validateSources
 		push @{$seen{$map->{$_}}},$_ for sort keys %$map;
 	}
 
-	my %build_ok = map { $_ => 1 } getBuildSourceIds();
 	my %objects;
 
 	for my $src_id (sort keys %seen)
 	{
 		my $who = join(', ',@{$seen{$src_id}});
-
-		# 0 - NAMED AT ALL, and it is first because it is the only one of
-		# these that is not about a source.  '' is what regionSourceMap
-		# reports for a node whose region has not chosen one, which is how
-		# every region now begins: nothing is guessed for the user any
-		# more, so nothing can be built until they have said.
-		#
-		# There is nothing to install, convert or authorise here - the
-		# whole of the answer is WHICH NODES, because the user's next act
-		# is to go and set them.  '' sorts first, so this is also the
-		# first refusal they see when several things are wrong at once.
-
-		# ITS OWN GUARD NAME, not 'source'.  The guard is what the report
-		# and the tests key on, and "you have not chosen yet" and "what
-		# you chose is not installed" want different words in front of the
-		# user and are different things to assert.
-
-		if ($src_id eq '')
-		{
-			_refuse($report,'no_source',
-				"no build source has been chosen for: $who",
-				"a region names the imagery it is built from, and these ".
-					"have not named one yet",
-				"set it in the Regions pane, whose source column offers ".
-					"every installed source that can build");
-			return (0,undef);
-		}
-
-		# 1 - INSTALLED.  Named against the node that names it, because
-		# "which one do I fix" is the only useful part of this message.
-
 		my $src = getSource($src_id);
-		if (!$src)
-		{
-			_refuse($report,'source',
-				"source '$src_id' is not installed",
-				"named by: $who",
-				"install the .tsd, or change the source on those regions");
-			return (0,undef);
-		}
 
-		# 2 - MAY BUILD.  'uses' is the author's statement of what a
-		# source is FOR.  It is consulted where a source is chosen and was
-		# never consulted where one is used, so a set carried from another
-		# machine could name a display-only basemap and fail at the only
-		# moment it mattered.
-
-		if (!$build_ok{$src_id})
-		{
-			_refuse($report,'uses',
-				"source '$src_id' does not declare 'build' in its uses",
-				"named by: $who",
-				"it declares: ".join(', ',@{$src->{uses} || []}),
-				"a display-only basemap cannot be a build source");
-			return (0,undef);
-		}
-
-		# 3 - CARRIABLE OR CONVERTIBLE, and WHICH FORMAT ASKS depends on the
+		# CARRIABLE OR CONVERTIBLE, and WHICH FORMAT ASKS depends on the
 		# output.  RCT holds JPEG alone but re-encodes a png on the way in,
 		# so the question here is no longer "what does the container hold"
 		# but "can this machine get the tiles in at all".
@@ -384,34 +368,16 @@ sub _validateSources
 			return (0,undef);
 		}
 
-		# 4 - USABLE AT ALL.  A url with a key_name nothing is bound to
-		# cannot be substituted at any coordinate, so this is the last
-		# moment it can be said cheaply.  The alternative is finding out at
-		# tile four thousand, from a source that looks perfectly healthy in
-		# every other line of every other panel.
-		#
-		# It is a REFUSAL rather than a warning because there is no partial
-		# outcome available: not one tile of this source can be fetched.
-
-		if (my $bad = sourceUnresolved($src))
-		{
-			_refuse($report,'key',
-				"source '$src_id' needs a value for {$bad}",
-				"named by: $who",
-				"nothing in the key store is bound to that name",
-				"set it in Edit > Key Store, or this source cannot ".
-					"fetch a single tile");
-			return (0,undef);
-		}
-
 		$objects{$src_id} = $src;
 		display($dbg_build-1,1,"source '$src_id' ok ($src->{tile_format})");
 	}
 
 	# Resolve each region's map from ids to objects, once.  The exporter
 	# takes objects because whether a source is installed, may build and
-	# can be carried are three questions THIS function answers -- dm_rct
-	# does not know how to ask them and must not learn.
+	# can be carried are three questions ANSWERED BEFORE HERE -- by
+	# regionsFaults for the first two and by the format table for the
+	# third -- and dm_rct does not know how to ask any of them and must
+	# not learn.
 
 	for my $id (keys %by_region)
 	{
@@ -427,10 +393,15 @@ sub _validate
 {
 	my ($ids,$opts,$report,$fmt) = @_;
 
-	my $set = getActiveSet();
+	# THE OPEN SET, not the ini pointer.  This asked getActiveSet(), which
+	# is only what to reopen next time - so after File > Close it still
+	# named the set that had been closed, and a build launched from the
+	# console went ahead against a document that was no longer there.
+
+	my $set = openSetName();
 	if (!$set)
 	{
-		_refuse($report,'set',"there is no active region set");
+		_refuse($report,'set',"there is no region set open");
 		return (0,undef);
 	}
 	if (!@$ids)
@@ -454,9 +425,10 @@ sub _validate
 		return (0,undef);
 	}
 
-	# 1..3 - the sources, per resolved source across every tree.
+	# 1 - the sources: every node coherent, then every resolved source
+	# carriable by this container.
 
-	my ($ok,$by_region) = _validateSources($ids,$opts->{fallback},$report,$fmt);
+	my ($ok,$by_region) = _validateSources($ids,$report,$fmt);
 	return (0,undef) if !$ok;
 
 	# 4 - EVERY REGION BUILT TOGETHER MUST AGREE on zauthor and zmin, and this
@@ -595,7 +567,6 @@ sub buildOutput
 	# Build these region ids into one folder, in the named format.
 	#
 	# opts: zmax         a hard cap applied to both the fill and the export
-	#       fallback     the source a region that inherits resolves to
 	#       progress     a shared record from newProgress()
 	#       config       the build configuration (advisory rates)
 	#       out_dir      where the output goes; '' or absent = the default
@@ -632,7 +603,6 @@ sub buildOutput
 	my $prog = $opts->{progress};
 
 	$ids = [ @$ids ];
-	$opts->{fallback} ||= getDefaultSource();
 
 	# WHAT A CONVERTED TILE IS WRITTEN AT, resolved ONCE here and carried in
 	# $opts, so an exporter is handed a number instead of learning about the
@@ -660,7 +630,6 @@ sub buildOutput
 		scalar(@$ids)." region(s)");
 
 	my $fill = fillCoverage($ids,{
-		fallback => $opts->{fallback},
 		progress => $prog,
 		config   => $opts->{config},
 		defined $opts->{zmax} ? ( zmax => $opts->{zmax} ) : (),

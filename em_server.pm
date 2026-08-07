@@ -521,11 +521,17 @@ sub _workingCoverage
 	# by 1.  Preview needs it and everything else here only ever asks
 	# whether a key is present, so carrying it costs nothing and means
 	# there is one merged coverage rather than two that could drift.
+	#
+	# AND THAT VALUE IS '' FOR A NODE THAT HAS NOT CHOSEN, which is the
+	# point.  This passed getDefaultSource() as a fallback, so an unsourced
+	# node's tiles were valued at whatever the map was displaying and
+	# preview PAINTED them - in the same response that listed the node
+	# under 'unsourced'.  The applet has said the right thing about this
+	# all along; see the note above cmShowUnsourced in cmPreview.js.
 
 	%cov_cache = ();		# only the current one is ever worth keeping
 	my $merged = mergedCoverageSources(
-		[ map { getRegion($_) } getWorkingSet() ],
-		getDefaultSource());
+		[ map { getRegion($_) } getWorkingSet() ]);
 
 	$cov_cache{$seq} = $merged;
 	return $merged;
@@ -545,12 +551,13 @@ sub _unsourcedNodes
 	{
 		my $reg = getRegion($id) or next;
 
-		# The fallback is '' rather than the display source.  A region
-		# that has not chosen must stay unchosen here: resolving it
-		# against whatever the map happens to be showing is precisely the
-		# guess this whole change removed.
+		# There is no fallback to pass any more - the map answers '' for a
+		# node that has not chosen, full stop.  This passed '' explicitly
+		# while every other caller passed the display source, which is why
+		# this endpoint could name the unsourced nodes and paint their
+		# tiles in the same breath.
 
-		my $map = regionSourceMap($reg,'');
+		my $map = regionSourceMap($reg);
 		push @out,grep { !$map->{$_} } sort keys %$map;
 	}
 	return [ sort @out ];

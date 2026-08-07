@@ -118,7 +118,16 @@ print "\n=== a set is a folder ===\n";
 
 ok(newSet('Panama'),"newSet('Panama')");
 ok(setExists('Panama'),"the set exists after being made");
-ok(getActiveSet() eq 'Panama',"a new set becomes the active one");
+
+# MAKING A SET DOES NOT OPEN IT AND DOES NOT TOUCH THE POINTER.  It used to
+# do both, as a side effect, which is how the ini pointer became a running
+# second copy of "what is open" - and Close then cleared one of the two.
+# Creating a folder and opening a document are two acts, and every caller
+# already performed both.
+
+ok(!setIsOpen(),"making a set does not open it");
+ok(getActiveSet() ne 'Panama',
+	"and does not touch the startup pointer (got '".getActiveSet()."')");
 
 ok(!newSet('Bad Name'),"a set name with a space is refused");
 ok(!newSet('Panama'),"a duplicate set name is refused");
@@ -131,7 +140,7 @@ putFile("$ROOT/region_sets/Panama/Bocas.region",
 putFile("$ROOT/region_sets/Panama/PortBelo.region",
 	regionJson('PortBelo','Portobelo',9.55,-79.65));
 
-my $found = openSet(getActiveSet());
+my $found = openSet('Panama');
 ok($found == 2,"two region files scanned into the set (got $found)");
 ok(scalar(my @a = getRegionIds()) == 2,"getRegionIds sees both");
 ok(getRegion('Bocas') && getRegion('Bocas')->{name} eq 'Bocas del Toro',
@@ -149,14 +158,13 @@ ok(getRegion('bocas'),"ids fold for lookup");
 print "\n=== two sets, the same id ===\n";
 
 ok(newSet('Caribbean'),"newSet('Caribbean')");
-ok(getActiveSet() eq 'Caribbean',"the new set is active");
 openSet('Caribbean');
 my @b = getRegionIds();
 ok(scalar(@b) == 0,"the new set is empty (got ".scalar(@b).")");
 
 putFile("$ROOT/region_sets/Caribbean/Bocas.region",
 	regionJson('Bocas','A DIFFERENT Bocas',9.40,-82.30));
-openSet(getActiveSet());
+openSet('Caribbean');
 
 my $other = getRegion('Bocas');
 ok($other && $other->{name} eq 'A DIFFERENT Bocas',

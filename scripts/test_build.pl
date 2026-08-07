@@ -238,7 +238,7 @@ putFile("$ROOT/region_sets/Build/Alpha.region",regionJson('Alpha','bld_a','bld_b
 openSet('Build');
 plantRegion('Alpha','bld_a','bld_b');
 
-my $r = buildRct(['Alpha'],{ fallback => 'bld_a' });
+my $r = buildRct(['Alpha'],{ });
 ok($r->{ok},"a fully cached region builds ($r->{refused})");
 ok(!$r->{cancelled},"and was not cancelled");
 ok(-f "$OUT/Alpha.rct","the card exists at $OUT/Alpha.rct");
@@ -320,7 +320,7 @@ plantRegion('Alpha','bld_a','bld_b');
 
 ok(!-d "$ROOT/raster/GOut","the default folder does not exist yet");
 
-my $ro1 = buildRct(['Alpha'],{ fallback => 'bld_a' });
+my $ro1 = buildRct(['Alpha'],{ });
 ok($ro1->{ok},"a build with NO out_dir creates it and succeeds ($ro1->{refused})");
 ok(-d "$ROOT/raster/GOut","   and the folder is now there");
 
@@ -328,7 +328,7 @@ ok(-d "$ROOT/raster/GOut","   and the folder is now there");
 # because that is what the configuration stores when nothing was chosen.
 
 rmTree("$ROOT/raster/GOut");
-my $ro2 = buildRct(['Alpha'],{ fallback => 'bld_a', out_dir => '' });
+my $ro2 = buildRct(['Alpha'],{  out_dir => '' });
 ok($ro2->{ok},"an EMPTY out_dir means the default too, and is created");
 ok(-d "$ROOT/raster/GOut","   and the folder is back");
 
@@ -337,13 +337,13 @@ ok(-d "$ROOT/raster/GOut","   and the folder is back");
 # than an instruction to build a tree somewhere unexpected.
 
 my $ro3 = buildRct(['Alpha'],
-	{ fallback => 'bld_a', out_dir => "$ROOT/no_such_folder" });
+	{  out_dir => "$ROOT/no_such_folder" });
 ok(!$ro3->{ok} && $ro3->{guard} eq 'out',
 	"a CHOSEN folder that does not exist is refused as '$ro3->{guard}'");
 ok(!-d "$ROOT/no_such_folder","   and was NOT created");
 
 mkdir "$ROOT/chosen";
-my $ro4 = buildRct(['Alpha'],{ fallback => 'bld_a', out_dir => "$ROOT/chosen" });
+my $ro4 = buildRct(['Alpha'],{  out_dir => "$ROOT/chosen" });
 ok($ro4->{ok},"a chosen folder that EXISTS is built into");
 ok(-f "$ROOT/chosen/Alpha.rct","   and the card is there, not in the default");
 
@@ -368,7 +368,7 @@ sub guardTest
 	openSet($set);
 
 	my $out = "$ROOT/raster/$set";
-	my $rep = buildRct([getRegionIds()],{ fallback => 'bld_a', %{$opts->{build} || {}} });
+	my $rep = buildRct([getRegionIds()],{  %{$opts->{build} || {}} });
 
 	# A LEADING '!' MEANS "ANY GUARD BUT THIS ONE", which is not a
 	# weakening.  Where a guard used to fire and no longer does, what
@@ -471,7 +471,7 @@ openSet('GAgree');
 plantRegion('Alpha','bld_a','bld_a');
 plantRegion('Beta','bld_a','bld_a');
 
-my $rg = buildRct([sort(getRegionIds())],{ fallback => 'bld_a' });
+my $rg = buildRct([sort(getRegionIds())],{ });
 ok($rg->{ok},"two regions with different zauthor still BUILD ($rg->{refused})");
 ok($rg->{warned},"   but the build is flagged as warned");
 ok(scalar(grep { /disagree on zauthor/ } @{$rg->{warnings}}),
@@ -500,12 +500,12 @@ $reg->{name} = 'edited but not saved';
 stageRegion($reg);
 ok(isSetDirty(),"the set is dirty after an unsaved edit");
 
-my $rd = buildRct(['Alpha'],{ fallback => 'bld_a' });
+my $rd = buildRct(['Alpha'],{ });
 ok(!$rd->{ok} && $rd->{guard} eq 'dirty',
 	"a dirty set -> refused as '$rd->{guard}'");
 ok(dirCount("$ROOT/raster/GDirty") == 0,"   and wrote nothing");
 
-my $rd2 = buildRct(['Alpha'],{ fallback => 'bld_a', allow_dirty => 1 });
+my $rd2 = buildRct(['Alpha'],{  allow_dirty => 1 });
 ok($rd2->{ok},"--dirty is a real override and builds it anyway");
 ok(-f "$ROOT/raster/GDirty/Alpha.rct","   and the card is there");
 
@@ -536,7 +536,7 @@ openSet('GHoles');
 my (undef,$holes) = plantRegion('Alpha','bld_dead','bld_dead','jpeg',[3,17,29]);
 ok(scalar(@$holes) == 3,"three tiles were deliberately left unplanted");
 
-my $rh = buildRct(['Alpha'],{ fallback => 'bld_dead' });
+my $rh = buildRct(['Alpha'],{ });
 ok(!$rh->{ok} && $rh->{guard} eq 'failed',
 	"three tiles that never arrived -> refused as '$rh->{guard}'");
 ok(!$rh->{fill}{aborted},
@@ -548,7 +548,7 @@ ok(dirCount("$ROOT/raster/GHoles") == 0,"   and wrote nothing");
 # THE OVERRIDE IS A DECISION, NOT A DIFFERENT BUILD.  Same act, same
 # ledger, one flag -- so what it ships is exactly what it refused to ship.
 
-my $rh2 = buildRct(['Alpha'],{ fallback => 'bld_dead', allow_failed => 1 });
+my $rh2 = buildRct(['Alpha'],{  allow_failed => 1 });
 ok($rh2->{ok},"--failed exports it anyway");
 ok($rh2->{totals}{failed} == 3,
 	"   and the card is honest about the three holes ($rh2->{totals}{failed})");
@@ -583,7 +583,7 @@ my (undef,$gaps) = plantRegion('Alpha','bld_abs','bld_abs','jpeg',[3,17,29]);
 cachePutMiss(getSource('bld_abs'),@$_) for @$gaps;
 ok(scalar(@$gaps) == 3,"marked three tiles as known-absent");
 
-my $ra = buildRct(['Alpha'],{ fallback => 'bld_a' });
+my $ra = buildRct(['Alpha'],{ });
 ok($ra->{ok},"the build is NOT refused over them");
 ok($ra->{totals}{absent} == 3,"and reports them as absent ($ra->{totals}{absent})");
 ok($ra->{totals}{failed} == 0,"with nothing failed");
@@ -604,7 +604,7 @@ plantRegion('Alpha','bld_a','bld_b');
 my $prog = newProgress(1,'test');
 $prog->{cancelled} = 1;
 
-my $rc = buildRct(['Alpha'],{ fallback => 'bld_a', progress => $prog });
+my $rc = buildRct(['Alpha'],{  progress => $prog });
 ok($rc->{cancelled},"a cancelled record stops the act");
 ok(!$rc->{ok},"which is not a success");
 ok(dirCount("$ROOT/raster/GCancel") == 0,"and wrote nothing");
@@ -637,7 +637,7 @@ plantRegion('Beta','bld_a','bld_b');
 
 my $prog2 = newProgress(2,'');
 my $rcw = buildRct([sort(getRegionIds())],
-	{ fallback => 'bld_a', progress => $prog2 });
+	{  progress => $prog2 });
 
 ok($rcw->{ok},"two regions build");
 ok($prog2->{phase} eq 'Done',"the phase ends at 'Done' (got '$prog2->{phase}')");

@@ -123,6 +123,8 @@ sub commandHelp
 		[ 'region zauthor <id> <z>',	'set the level the polygon is authored at'			],
 		[ 'region zmin <id> <z>',		'set the overview floor'							],
 		[ 'region zmax <id> <z> [sub]',	'set how deep a region or subregion goes'			],
+		[ 'region source <id> <src|none|inherited> [sub]',
+										'name the imagery it is BUILT from'					],
 		[ 'region count [id|all] [zmax]','how many tiles a region would build, by zoom'		],
 		[ 'select <id|none>',	'select a region or subregion, on every surface at once'	],
 		[ 'view [<lat> <lon> [z]]','move the open map to a place, or say where it is'	],
@@ -543,10 +545,10 @@ sub _fetchCommand
 		return;
 	}
 
-	my $set = getActiveSet();
+	my $set = openSetName();
 	if (!$set)
 	{
-		warning(0,0,"fetch: there is no active region set");
+		warning(0,0,"fetch: there is no region set open");
 		return;
 	}
 
@@ -561,27 +563,23 @@ sub _fetchCommand
 		return;
 	}
 
-	# THE FALLBACK, not the answer.  A region names the source it is to be
-	# built from and a subregion may name its own; this is only what a node
-	# that inherits resolves to, and it is the source being displayed for
-	# the same reason the build uses it - display and build share one cache.
-
-	my $fallback = getDefaultSource();
-	if (!$fallback)
-	{
-		warning(0,0,"fetch: no active source - try 'source use <id>'");
-		return;
-	}
+	# NO SOURCE IS NAMED HERE.  A region names the source it is built from
+	# and a subregion may name its own, and that is the whole of the
+	# answer.  This used to refuse unless a source was SELECTED FOR DISPLAY
+	# and then pass it down as the fallback for anything that had not
+	# chosen - so a set in which nothing had chosen fetched thousands of
+	# tiles from the viewer's basemap.  fillCoverage refuses instead, and
+	# says which nodes.
 
 	display(0,0,"fetch ".join(', ',@ids).
-		(defined $zmax ? " capped at z$zmax" : '').
-		"  (inheriting '$fallback')");
+		(defined $zmax ? " capped at z$zmax" : ''));
 
 	my $stats = fillCoverage(\@ids,{
-		fallback => $fallback,
 		config   => $cfg,
 		defined $zmax ? ( zmax => $zmax ) : (),
 	});
+
+	return if $stats->{refused};		# fillCoverage has said why
 
 	display(0,0,sprintf("%s%d tiles in %.1fs - %d fetched, %d already cached, ".
 		"%d absent, %d errors",
@@ -663,9 +661,9 @@ sub _sampleCommand
 			return;
 		}
 	}
-	if (!getActiveSet())
+	if (!openSetName())
 	{
-		_fail("sample: there is no active region set");
+		_fail("sample: there is no region set open");
 		return;
 	}
 
@@ -725,9 +723,9 @@ sub _configCommand
 	my ($verb,@args) = split(/\s+/,$rest || '');
 	$verb = '' if !defined $verb;
 
-	if (!getActiveSet())
+	if (!openSetName())
 	{
-		warning(0,0,"config: there is no active region set");
+		warning(0,0,"config: there is no region set open");
 		return;
 	}
 
@@ -736,7 +734,7 @@ sub _configCommand
 	if ($verb eq '')
 	{
 		my @sel = configSelectedIds($cfg);
-		display(0,0,"build configuration for '".getActiveSet()."'");
+		display(0,0,"build configuration for '".openSetName()."'");
 		display(0,1,"regions   : ".(defined $cfg->{regions} ?
 			join(', ',@sel) : 'ALL ('.join(', ',@sel).')'));
 		display(0,1,"out_dir   : ".($cfg->{out_dir} ||
@@ -848,9 +846,9 @@ sub _analyseCommand
 	my ($which,$zmax) = split(/\s+/,$rest || '');
 	$which = 'set' if !defined($which) || $which !~ /\S/;
 
-	if (!getActiveSet())
+	if (!openSetName())
 	{
-		warning(0,0,"analyse: there is no active region set");
+		warning(0,0,"analyse: there is no region set open");
 		return;
 	}
 
@@ -866,7 +864,6 @@ sub _analyseCommand
 
 	my $out_dir = $cfg->{out_dir} || defaultOutDir();
 	my $an = analyseFetch(\@ids,{
-		fallback => getDefaultSource(),
 		config   => $cfg,
 		out_dir  => $out_dir,
 		defined($zmax) && $zmax =~ /^\d+$/ ? ( zmax => int($zmax) ) : (),
@@ -874,6 +871,17 @@ sub _analyseCommand
 
 	display(0,0,$_) for @{analysisLines($an,'build')};
 	display(0,0,sprintf("(analysed in %.3fs)",$an->{elapsed}));
+
+	# THE FAULTS BESIDE THE COUNTS, not inside them, which is exactly what
+	# the preflight dialog does with the same two structures.  An analysis
+	# says what a run would cost; a refusal is a different kind of
+	# statement and reads as one.
+
+	if (@{$an->{faults} || []})
+	{
+		warning(0,0,"this cannot be built as it stands:");
+		display(0,1,$_) for faultLines($an->{faults});
+	}
 
 	if ($an->{zagree})
 	{
@@ -924,10 +932,10 @@ sub _buildCommand
 	}
 	$which = 'set' if !defined($which) || $which !~ /\S/;
 
-	my $set = getActiveSet();
+	my $set = openSetName();
 	if (!$set)
 	{
-		warning(0,0,"build $what: there is no active region set");
+		warning(0,0,"build $what: there is no region set open");
 		return;
 	}
 
@@ -954,17 +962,10 @@ sub _buildCommand
 		return;
 	}
 
-	# THE FALLBACK, not the answer.  A region names the source it is built
-	# from and a subregion may name its own; this is only what a node that
-	# inherits resolves to.  It is the source being DISPLAYED for the same
-	# reason the fill uses it - display and build share one cache.
-
-	my $fallback = getDefaultSource();
-	if (!$fallback)
-	{
-		warning(0,0,"build $what: no active source - try 'source use <id>'");
-		return;
-	}
+	# NO SOURCE IS NAMED HERE, for the reason 'fetch' gives: what a region
+	# is built from is on the region, and what the map is showing has
+	# nothing to do with it.  dm_build refuses a tree that has not decided,
+	# and names the nodes.
 
 	# THE CONSOLE DRIVES THE SAME ACT THE MENU DOES, with no dialog and no
 	# thread.  Everything that decides anything is in dm_build, so "run it
@@ -982,7 +983,6 @@ sub _buildCommand
 	# default and the configuration is left saying what it has always said.
 
 	my $report = buildOutput(\@ids,{
-		fallback     => $fallback,
 		config       => $cfg,
 		out_dir      => ($what eq 'rct' ? $cfg->{out_dir} : ''),
 		allow_dirty  => $allow_dirty,
@@ -998,10 +998,10 @@ sub _buildCommand
 
 sub _regionsCommand
 {
-	my $set = getActiveSet();
+	my $set = openSetName();
 	if (!$set)
 	{
-		display(0,0,"there is no active region set");
+		display(0,0,"there is no region set open");
 		display(0,1,"try 'set new <name>'");
 		return;
 	}
@@ -1421,6 +1421,75 @@ sub _regionCommand
 		bumpState("'$target->{id}' $verb $zoom");
 		return;
 	}
+	if ($verb eq 'source')
+	{
+		# region source <id> <source|none|inherited> [<subregion>]
+		#
+		# THE ONE FIELD THE CONSOLE COULD NOT SET.  Every other property of
+		# a region had a verb and this did not, so the single act the whole
+		# model now insists on - naming the imagery a region is built from -
+		# could only be performed by clicking a combo box in one pane.  A
+		# vocabulary that cannot express the mandatory step is not the same
+		# vocabulary the interface has.
+		#
+		# 'none' RATHER THAN AN EMPTY ARGUMENT, because a trailing space is
+		# not a statement.  Clearing a source is a deliberate act - it puts
+		# the region back to undecided - and it has to look like one.
+
+		my ($id,$src_id,$sub_id) = split(/\s+/,$rest);
+		return _fail("region source: usage is 'region source <id> ".
+			"<source|none|inherited> [<subregion>]'")
+			if !defined($src_id) || $src_id !~ /\S/;
+
+		my $reg = getRegion($id);
+		return _fail("region source: no region with id '$id'") if !$reg;
+
+		my $target = $reg;
+		if (defined($sub_id) && $sub_id =~ /\S/)
+		{
+			(undef,$target) = findAnywhere($sub_id);
+			return _fail("region source: '$id' has no subregion '$sub_id'")
+				if !$target || $target == $reg;
+		}
+
+		$src_id = ''					if lc($src_id) eq 'none';
+		$src_id = $SOURCE_INHERITED		if lc($src_id) eq $SOURCE_INHERITED;
+
+		return _fail("region source: only a subregion may inherit - a ".
+			"region names one outright or names none")
+			if $src_id eq $SOURCE_INHERITED && $target == $reg;
+
+		# REFUSED HERE, WITH THE REASON, rather than accepted and refused by
+		# the next build.  A dangling id is legitimate on a region that
+		# ARRIVED that way - see dm_region - but naming one deliberately,
+		# now, on this machine, is a typo every time.
+
+		if ($src_id ne '' && $src_id ne $SOURCE_INHERITED)
+		{
+			my $state = sourceState($src_id,'build');
+			return _fail("region source: ".sourceStateText($src_id,$state))
+				if $state ne $SRC_OK;
+		}
+
+		my $was      = $target->{source};
+		my $was_name = $target->{source_name};
+		$target->{source} = $src_id;
+		$target->{source_name} = ($src_id eq '' ||
+								  $src_id eq $SOURCE_INHERITED) ? '' :
+								 (getSource($src_id)->{name} // '');
+
+		if (!stageRegion($reg))
+		{
+			$target->{source}      = $was;
+			$target->{source_name} = $was_name;
+			$cmd_failed = 1;
+			return;
+		}
+		display(0,0,"region source: '$target->{id}' is built from ".
+			($src_id eq '' ? '(none)' : "'$src_id'"));
+		bumpState("'$target->{id}' source ".($src_id || 'none'));
+		return;
+	}
 	if ($verb eq 'geometry')
 	{
 		return _regionGeometry($rest,$data);
@@ -1691,7 +1760,6 @@ sub _setCommand
 			"'set save' first, or 'set discard' to throw them away")
 			if setIsOpen() && isSetDirty();
 
-		setActiveSet($name);
 		openSet($name);
 		display(0,0,"opened '".openSetName()."'");
 		bumpState("set '$name' opened");
@@ -1730,6 +1798,38 @@ sub dispatchCommand
 	return 0 if !length($lpart);
 
 	$cmd_failed = 0;
+
+	# A VERB THAT ACTS ON THE DOCUMENT REFUSES WHEN THERE IS NO DOCUMENT,
+	# and it refuses HERE, once, from a list.
+	#
+	# These used to refuse from the bottom of the model or not at all.
+	# 'region new' with nothing open reached dm_region::stageRegion and
+	# came back with "stageRegion: no region set is open" - the name of an
+	# internal function, and a sentence about the mechanism rather than
+	# about what the user had just tried to do.  The map's own Create
+	# Region ran into exactly that.
+	#
+	# ONE TABLE RATHER THAN A GUARD IN EACH, because they were not in each:
+	# 'set' had one, 'fetch' and 'analyse' and 'build' had one against the
+	# wrong thing, and 'region', 'subregion', 'select', 'check' and
+	# 'uncheck' had none at all.  Scattered, the answer was different in
+	# five places and absent in five more.
+	#
+	# 'set' IS NOT IN THE LIST, and neither is 'view' or 'edit'.  set open
+	# and set new are how you get a document in the first place; view is
+	# about the map; edit is the applet reporting what IT is doing, which
+	# it may legitimately do while the document is being closed underneath
+	# it.
+
+	my %needs_set = map { $_ => 1 } qw(
+		regions region subregion select check uncheck
+		config analyse fetch build sample );
+
+	if ($needs_set{$lpart} && !setIsOpen())
+	{
+		return _fail("$lpart: there is no region set open - ".
+			"'set open <name>' or 'set new <name>' first");
+	}
 
 	if ($lpart eq 'mark')
 	{

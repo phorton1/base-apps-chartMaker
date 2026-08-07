@@ -344,6 +344,15 @@ html, body {
     white-space: pre;
 }
 
+/* Why an item is grey, on the item.  Dimmer than the label it follows and
+   never wider than the menu: it is the reason, not a second command. */
+
+.cm-ctx-note {
+    color: #8a8a8a;
+    font-style: italic;
+    margin-left: 8px;
+}
+
 .cm-ctx-sep {
     height: 1px;
     background: #444;

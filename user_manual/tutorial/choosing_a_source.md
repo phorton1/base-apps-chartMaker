@@ -3,6 +3,7 @@
 **[Tutorial](readme.md)** --
 **[Getting Started](getting_started.md)** --
 **[The Map](the_map.md)** --
+**[Zoom Levels](zoom_levels.md)** --
 **[Your First Region](regions.md)** --
 **[Detail Areas](detail_areas.md)** --
 **Choosing a Source** --
@@ -41,17 +42,24 @@ tell you it is all right.
 
 ### Which source a region builds from
 
+You did this for Formentera in
+[Your First Region](regions.md#tell-it-where-the-pixels-come-from), and the reasoning
+is worth having in one place.
+
 **A region names its source outright** - it is a field on the region, and you set it in the
-properties panel. It cannot be left to whatever the map happens to be showing, because a
+properties panel. It is never left to whatever the map happens to be showing, because a
 region set is meant to travel: if the source were decided by the machine, the same folder in
-two people's hands would build two different chartsets.
+two people's hands would build two different chartsets. And a region that has chosen nothing
+stays chosen-nothing until you decide, rather than acquiring a default that looks like a
+decision somebody made.
 
 **A detail area may inherit it**, which is its default, or name its own - which is the point
-of the field being on both. A sharper provider over one anchorage is a thing people want.
+of the field being on both. A sharper provider over one anchorage is a thing people want, and
+by the end of this chapter you will be in a position to know whether you have one.
 
-Select Formentera now and confirm its source reads **Spain IGN - PNOA orthoimagery**. The
-source you are *looking* at, chosen along the top of the map, is a separate matter entirely -
-you can browse Esri while building from Spain IGN, and often should.
+**Select Formentera now and check the source row reads Spain IGN.** If it says `(none)`, this
+is the moment to set it. The source you are *looking* at is a separate matter entirely - you
+can browse Esri while building from Spain IGN, and often should.
 
 ## Probe: does this service hold anything here, and how deep
 

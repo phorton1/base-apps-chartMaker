@@ -243,7 +243,7 @@ ok($depth{'Tree/East/EastKid'} == 2 && $depth{'Tree/West/WestKid'} == 2,
 	"both grandchildren are at depth 2 - depth+id could not have told ".
 	"them apart");
 
-my $srcs = regionSourceMap($reg,'mbt_a');
+my $srcs = regionSourceMap($reg);
 ok($srcs->{'Tree'} eq 'mbt_a' && $srcs->{'Tree/East'} eq 'mbt_b' &&
    $srcs->{'Tree/West'} eq 'mbt_a',
 	"the source map is keyed by path");
@@ -498,7 +498,7 @@ EOJ
 openSet('Mbt');
 
 my $png_reg  = getRegion('Png');
-my $png_srcs = regionSourceMap($png_reg,'mbt_png');
+my $png_srcs = regionSourceMap($png_reg);
 plantAll($png_reg,$png_srcs,'png');
 
 my $png_st = writeMbtiles($png_reg,
@@ -508,7 +508,7 @@ ok($png_st && $png_st->{tiles} > 0,"a png region writes an mbtiles");
 ok(mbtilesInfo("$OUT/Png/Png.mbtiles")->{metadata}{format} eq 'png',
 	"and its metadata says png");
 
-my $png_rct = buildOutput(['Png'],{ fallback => 'mbt_png' },'rct');
+my $png_rct = buildOutput(['Png'],{ },'rct');
 my $guard   = $png_rct->{guard} // '?';
 
 if (imageCan())
@@ -532,7 +532,7 @@ else
 # 8 - the whole act, through dm_build
 #---------------------------------------------
 
-my $r = buildOutput(['Tree'],{ fallback => 'mbt_a' },'mbtiles');
+my $r = buildOutput(['Tree'],{ },'mbtiles');
 ok($r->{ok},"build mbtiles succeeds ($r->{refused})");
 ok($r->{format} eq 'mbtiles',"the report says which format it was");
 ok($r->{out_dir} eq "$ROOT/mbtiles/Mbt",

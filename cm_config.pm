@@ -26,6 +26,13 @@
 # deliberately made choices - and if it does, they can accept it or clear
 # it with one button.
 #
+# IT BELONGS TO THE OPEN SET, and every entry point here defaults $set to
+# openSetName().  It defaulted to the ini pointer until 2026-08-07, which
+# is a different set from the moment anything closes one: after File >
+# Close the pointer still named the old set, so a console build read that
+# set's build.json and wrote to its output folder while nothing was open.
+# With nothing open there is no configuration, which is the true answer.
+#
 # ONE CONFIGURATION, NOT NAMED ONES.  Named configurations are how this
 # kind of thing usually grows and they buy nothing here: a few checkboxes
 # and a path, remembered.  If several are ever wanted, the file grows a
@@ -79,7 +86,7 @@ my $CONFIG_LEAF = 'build.json';
 sub _path
 {
 	my ($set) = @_;
-	$set = getActiveSet() if !defined $set;
+	$set = openSetName() if !defined $set;
 	return undef if !$set;
 	return setDir($set)."/$CONFIG_LEAF";
 }
@@ -95,7 +102,7 @@ sub defaultOutDir
 	# configuration starts at and what Reset returns to.
 {
 	my ($set) = @_;
-	$set = getActiveSet() if !defined $set;
+	$set = openSetName() if !defined $set;
 	return '' if !$set;
 	return rasterDir()."/$set";
 }
@@ -111,7 +118,7 @@ sub defaultMbtilesOutDir
 	# mbtiles has one place it goes, and there is nothing to remember.
 {
 	my ($set) = @_;
-	$set = getActiveSet() if !defined $set;
+	$set = openSetName() if !defined $set;
 	return '' if !$set;
 	return mbtilesDir()."/$set";
 }
@@ -133,7 +140,7 @@ sub buildConfig
 	# NEVER returns undef with a set open, and never writes anything.
 {
 	my ($set) = @_;
-	$set = getActiveSet() if !defined $set;
+	$set = openSetName() if !defined $set;
 	my $cfg = _default($set);
 	my $path = _path($set);
 	return $cfg if !$path || !-f $path;
@@ -190,7 +197,7 @@ sub saveBuildConfig
 	# Returns 1 if it wrote, 0 if there was nothing to do, undef on error.
 {
 	my ($cfg,$set) = @_;
-	$set = getActiveSet() if !defined $set;
+	$set = openSetName() if !defined $set;
 	my $path = _path($set);
 	return undef if !$path;
 

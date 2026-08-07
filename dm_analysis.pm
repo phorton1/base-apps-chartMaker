@@ -103,17 +103,24 @@ sub analyseFetch
 	# .rct headers, writes nothing, and never touches the network.
 	#
 	# opts: zmax     a cap applied exactly as a build applies one
-	#       fallback the source a region that inherits resolves to
+	#       purpose  'build' (the default) or 'display' - which coherence
+	#                question the faults are collected against
 	#       config   the build configuration (for advisory rates)
 	#       out_dir  a folder to survey for what is already in it
 	#       format   which output this is for; only 'rct' has a chartset
+	#
+	# IT ANALYSES WHAT WOULD HAPPEN, INCLUDING NOTHING.  An incoherent tree
+	# contributes no tiles and no time, and the reason is in {faults} for
+	# whoever is going to show this.  It does not refuse - refusing is the
+	# act's job and this is a pure read - but a preflight built on it can,
+	# and does.
 {
 	my ($ids,$opts) = @_;
 	$opts ||= {};
 	my $t0 = time();
 
-	my $cfg      = $opts->{config} || buildConfig();
-	my $fallback = $opts->{fallback} || getDefaultSource();
+	my $cfg     = $opts->{config} || buildConfig();
+	my $purpose = $opts->{purpose} || 'build';
 
 	my $out = {
 		regions		=> [],		# in the order given
@@ -123,7 +130,14 @@ sub analyseFetch
 		bytes		=> 0,
 		secs_est	=> 0,
 		est_known	=> 1,		# 0 if any source has no basis for an estimate
-		missing_src	=> [],		# resolved ids that are not installed
+		# EVERY WAY A NODE FAILS TO RESOLVE, from dm_region::regionFaults,
+		# reported against the nodes that named their own source.  This
+		# replaced {missing_src}, which held only "an id that is not
+		# installed" - one of the four - and could never be reached by the
+		# commonest of them, a region that has chosen nothing, because the
+		# fallback silently answered for those before this could see them.
+
+		faults		=> [],
 		displaced	=> [],		# sources that declare a displacement
 		zagree		=> undef,	# set when the build would disagree with itself
 		overwrite	=> [],		# files in out_dir this build would replace
@@ -137,7 +151,9 @@ sub analyseFetch
 	for my $id (@$ids)
 	{
 		my $reg = getRegion($id) or next;
-		my $srcs = regionSourceMap($reg,$fallback);
+		push @{$out->{faults}},@{regionFaults($reg,$purpose)};
+
+		my $srcs = regionSourceMap($reg);
 		my ($cov,$nodes) = regionCoverageNodes($reg,
 			defined $opts->{zmax} ? { zmax => $opts->{zmax} } : {});
 
@@ -147,15 +163,22 @@ sub analyseFetch
 
 		for my $node (@$nodes)
 		{
-			my $sid = $srcs->{$node->{path}} || $fallback;
-			my $src = $sid ? getSource($sid) : undef;
+			# NO FALLBACK, AND NOTHING THAT WOULD BE REFUSED IS COUNTED.
+			#
+			# '' is a node that has chosen nothing and contributes no tiles,
+			# because nothing would be fetched for it.  Neither does a node
+			# whose source is installed but may not be BUILT from - and
+			# that one is the trap: getSource() succeeds for a display-only
+			# source, so testing only for installation put a refused
+			# region's tiles into the totals directly underneath the line
+			# saying it was not counted.
+			#
+			# The same predicate the faults were collected with, so the two
+			# cannot disagree about which nodes are in.
 
-			if (!$src)
-			{
-				push @{$out->{missing_src}},$sid
-					if !grep { $_ eq $sid } @{$out->{missing_src}};
-				next;
-			}
+			my $sid = $srcs->{$node->{path}};
+			next if sourceState($sid,$purpose) ne $SRC_OK;
+			my $src = getSource($sid);
 
 			if (!$seen_src{$sid}++)
 			{
@@ -446,6 +469,19 @@ sub analysisLines
 		scalar(@{$an->{regions}}),_num($an->{totals}{total}));
 	push @out,'';
 
+	# WHAT IS NOT COUNTED, IN ONE LINE.  A zero against a region whose
+	# source is not settled reads as "already cached" unless something says
+	# otherwise, so the fact belongs here - but the FAULTS THEMSELVES DO
+	# NOT.  They are a refusal, both surfaces already show one, and putting
+	# them in the cost table as well printed the whole list twice in the
+	# preflight dialog, one panel above the other.
+
+	if (my $n = scalar(@{$an->{faults} || []}))
+	{
+		push @out,sprintf("%d region(s) cannot be built and are NOT counted below.",$n);
+		push @out,'';
+	}
+
 	push @out,sprintf("  %-22s %9s %9s %9s","source","to fetch","cached","absent");
 	for my $sid (@{$an->{source_order}})
 	{
@@ -461,7 +497,16 @@ sub analysisLines
 		_num($an->{totals}{absent}));
 
 	push @out,'';
-	if (!$an->{totals}{need})
+	if (!$an->{totals}{total} && @{$an->{faults} || []})
+	{
+		# NOTHING TO COUNT IS NOT THE SAME AS NOTHING TO DO.  A zero here
+		# because every region was refused would otherwise read as
+		# "everything is already cached", which is the most reassuring
+		# possible way to report a set that cannot be built at all.
+
+		push @out,"Nothing can be fetched until the regions below are settled.";
+	}
+	elsif (!$an->{totals}{need})
 	{
 		push @out,"Everything is already cached - nothing will be fetched.";
 	}

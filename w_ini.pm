@@ -4,7 +4,9 @@
 #---------------------------------------------
 # The few things that survive a session, and nothing else.
 #
-#	active_set			which region set the map shows and a build reads from
+#	active_set			the set that was open at the last clean exit, and so
+#						the one to reopen.  NOT a running record of what is
+#						open - see dm_set::getActiveSet
 #	default_source		the TSD used for ordinary rendering
 #	unchecked_<set>		which regions of a set are hidden on the map
 #	last_browse			the folder the last Browse landed in
@@ -57,6 +59,7 @@ BEGIN
 	use Exporter qw( import );
 	our @EXPORT = qw(
 		readIniSelections
+		applyIniUnchecked
 		writeIniSelections
 		getLastBrowseDir
 		setLastBrowseDir
@@ -172,20 +175,32 @@ sub readIniSelections
 	setActiveSet($set)		if $set;
 	setDefaultSource($src)	if $src;
 
-	# The hidden list is per set and can only be read once the active set
-	# has resolved, which needs the scan the caller is about to do.  It is
-	# therefore read here but applied by the caller's own load order --
-	# getActiveSet() below does the scan itself.
-
-	my $now = getActiveSet();
-	if ($now)
-	{
-		my $hidden = readConfig($KEY_UNCHECKED.lc($now)) || '';
-		setUncheckedIds(grep { /\S/ } split(/,/,$hidden));
-	}
-
-	display($dbg_ini,0,"ini selections: set='".getActiveSet().
+	display($dbg_ini,0,"ini selections: reopen='".getActiveSet().
 		"' source='".getDefaultSource()."'");
+}
+
+
+sub applyIniUnchecked
+	# The hidden regions of the set that has just been opened.
+	#
+	# SEPARATE FROM THE READ, AND AFTER THE OPEN.  The list is stored per
+	# set and dm_region keys it by the OPEN set, so applying it while
+	# nothing was open filed every id under the empty set and the regions
+	# came back visible.  It used to work by keying off the ini pointer at
+	# both ends, which is exactly the second copy of "what is open" that
+	# this whole change removes: the two agreed at startup and nowhere
+	# else.
+	#
+	# Nothing open is not a failure here.  There is no set whose hidden
+	# list this could be.
+{
+	my $set = openSetName();
+	return 0 if !$set;
+
+	my $hidden = readConfig($KEY_UNCHECKED.lc($set)) || '';
+	setUncheckedIds(grep { /\S/ } split(/,/,$hidden));
+	display($dbg_ini,0,"ini hidden regions for '$set': '$hidden'");
+	return 1;
 }
 
 
@@ -193,13 +208,16 @@ sub writeIniSelections
 	# Called on a clean exit, from w_frame::saveState, AFTER the frame has
 	# cleared and rewritten the config -- see the note there.
 	#
-	# The RESOLVED values are written, not the remembered ones.  If the
-	# remembered set was deleted and the application fell through to
-	# another, the one the user was actually looking at is the one to come
-	# back to; writing back a name known to be dangling would be a
-	# fallback that never ends.
+	# THE OPEN SET IS WHAT IS WRITTEN, which is the whole of what this
+	# pointer is for: reopen next time whatever was open when the
+	# application was last closed properly.  Nothing open writes nothing,
+	# and the next start opens nothing, which is what closing a set means.
+	#
+	# It wrote getActiveSet() until 2026-08-07, and that was the pointer
+	# reporting itself: a set closed during the session was still named
+	# here, so it came back on the next run.
 {
-	my $set = getActiveSet();
+	my $set = openSetName();
 	my $src = getDefaultSource();
 
 	writeConfig($KEY_ACTIVE_SET,$set);

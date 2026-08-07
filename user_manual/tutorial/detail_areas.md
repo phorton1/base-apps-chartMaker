@@ -3,6 +3,7 @@
 **[Tutorial](readme.md)** --
 **[Getting Started](getting_started.md)** --
 **[The Map](the_map.md)** --
+**[Zoom Levels](zoom_levels.md)** --
 **[Your First Region](regions.md)** --
 **Detail Areas** --
 **[Choosing a Source](choosing_a_source.md)** --
@@ -33,7 +34,25 @@ asks for less than a region did:
 
 **A detail area has `zmax` alone.** No `zauthor`, because it never cuts an outline - it sits
 inside an aperture its parent already opened, purely to add resolution. And no `zmin`,
-because its floor is decided for it. Which brings us to the one rule worth understanding.
+because its floor is decided for it.
+
+Select it in the Regions pane and the properties panel says exactly that - and it is worth
+comparing against the region you selected in
+[Getting Started](getting_started.md#4-open-a-region-set). Here is one of the example set's
+own detail areas, `Cala Xarraca`, selected the same way:
+
+<a href="../images/tree.png" target="_blank"><img src="../images/tree.png" width="800" alt="The Regions pane with a detail area selected: zmax and Min only, and its source reading inherited"></a>
+
+Three things differ from a region, and each is the rule rather than a shorthand:
+
+- **Zoom** shows `Max` and a read-only `Min`. The Min is not yours to set - it is the parent's
+  `zmax` plus one, which is the band explained below.
+- **`show on map`** is greyed. A detail area is drawn when its region is; it has no
+  visibility of its own.
+- **Source** reads **`inherited`**, and the dump below spells out where from -
+  `inherited (from 'Ibiza')`. That is a detail area's default and usually what you want.
+
+Which brings us to the one rule worth understanding.
 
 ## The band
 

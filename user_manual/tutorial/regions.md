@@ -3,6 +3,7 @@
 **[Tutorial](readme.md)** --
 **[Getting Started](getting_started.md)** --
 **[The Map](the_map.md)** --
+**[Zoom Levels](zoom_levels.md)** --
 **Your First Region** --
 **[Detail Areas](detail_areas.md)** --
 **[Choosing a Source](choosing_a_source.md)** --
@@ -26,11 +27,14 @@ else.
 
 **One region is one file**, and a **set is a folder of them**. There is no project file.
 
+A region also names **the imagery it is built from**, and that is a decision you make rather
+than one chartMaker makes for you. It comes after the drawing, and it has its own section
+below.
+
 ## The three numbers
 
 Before you draw anything, the three zoom numbers, because they decide everything downstream.
-Web Mercator zoom levels are the same ones every online map uses: each level doubles the
-resolution and quadruples the number of tiles.
+[Zoom Levels](zoom_levels.md) is where they come from; this is what the three fields mean.
 
 | | |
 | --- | --- |
@@ -54,8 +58,8 @@ disagreement is visible, and it says outright above the tree whether your set ag
 **mixed**.
 
 **`zmax` is a request, not a promise.** It says what this water *deserves*. A build can cap
-below it, and the imagery may not really go that deep - chapter five is about finding out
-which.
+below it, and the imagery may not really go that deep - [Choosing a Source](choosing_a_source.md) is about
+finding out which.
 
 ## Draw Formentera
 
@@ -120,10 +124,15 @@ creating and drawing are two steps.
 Switch to the application window. Formentera is in the tree, alongside Ibiza, with its zoom
 columns beside it.
 
-The pane is the tree on the left and the properties of whatever is selected on the right:
-the editable fields at the top, **Save** and **Revert** beside them, and a read-only dump
-below showing the bounds, the polygon and vertex counts, and the detail areas. That dump is
-there to answer "did that do what I think it did" without going back to the map.
+This is the pane you first met in
+[Getting Started](getting_started.md#4-open-a-region-set), and now it is showing something
+you made: the tree on the left, and the properties of whatever is selected on the right - the
+editable fields at the top, **Save** and **Revert** beside them, and a read-only dump below
+showing the bounds, the polygon and vertex counts, and the detail areas. That dump is there
+to answer "did that do what I think it did" without going back to the map.
+
+**Select Formentera and compare it against Ibiza.** Same fields, and one of them is not
+filled in.
 
 Two things on this pane are worth knowing now:
 
@@ -132,6 +141,48 @@ Two things on this pane are worth knowing now:
   currently looking at it. Unchecking one is how you get it out of your way.
 - A region with **no geometry says so**, right in the row. That is a normal state, and it is
   exactly what the tree is for, because an outline-less region is invisible on the map.
+
+## Tell it where the pixels come from
+
+Look at the **Source** row in the properties panel, below the Zoom row. With Ibiza selected
+it reads `ign_es_pnoa`, with the service's full name beside it. With **Formentera** selected
+it reads:
+
+```
+    Source:   (none)      no source chosen - this region cannot be built yet
+```
+
+**That is correct, and it is deliberate.** A region you create names no imagery at all, and
+chartMaker does not guess one for you. It could easily have quietly used whatever the map
+happened to be showing at the moment you drew - and for a while it did. That was wrong twice
+over: you might have been browsing Esri simply to find the island, and a region set is meant
+to travel, so a set whose imagery was decided by *the machine it was drawn on* would build
+something different in somebody else's hands.
+
+The order the program means you to work in is **decide the ground, then decide the imagery**.
+Drawing is the first half; this is the second.
+
+**Open the pulldown and choose `ign_es_pnoa` - Spain IGN.** Then press **Save** in the
+properties panel.
+
+The pulldown offers **every installed source that may be built from**, and nothing else -
+the display-only ones are simply not in the list, so this is one place you cannot make that
+mistake. If your own water is somewhere Spain IGN does not cover, this is the field where you
+would name a service that does.
+
+**A region that has not chosen one is still perfectly usable.** It draws, edits, nests, is
+counted and appears in the tile footprint - none of which needs to know where the pixels
+would come from. What it cannot do is the three things that need imagery: **fetch**,
+**build** and **preview**. Those refuse, and they refuse by *naming the region*, because
+finding it in the tree is your next move.
+
+You will meet that refusal for real in [Building](building.md#when-a-set-is-not-ready) if you
+ever start a build with one unset. It is a normal part of using the program, not a fault.
+
+**Detail areas are different**: they default to **inherited**, which means *whatever my region
+says*, and that is usually what you want. Giving one its own source is for the case where a
+sharper service covers one anchorage - which is exactly what
+[Choosing a Source](choosing_a_source.md) is about.
 
 ## Two Saves, and they are not the same Save
 

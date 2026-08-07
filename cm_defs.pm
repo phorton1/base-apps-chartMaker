@@ -25,6 +25,12 @@ BEGIN
 		$DEFAULT_VIEW_SOURCE_ID
 		$SOURCE_INHERITED
 
+		$SRC_OK
+		$SRC_NONE
+		$SRC_MISSING
+		$SRC_NOT_BUILD
+		$SRC_NO_KEY
+
 		$WIN_REGIONS
 		$WIN_SOURCES
 		$WIN_PROBE
@@ -121,6 +127,33 @@ our $DEFAULT_VIEW_SOURCE_ID = 'esri_world_imagery';
 # source called 'inherited' would silently become unreachable.
 
 our $SOURCE_INHERITED = 'inherited';
+
+
+# WHAT A NODE'S SOURCE RESOLVES TO, as one of five answers rather than a
+# boolean.  They are five because they are five different situations with
+# five different next acts, and collapsing them was how a fetch came to run
+# against imagery nobody had chosen:
+#
+#	$SRC_OK			it resolves, and it may be used for what was asked
+#	$SRC_NONE		nothing was chosen.  Not an error - it is how every
+#					region begins - and the next act is to choose one
+#	$SRC_MISSING	an id was chosen and nothing is installed under it.
+#					Somebody else's set, or a .tsd that has been deleted
+#	$SRC_NOT_BUILD	installed, but its author says it is for display only.
+#					Nothing to fix in the set; the wrong source was named
+#	$SRC_NO_KEY		installed and buildable, but its url holds a key_name
+#					with no value bound.  Edit > Key Store, not the set
+#
+# The distinction that matters most is the first two: 'I have not decided'
+# and 'what I decided is wrong' are not the same sentence, and a user told
+# the second when the first is true goes looking for a fault that is not
+# there.  See dm_source::sourceState and dm_region::regionFaults.
+
+our $SRC_OK			= 'ok';
+our $SRC_NONE		= 'none';
+our $SRC_MISSING	= 'missing';
+our $SRC_NOT_BUILD	= 'not_build';
+our $SRC_NO_KEY		= 'no_key';
 
 
 #---------------------------------------------

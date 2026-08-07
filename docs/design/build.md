@@ -34,6 +34,17 @@ asked before the first request goes out.**
 **One - what, and where.** A checkbox list of the set's regions, and for a build, the output
 folder. It is the *build configuration*, and it persists: `region_sets/<set>/build.json`.
 
+A region that cannot be built carries its reason on its own row, cannot be ticked, and is
+not ticked by All. This is the list somebody is looking at when they decide what to run, so
+sending them to the next dialog to discover it would be one dialog too late.
+
+**None of that is written.** It is recomputed every time the dialog opens, and it is
+deliberately excluded from the all-or-subset test below: a region the *program* unticked was
+never the user's decision, and storing it would silently turn "build this whole set" into "a
+subset that happens to be everything buildable today" - which would go on excluding that
+region long after it was fixed, and would quietly leave out a region added next week. Nobody
+would ever connect the two. Tick every region that can be built and the answer is still ALL.
+
 **Then any candidate blank, before anything is counted.** A source that answers with a
 uniform fill instead of refusing puts that body in the observation record as a
 [candidate](tsd_editor.md#every-fetch-teaches), and this is the last moment at which
@@ -49,6 +60,18 @@ case there is nothing to ask and nothing appears.
 by source; the estimated time; the size of the output; which files will be replaced; which
 files are in that folder and are *not* part of this build; and whether the build would
 disagree with itself. Then Build, Back, or Cancel.
+
+**This is also where an incoherent set is refused, and it is the only refusal here.** If any
+selected node cannot say what imagery it is made of, the dialog names those nodes, groups
+them by *why*, gives the remedy for each, and disables Start. Back is one dialog from the
+region list, so Back keeps the focus.
+
+**That is why Fetch and Build stay enabled in the menu** when a set has regions with no
+source. A greyed-out menu item is the one state in the application that explains nothing,
+and "which region" is the entire content of the answer, so the command has to run far enough
+to give it. The refusal used to be produced by the build *worker* - after both dialogs, the
+blank offer, a busy cursor and a progress window - to say something knowable before any of
+it. Fetch had no such refusal at all.
 
 **Half of that second dialog is about the OUTPUT FOLDER, not about building.** Replacement, foreign
 files in the folder, and chartset agreement are all questions about one fused E-Series
@@ -376,6 +399,21 @@ from its parent's and not from whatever the map happens to be displaying. Fillin
 displayed source would fill entries the build will never read, which is the same invisible
 hole by a different route.
 
+**And a fetch answers for the whole tree before one request goes out, to the same standard a
+build does.** A fetch exists to have on disk exactly what a build will read, so a fetch that
+succeeded against a tree the build then refused would be the most expensive way there is to
+discover it - an afternoon of downloading followed by a refusal. It therefore asks
+`regionFaults(..., 'build')` and refuses whole rather than fetching the coherent part.
+
+This is the one thing a fetch refuses. A tile that never arrived is not a refusal: a fetch
+writes no output, errors are never cached, and running it again is the retry.
+
+**A fetch does not refuse unsaved edits, and a build does.** The two look inconsistent and
+are not. A `.rct` claims to be reproducible from the set that defines it, so building from
+edits that are not on disk breaks that claim; a cache claims nothing, and fetching for a
+polygon you are still adjusting is the normal way to work. The preflight says which of the
+two you are in rather than leaving it to be discovered by trying the other one.
+
 **The fill is a client of the fetch engine, not a fetcher.** It keeps several requests
 outstanding and lets the engine decide when each one leaves; it does no pacing of its own and
 sleeps nowhere. A cache hit still short-circuits everything and never reaches the engine, so a
@@ -618,6 +656,18 @@ boundary drawn over it. A user who sees imagery and assumes it is in their chart
 preview failing at its only job, and "colour means it gets built" is a rule learned
 once and never misread.
 
+**A region that has chosen no source previews as nothing, and says so.** There is no imagery
+to show, so its tiles are omitted - but omission alone is silent and indistinguishable from
+being outside coverage, and the footprint that preview turns on still draws the outlines. So
+the response names those nodes and the palette row says how many, with the paths in its
+tooltip.
+
+This is the one place the old fallback did visible damage rather than only expensive damage:
+the server painted those tiles from **the source the map happened to be displaying** while
+the same response listed the nodes as unsourced. Preview's whole claim is that it is a test
+of the build rather than an illustration of it, and it was showing imagery no build would
+ever have produced.
+
 Preview generates viewport-shaped traffic exactly as browsing does. It never walks the
 coverage; it fetches what is on the screen at the zoom being viewed.
 
@@ -631,6 +681,19 @@ them is a property any single region can hold.
 region. A subregion may legitimately name a different source than its parent - that is the
 whole point of the field being on both - so a check that ran per region would happily pass a
 region whose detail box is built from something the output cannot carry.
+
+**Four of them are not the build's own any more.** Whether a node resolves to something
+installed, permitted to build and usable on this machine is a question about a *region tree*,
+not about an export, and the build was the only thing that could ask it - which is why a
+fetch could run against imagery a build would refuse and why nothing but a build could say a
+useful word about a region that had chosen nothing. That question is
+[`sourceState` and `regionFaults`](regions.md#whether-a-node-can-be-built-is-one-question-with-five-answers)
+now, and the preflight, the fetch, both builds, the region list and the Regions pane all ask
+the same function.
+
+What is left below that genuinely belongs to the exporter is the container question: whether
+*this output* can carry what the source serves. Only the exporter knows which container it is
+filling.
 
 **The model must be on disk.** A file built from unsaved edits cannot be rebuilt from the
 set that is supposed to define it, and the entire claim of a region set is that it *is* the
@@ -697,10 +760,12 @@ one tile, decoded and written straight back out. Nothing is resampled, reproject
 composited, and the cached bytes are not touched. See
 [RCT](rct.md#jpeg-only-and-png-converted-into-it).
 
-**A source that may not build at all.** `uses` is the author's statement of what a source is
-for, and it was consulted where a source is *chosen* and never where one is *used*. A set
-carried from another machine can therefore name a display-only basemap, which would fail at
-the only moment it mattered.
+**A source that may not build at all, one that is not installed, one whose key store has
+nothing bound, and a node that never chose.** These four are
+[the shared predicate](regions.md#whether-a-node-can-be-built-is-one-question-with-five-answers)
+and are answered before the build's own checks run. The build keeps them as its backstop -
+the console and the applet can both reach it without passing a dialog - but by the time a
+build starts from a menu they have already been asked and answered in front of somebody.
 
 ## Block decomposition is a budget, not an optimisation
 
