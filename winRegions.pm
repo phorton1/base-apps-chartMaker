@@ -1473,6 +1473,25 @@ sub _mapHolds
 {
 	my ($this,$node) = @_;
 	return 0 if !$node;
+
+	# A MAP THAT IS NOT THERE HOLDS NOTHING, which is the same sentence
+	# editLocks() and editInProgress() both open with, and this was the one
+	# consumer of the edit state that did not ask it.
+	#
+	# That omission is why the application used to CLEAR the edit state on
+	# a timer: with this test unguarded, a browser closed in the middle of
+	# an edit left the tree refusing to touch that object forever.  Wiping
+	# the state fixed the tree and paid for it by reaching over and
+	# cancelling live edits whenever a page went quiet for five seconds -
+	# which browsers do to idle tabs, for their own reasons, and which no
+	# grace period can reliably distinguish from a page that closed.
+	#
+	# Asking here instead costs one call and destroys nothing: a silent map
+	# obstructs nobody, and the instant it polls again its edit is exactly
+	# where it was.
+
+	return 0 if !mapIsOpen();
+
 	my $st = getEditState();
 	return 0 if $st->{mode} eq $EDIT_BROWSE && !$st->{dirty};
 

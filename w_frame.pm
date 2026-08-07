@@ -154,8 +154,25 @@ sub onTimer
 {
 	my ($this,$event) = @_;
 
-	clearEditState()
-		if !mapIsOpen() && getEditState()->{mode} ne $EDIT_BROWSE;
+	# NOTHING CLEARS THE EDIT STATE HERE ANY MORE, and the reason is worth
+	# keeping: this timer used to, and it was the only thing in the program
+	# that could destroy work nobody agreed to lose.
+	#
+	# MEASURED: a browser that was sitting idle in an edit stopped polling
+	# for 5427 ms - browsers throttle timers in a page they judge hidden or
+	# idle, no request failed, and nothing on that side even noticed.  The
+	# application read five seconds of silence as a closed window and threw
+	# away a polygon that was on screen in front of the user.  No grace
+	# period fixes that, because there is no silence long enough to mean
+	# "closed" and short enough to be useful.
+	#
+	# It was only ever clearing the state to unstick ONE consumer - the
+	# tree's _mapHolds - which read the edit state without asking whether
+	# the map was still there.  It asks now.  Every other consumer already
+	# did: editLocks() and editInProgress() both begin with it, and the
+	# applet ignores a published edit unless it is already in one.  So a
+	# stale edit state obstructs nothing and cancels nothing, and the only
+	# thing the timer was buying is bought without cost.
 
 	# COVERAGE MODE IS ENTERED FROM THE CONSOLE TOO, and the argument above
 	# applies to it unchanged.  em_command cannot open the pane itself -

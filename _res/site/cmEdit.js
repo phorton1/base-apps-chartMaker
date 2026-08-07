@@ -1141,7 +1141,17 @@ map.on('click', ev => {
     if (mode !== MODE_DRAW) return;
     const p = snap(ev.latlng, ev.originalEvent && ev.originalEvent.altKey);
     if (outsideParent(p)) {
-        const pol = parentPolygons();
+
+        // A CLICK IS THE ONE CASE THAT STILL NEEDS WORDS.  Nothing appears
+        // and nothing moves, so silence here would be indistinguishable
+        // from a click the applet never received - unlike a drag, where the
+        // outline stopping at the wall says it without any.
+        //
+        // AND HERE 'not placed' IS THE TRUE THING TO SAY, which it was not
+        // on a drag: a click really did place nothing, whereas a dragged
+        // vertex moved as far as it could and then stopped.  One message
+        // was covering two different events.
+
         banner('outside ' + (parentName() || 'the parent') + ', not placed', true);
         return;
     }
@@ -1269,7 +1279,33 @@ function redrawWork() {
         const q = ring[(i + 1) % ring.length];
         const mid = [ (p[1] + q[1]) / 2, (p[0] + q[0]) / 2 ];
         const m = L.marker(mid, { icon: MID_ICON, draggable: true });
-        m.on('dragend', e => insertVertex(i + 1, e.target.getLatLng()));
+
+        // THE VERTEX EXISTS THE MOMENT THE CIRCLE IS GRABBED, which is what
+        // somebody watching the screen already believes.  Inserting it on
+        // dragstart makes the rest of the gesture an ordinary vertex drag,
+        // so the outline follows the cursor, the grid snap applies, and a
+        // position outside the parent stops the outline at the last legal
+        // place - none of which a midpoint used to do until the button came
+        // up.  Until then the only thing that moved was Leaflet's own 11px
+        // marker, so a grab that missed the circle looked exactly like a
+        // grab that took.
+        //
+        // It is also LESS code than a preview would be: moveVertex already
+        // does the snap, the parent test, the dirty flag, the live outline
+        // and the full rebuild on the final event.
+        //
+        // mid is [lat,lng] for Leaflet; a ring holds [lng,lat].
+        //
+        // Every LATER midpoint's captured i is stale from the splice until
+        // the dragend rebuilds them, which is why that rebuild has to stay
+        // on the final event and not be optimised into the drag.
+
+        m.on('dragstart', () => {
+            working[target.poly].splice(i + 1, 0, [mid[1], mid[0]]);
+            dirty = true;
+        });
+        m.on('drag',    e => moveVertex(i + 1, e.target.getLatLng(), false));
+        m.on('dragend', e => moveVertex(i + 1, e.target.getLatLng(), true));
         m.addTo(map);
         midHandles.push(m);
     });
@@ -1285,7 +1321,20 @@ function redrawWork() {
 function moveVertex(i, latlng, final) {
     const p = snap(latlng, false);
     if (outsideParent(p)) {
-        banner('outside ' + (parentName() || 'the parent') + ', not moved', true);
+
+        // NO MESSAGE, BECAUSE THE OUTLINE ALREADY SAID IT.  The refused
+        // position is never written, so the ring keeps its last legal
+        // vertex and the shape simply stops at the boundary while the
+        // cursor goes on - which reads as a wall, correctly, without
+        // words.  It also said the wrong thing: "not moved" describes the
+        // ring, and what a person sees is a vertex that moved as far as it
+        // could.
+        //
+        // And banner() overwrites the mode hint in place without restoring
+        // it, so one excursion outside used to replace "drag a vertex,
+        // drag a midpoint to insert" with a red error for the rest of the
+        // edit.
+
         if (final) redrawWork();
         return;
     }
@@ -1299,15 +1348,9 @@ function moveVertex(i, latlng, final) {
     }
 }
 
-function insertVertex(at, latlng) {
-    const p = snap(latlng, false);
-    if (outsideParent(p)) { banner('outside the parent, not inserted', true);
-        redrawWork(); return; }
-    working[target.poly].splice(at, 0, [p.lng, p.lat]);
-    dirty = true;
-    publishMode();
-    redrawWork();
-}
+// insertVertex is gone: a midpoint drag inserts on dragstart and is a
+// vertex drag from there, so moveVertex is the only path that writes a
+// vertex position.  See the midpoint handles in redrawWork.
 
 function deleteVertex(i) {
     const ring = working[target.poly];

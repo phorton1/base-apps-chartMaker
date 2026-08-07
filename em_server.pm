@@ -322,6 +322,19 @@ sub applet_edit
 	my $args = defined($edit->{args}) ? $edit->{args} : '';
 	display($dbg_request,0,"/edit $verb $args");
 
+	# AN EDIT IS PROOF OF LIFE, and a better one than a poll.  The grace
+	# period exists to answer "is that map still there", and /poll used to
+	# be the only thing that answered it - so a browser that was actively
+	# posting edits could still be declared gone, and the edit it was in
+	# the middle of thrown away underneath it.  Observed: two /edit posts
+	# on two server threads, and the main thread clearing the edit state
+	# between them.
+	#
+	# A poll says the page is running.  An edit says somebody is WORKING in
+	# it, which is exactly the case the grace must never fire during.
+
+	notePoll();
+
 	# THE STATUS IS THE POINT.  The applet drops its own copy of a polygon
 	# when it commits, so a refusal reported as success would let the next
 	# poll quietly restore the old geometry and the user's work would vanish
