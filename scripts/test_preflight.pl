@@ -428,5 +428,81 @@ ok(!$an6->{zagree},
 	"with no folder to compare against, one region cannot disagree with itself");
 
 
+print "\n=== two sources over one piece of ground ===\n";
+
+# THE FAILURE NOBODY IS TOLD ABOUT.  Adjacent regions share their coarse
+# parents BY CONSTRUCTION - that duplication is what lets one .rct stand
+# alone on a card - and the whole fused design assumes the copies are the
+# same picture.  Give the two regions different sources and they are not,
+# and no format can express a preference: the E-Series takes the first
+# block holding the tile, in the order the files sit in the card's
+# directory, and OpenCPN quilts by its own rules.
+#
+# THE SHARED TILES ARE ASSERTED FIRST, so the test cannot pass vacuously if
+# the fixtures ever drift apart.
+
+closeSet();
+newSet('Src');
+putFile("$ROOT/region_sets/Src/Alpha.region",regionJson('Alpha','pre_a','inherited'));
+putFile("$ROOT/region_sets/Src/Beta.region", regionJson('Beta', 'pre_a','inherited'));
+openSet('Src');
+
+my ($ca) = regionCoverageNodes(getRegion('Alpha'),{});
+my ($cb) = regionCoverageNodes(getRegion('Beta'),{});
+my $shared = 0;
+for my $z (keys %$ca)
+{
+	next if !$cb->{$z};
+	$shared += scalar(grep { $cb->{$z}{$_} } keys %{$ca->{$z}});
+}
+ok($shared > 0,
+	"the two regions cover $shared tile(s) of the same ground");
+
+my $ok1 = analyseFetch(['Alpha','Beta'],{ });
+ok(!$ok1->{source_conflicts},
+	"and on one source that is fine - it is the same picture twice");
+
+# The SAME geometry, one letter different in one field.
+
+closeSet();
+putFile("$ROOT/region_sets/Src/Beta.region",regionJson('Beta','pre_b','inherited'));
+openSet('Src');
+
+my $bad = analyseFetch(['Alpha','Beta'],{ });
+ok($bad->{source_conflicts},
+	"give them different sources and the shared ground is reported");
+
+# REPORTED PER PAIR OF NODES, not per pair of regions, which is what the
+# dialog prints and is the more useful answer: here the two regions collide
+# over their own band and their two 'Deep' subregions collide over theirs.
+
+my $c = $bad->{source_conflicts};
+ok(scalar(keys %$c) == 2,
+	"as two node pairs - the regions and their subregions (".
+	join(', ',sort keys %$c).")");
+
+my $named = 0;
+my %levels;
+my $both  = 1;
+for my $pair (sort keys %$c)
+{
+	$named += $c->{$pair}{tiles};
+	$levels{$_} = 1 for keys %{$c->{$pair}{levels}};
+	$both = 0 if scalar(keys %{$c->{$pair}{sources}}) != 2;
+}
+ok($named == $shared,"naming every shared tile ($named of $shared)");
+ok($both,"and both of the sources that disagree, in each pair");
+ok(scalar(keys %levels) > 0,
+	"and the levels it happens at (".
+	join(',',sort { $a <=> $b } keys %levels).")");
+
+# IT IS NOT AN .rct QUESTION.  Both formats put the tile in two places and
+# neither can say which to prefer; only the arbitrator differs.
+
+my $mb = analyseFetch(['Alpha','Beta'],{  format => 'mbtiles' });
+ok($mb->{source_conflicts},
+	"and it is asked for mbtiles too, where OpenCPN does the choosing");
+
+
 print "\n".($fails ? "$fails FAILED\n" : "ALL PASSED\n");
 exit($fails ? 1 : 0);

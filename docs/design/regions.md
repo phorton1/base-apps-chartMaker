@@ -350,23 +350,50 @@ Where the cap is set, and what else a build is configured with, is in [Build](bu
 
 ## Containment, overlap and the invariant they buy
 
-**A subregion lies within its parent**, and the application maintains that rather than
-merely checking it. Which side gives way depends on which side was edited:
+**A subregion lies within its parent**, and an edit that would break that is **refused** -
+the geometry goes back to what it was and the author is told why. The application does not
+clip a child to a shrinking parent or grow a parent around a wandering child. Maintaining it
+would mean intersecting and unioning arbitrary polygons, in Perl and in JavaScript, agreeing
+exactly; refusing it needs only the question *do these two segments cross*. And a refusal the
+author can see and undo is not worse than an unasked-for edit to their drawing.
 
-- **Drag a subregion outside its parent** and the parent expands to contain it.
-- **Shrink a region** and any subregion now outside it is clipped to the new boundary, or
-  removed entirely if nothing of it remains inside.
+**Vertices and edges, and the second is not a refinement of the first.** A subregion can have
+every corner inside its parent while an *edge* runs outside it: cut a concave notch into a
+region and drag a subregion vertex around the far side of the notch, and nothing about the
+corners is wrong. A per-vertex test cannot see that at all. Together the two are true
+containment - if no edge crosses and one vertex is inside, the whole shape is inside.
 
-Shrinking is uncommon and it destroys work, so it **asks first**, naming what will be
-clipped and what will disappear. The rule applies at every level: a subregion that shrinks
-clips its own children exactly as a region clips its subregions.
+**Touching is not crossing.** A subregion drawn hard against its parent's boundary is
+accepted, and a vertex sitting exactly *on* that boundary counts as inside. Both are things
+authors do deliberately, and the snap grid exists to make them exact.
 
 Containment is what the `.RCT` format ultimately depends on. Because a subregion lies within
 its parent, every tile the subregion covers has a coarser tile above it that the parent
 already covers - the **nested-coverage invariant**, which is what lets a plotter fall back
-gracefully from a detailed tile it does not have to one it does. It holds by construction
-rather than by checking, which is why the geometric rule is worth enforcing at edit time
-instead of validating at build time.
+gracefully from a detailed tile it does not have to one it does. Ground outside a parent has
+no coarser tile above it: on the E-Series that imagery is built, it occupies the file, and
+the reveal aperture - cut from the region's own coverage at `zauthor` - never opens over it.
+
+**Two subregions may not cover the same ground, and neither may two polygons of one node.**
+Two detail areas over one place is one area drawn twice: the tiles are built once either way,
+and if the two ever named different sources the imagery shown would be chosen by nothing the
+author can see. A polygon may not cross itself either. All of it is the same segment test.
+
+**None of that stops two siblings sharing TILES**, and the distinction matters. Polygons that
+do not touch at all still land on a common tile, because a tile is a square both of them clip.
+That is quantisation, not drawing, no rule an author could follow would avoid it, and it is
+resolved silently where it matters - see below.
+
+**Regions are the exception and are not asked.** Two regions may overlap freely: they are
+separate files, their coarse parents are shared by construction, and deciding which of them
+owns a boundary tile is how ground goes missing at exactly the boundaries a mariner is
+looking at.
+
+**Enforced while editing and again at build, never on load.** The editor refuses the gesture,
+the model refuses the edit, and the build asks once about a file it never watched being
+written - a `.region` may arrive from somebody else or predate a rule. Asking on load would
+be worse than either: the file would open and then refuse the first unrelated edit to it, for
+something the author did not do.
 
 **Where regions overlap, ownership is a union rather than a contest.** A tile that two
 regions both want appears in both. Duplicate tiles at a seam are harmless downstream - they
@@ -378,24 +405,44 @@ Overlap between siblings needs no special handling for the same reason. Two adja
 subregions with the same `zmax` will produce the same parent tiles in their shared band,
 and the union absorbs it.
 
+**And two siblings share tiles even when their polygons do not touch at all**, which is the
+part that surprises people. A tile is a square, and two shapes with exactly zero intersection
+can each clip a corner of the same one. It is a fact about quantising a continuous polygon
+onto a discrete grid, not about the drawing, and no rule an author could follow would avoid
+it: "do not overlap" is already true in that case and does not help.
+
+So the coverage a region reports is a **cover and not a partition** - each node's tiles come
+from that node's own polygon and nothing compares two of them. Whether that has to be
+resolved is a question about the OUTPUT rather than about the model, and the two formats
+answer it differently and both are right. An `.RCT` is one file, so its exporter gives each
+tile to exactly one block; MBTiles writes one file per node and each has to stand alone over
+its own polygon, so it keeps the duplicate. Neither decision reaches back into the model. See
+[RCT](rct.md#rectangles-may-overlap-presence-may-not).
+
 ### Regions that touch
 
 Two regions that abut share a boundary, and the model has no opinion about it: each holds
 its own copy of those vertices, and rasterisation puts the same tiles in both. Overlap is
 free and a duplicate tile is harmless, so nothing needs to agree.
 
-**Editing is where it stops being free.** If a shared boundary is two independent copies of
-the same line, then dragging a vertex in one region opens a gap in the other - and a gap is
-the one failure the union rule cannot absorb, because coverage that nobody claims simply
-is not built. So the editor has to treat coincident vertices on touching regions as **one
-vertex, moved in both regions at once**, and that means an edit is not always confined to
-the region under the hand.
+**Editing is where it stops being free, and this is an OPEN PROBLEM rather than a design.**
+If a shared boundary is two independent copies of the same line, then dragging a vertex in
+one region opens a gap in the other - and a gap is the one failure the union rule cannot
+absorb, because coverage that nobody claims simply is not built. Avoiding it means treating
+coincident vertices on touching regions as **one vertex, moved in both regions at once**,
+which makes an edit not always confined to the region under the hand.
 
-This is a requirement on the editor rather than on the format. Nothing is written into a
-region file to record that a neighbour shares a vertex; the editor finds coincidence
-geometrically at the time of the drag. Recording it would be a cross-file reference, and a
-region that names its neighbours stops being self-contained - which is the one property the
-whole format is built to preserve.
+**Nothing does that today.** The hazard is real and unaddressed: weld two regions along a
+boundary, drag one of those vertices, and the gap opens with nothing to warn you. What keeps
+it from biting is that a region's coverage is quantised at `zauthor`, so a gap narrower than
+a tile there closes by itself - which is a reason the boundary convention below is worth
+following, not a reason the problem is solved.
+
+If it is ever built it is a requirement on the editor rather than on the format. Nothing
+would be written into a region file to record that a neighbour shares a vertex; the editor
+would find coincidence geometrically at the time of the drag. Recording it would be a
+cross-file reference, and a region that names its neighbours stops being self-contained -
+which is the one property the whole format is built to preserve.
 
 ### Boundaries land on the grid
 
@@ -413,9 +460,22 @@ regions, so it is fetched once but shipped twice, once in each output. On a char
 in megabytes that is the difference worth having.
 
 This does not contradict geometry being stored as drawn. That rule forbids the application
-quantising a polygon behind the author's back; deciding to put a boundary on a grid line is
-a drawing decision, and "snap this boundary to the grid" is an editor command like any
-other.
+quantising a polygon behind the author's back; deciding to put a boundary on a grid line is a
+drawing decision made by the person drawing.
+
+**How it is actually done is the snap grid**, which is a convention offered rather than a
+constraint applied: switch the grid on and every placement lands on an intersection of it,
+hold Alt and a single placement does not. Two vertices snapped to one intersection are equal
+to the last bit rather than merely close, which is the whole point - it is what lets two
+shapes share a border exactly, and what makes the "touching is not crossing" rule above
+reachable in practice.
+
+**The grid is drawn at the object's own authored level.** For a region that is `zauthor`. For
+a subregion it is the floor of its band, `parent.zmax + 1` - which is not stored anywhere and
+is derived. That is the level at which two siblings can first land on a common tile, and
+because tile grids are nested, a boundary aligned there is aligned at every finer level too.
+Aligning to a subregion's own `zmax` instead would buy nothing: two areas could still meet
+inside one tile of the level below it.
 
 **Welding a boundary never changes coverage.** Moving a shared line moves the division
 between two regions, not the outer extent of their union, and the union is what reaches the

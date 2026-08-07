@@ -702,7 +702,7 @@ coverage; it fetches what is on the screen at the zoom being viewed.
 
 ## What the build validates before it runs
 
-Six checks, all at the start, all named - because a build that fails hours in has already
+Eight checks, all at the start, all named - because a build that fails hours in has already
 wasted the expensive part. They belong to the build rather than to a region because none of
 them is a property any single region can hold.
 
@@ -723,6 +723,34 @@ the same function.
 What is left below that genuinely belongs to the exporter is the container question: whether
 *this output* can carry what the source serves. Only the exporter knows which container it is
 filling.
+
+**The geometry must obey the containment rules, and this is the only place that asks a file
+it did not watch being written.** Those rules are enforced at the moment of an edit, which is
+where they belong, and the load path deliberately does not ask - a file that opens and then
+refuses the first unrelated edit to it is a worse failure than one that builds and says why.
+But a `.region` can arrive from somebody else or predate a rule, so the build asks once, and
+names the region and what it breaks. A **warning, not a refusal**: what it costs is that
+ground outside a parent has no coarser tile above it, so on the E-Series that imagery is built
+and the reveal aperture never opens over it.
+
+**Two places must not be built from two sources over the same ground.** Nodes sharing a tile
+is ordinary and mostly harmless: a tile is a square that two polygons can both clip without
+touching each other, and adjacent regions carry identical coarse parents *by construction* -
+that duplication is what lets one `.rct` stand alone on a card. Every consumer of a shared
+tile assumes the copies are the same picture.
+
+When they are not, **nothing tells anybody, and nothing can.** The E-Series takes the first
+block that holds the tile, and the block array is filled in the order the files sit in the
+card's directory; OpenCPN quilts by its own rules. Neither format has a field in which a
+producer could express a preference, so the imagery shown is decided by something the author
+cannot see and did not choose. At coarse levels the shared parents of two neighbouring
+regions are a wide band of ground rather than a seam.
+
+So the preflight reports it, **naming the two nodes, the levels, the tile count and the two
+sources**, and this one is asked for every format because only the arbitrator differs. It is
+a **warning and not a refusal**, for the same reason the `zauthor` guard is: somebody may
+knowingly want two providers and accept a scruffy coarse level, and the answer is theirs.
+Giving the two the same source settles it.
 
 **The model must be on disk.** A file built from unsaved edits cannot be rebuilt from the
 set that is supposed to define it, and the entire claim of a region set is that it *is* the

@@ -123,6 +123,7 @@ BEGIN
 
 		regionSourceMap
 		regionFaults
+		regionGeometryFault
 		regionsFaults
 		faultLines
 		mergedCoverageSources
@@ -235,10 +236,20 @@ my %unchecked:shared;
 # small helpers
 #---------------------------------------------
 
+our $last_refusal   = '';
+our $quiet_refusals = 0;
+	# THE SAME REFUSAL, ASKED FOR RATHER THAN ANNOUNCED.  Every check here
+	# exists to stop an edit and say so, which is right when somebody just
+	# made the edit.  The build asks the same questions about a file it did
+	# not watch being written, and there the answer is a line in a report
+	# rather than an error in the log - so the message is kept and the
+	# printing is suppressed.  See regionGeometryFault.
+
 sub _err
 {
 	my ($where,$msg) = @_;
-	error("$where: $msg");
+	$last_refusal = $msg;
+	error("$where: $msg") if !$quiet_refusals;
 	return undef;
 }
 
@@ -590,9 +601,43 @@ sub _checkContainment
 	# it is not an edit that needs permitting.  What the author wants there
 	# is another polygon on the parent, or another region.
 	#
-	# Checked PER VERTEX, which is exactly the rule the editor holds the
-	# user to as they click.  A stricter test would reject shapes the
-	# interface allowed them to build.
+	# VERTICES AND THEN EDGES, and the second is not a refinement of the
+	# first - it catches a case the first cannot see at all.  A subregion
+	# can have every corner inside a parent while an EDGE runs outside it:
+	# cut a concave notch into a region and drag a subregion vertex around
+	# the far side of the notch and nothing about the corners is wrong.
+	# Reproduced on screen; it was accepted here, accepted by the applet,
+	# and saved.
+	#
+	# What it costs is the nested-coverage invariant this rule exists to
+	# buy: tiles outside the parent have no coarser ancestor, so
+	# my_test_rct reports orphans, and on the E-Series that imagery is
+	# written and can never be revealed, because the reveal aperture is cut
+	# from the region's own coverage at zoom_author.
+	#
+	# TOGETHER THEY ARE TRUE CONTAINMENT.  If no edge crosses and one
+	# vertex is inside, the whole shape is inside. The vertex test is kept
+	# rather than replaced because it survives to say WHERE, and because a
+	# shape drawn entirely outside its parent crosses nothing.
+	#
+	# TOUCHING IS NOT CROSSING, so a subregion drawn hard against its
+	# parent's boundary - which is a normal thing to do at a coastline - is
+	# accepted.
+	#
+	# SIBLINGS AND A NODE'S OWN POLYGONS MAY NOT OVERLAP EITHER, and that
+	# is a different rule with a different reason.  Two detail areas over
+	# the same ground is one area drawn twice: the tiles are built once
+	# whichever way, and if the two ever named different sources the
+	# imagery shown would be chosen by nothing the author can see.  Note
+	# that this does NOT stop two siblings sharing TILES - polygons that do
+	# not touch still land on a common tile, that is quantisation rather
+	# than drawing, and dm_rct resolves it silently.
+	#
+	# REGIONS ARE THE EXCEPTION AND ARE NOT ASKED.  Two regions may overlap
+	# freely: they are separate files, their coarse parents are shared by
+	# construction, and deciding which of them owns a boundary tile is how
+	# ground goes missing at exactly the boundaries a mariner is looking
+	# at.  See docs/design/regions.md.
 	#
 	# A parent with NO geometry contains nothing, so its subregions cannot
 	# be checked yet - and must not be rejected either, since creating the
@@ -603,8 +648,29 @@ sub _checkContainment
 	$depth ||= 0;
 
 	my $mine = $reg->{geometry} || [];
-	for my $sub (@{$reg->{subregions} || []})
+
+	# THIS NODE'S OWN POLYGONS, against themselves and each other.  A node
+	# may hold several bodies and they are a union, so two that overlap
+	# describe one shape twice.
+
+	for my $i (0..$#$mine)
 	{
+		my $bow = ringSelfCrosses($mine->[$i]);
+		return _err($where,"'$reg->{id}' polygon $i crosses itself near ".
+			sprintf("%.6f,%.6f",$bow->[0],$bow->[1])) if $bow;
+
+		for my $j ($i+1..$#$mine)
+		{
+			my $hit = polygonsOverlap([$mine->[$i]],[$mine->[$j]]);
+			return _err($where,"'$reg->{id}' polygons $i and $j overlap near ".
+				sprintf("%.6f,%.6f",$hit->[0],$hit->[1])) if $hit;
+		}
+	}
+
+	my @subs = @{$reg->{subregions} || []};
+	for my $s (0..$#subs)
+	{
+		my $sub    = $subs[$s];
 		my $theirs = $sub->{geometry} || [];
 		if (@$mine && @$theirs)
 		{
@@ -617,7 +683,25 @@ sub _checkContainment
 					"$first->[0] point $first->[1] at ".
 					sprintf("%.6f,%.6f",$first->[2],$first->[3]));
 			}
+
+			my $cut = ringsCross($theirs,$mine);
+			return _err($where,"subregion '$sub->{id}' has an edge that leaves ".
+				"'$reg->{id}' near ".sprintf("%.6f,%.6f",$cut->[0],$cut->[1]).
+				" - every corner is inside, but the boundary between two of ".
+				"them is not") if $cut;
 		}
+
+		# AGAINST ITS SIBLINGS, once per pair rather than once per ordering.
+
+		for my $t ($s+1..$#subs)
+		{
+			my $other = $subs[$t]{geometry} || [];
+			next if !@$theirs || !@$other;
+			my $hit = polygonsOverlap($theirs,$other);
+			return _err($where,"subregions '$sub->{id}' and '$subs[$t]{id}' ".
+				"overlap near ".sprintf("%.6f,%.6f",$hit->[0],$hit->[1])) if $hit;
+		}
+
 		return undef if !_checkContainment($where,$sub,$depth+1);
 	}
 	return 1;
@@ -1745,6 +1829,27 @@ sub regionSourceMap
 		for @{$reg->{subregions} || []};
 
 	return $map;
+}
+
+
+sub regionGeometryFault
+	# The geometry rule this tree breaks, in words, or '' if it breaks
+	# none.
+	#
+	# ASKED BY THE BUILD, and that is the whole reason it exists.  These
+	# rules are enforced at the moment of an edit, which is where they
+	# belong - but a .region file can arrive from somebody else, or predate
+	# a rule, and the load path deliberately does not ask: a file that
+	# loads and then refuses the first unrelated edit to it is a worse
+	# failure than one that builds and says why.  So the build asks, once,
+	# about geometry it never watched being made.
+{
+	my ($reg) = @_;
+	return '' if !$reg;
+	local $quiet_refusals = 1;
+	$last_refusal = '';
+	return '' if _checkContainment("'".($reg->{id} // '?')."'",$reg);
+	return $last_refusal;
 }
 
 

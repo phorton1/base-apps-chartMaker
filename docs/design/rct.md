@@ -89,6 +89,13 @@ it removes more than about six empty cells. Where the two disagree, prefer fewer
 disk cost of an empty cell is eight bytes and the cost of an exhausted rectangle budget is
 the whole feature degrading to its pre-aperture behaviour.
 
+**The budget argument applies at `zoom_author` and coarser, and nowhere finer.** `build_mask`
+clamps its cut level to the card's `zoom_author` before it iterates anything, so blocks at
+finer levels are never visited and never close a run. A detail area's block count at z17 or
+z18 costs the aperture nothing. Only the levels at or below the authored one compete for the
+128, which is why the two economics can both be honoured rather than traded against each
+other: fewer blocks where the mask is cut, and the spec's own arithmetic everywhere below it.
+
 **The file name must be a genuine 8.3 short name.** The renderer's mount scan accepts
 an entry whose name ends in `.RCT`, relying on the filesystem reader handing back an
 upper-cased name - which is true of names that are valid FAT short names. Whether a longer
@@ -120,6 +127,41 @@ what the exporter needs. Both come from one walk, so they cannot disagree.
 The consequence worth stating: **block structure is an authoring decision, not an
 algorithm.** If a region ends up with an expensive block, the fix is a subregion, in the
 same place a person would have drawn one anyway.
+
+That was measured rather than assumed, on the shipped Example region at z17: one block per
+node costs 253 cells over four blocks, grouping by connected components costs 296 over three,
+and one union block over the level costs 6,120. The authoring tree wins because a person drew
+each cluster around one actual thing, which no search has access to. The index and bitmap it
+produces are 460 bytes against roughly 1.6 MB of imagery at that level, so there is no prize
+worth chasing here.
+
+### Rectangles may overlap; presence may not
+
+**Two nodes can hold the same tile without their polygons touching at all.** A tile is a
+square, and two shapes that share no area whatsoever can each clip a corner of it. Cala
+Xarraca and Portinatx in the Example set have exactly zero intersection and share two tiles
+at z17.
+
+`dm_coverage` reports each node's own tiles from that node's own polygon and never compares
+two of them, so what it produces is a **cover** rather than a partition. That is correct for
+it, and `dm_mbtiles` depends on it: MBTiles writes one file per node, each of which has to
+stand alone over its own polygon, so a shared tile belongs in both of their files.
+
+**An `.RCT` is one file, so `_planBlocks` resolves it there.** Walking in file order, the
+first node to claim a tile keeps it and later nodes do not, so every tile is planned into
+exactly one block. Nothing is reported and nothing is refused; the author is never told,
+because there is nothing they could have done differently.
+
+**Rectangles are then free to overlap and routinely do.** `block_for` tests the rectangle and
+the presence bit together, and blocks from every file on a card are fused into one array at
+mount, so a card without overlapping rectangles has never existed. What the renderer cannot
+survive is one tile *present* in two blocks: it takes the first block that has it, and the
+array order comes from the order files sit in the card's directory. With one source that is
+harmless; with two it is a silent, arbitrary choice of imagery.
+
+`_checkDisjoint` therefore asserts presence rather than geometry. After the resolution above
+it can no longer fire, and it stays because the invariant is not obvious from either side of
+that seam.
 
 ## One block is one node, so one block has one source
 

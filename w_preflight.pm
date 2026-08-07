@@ -244,6 +244,49 @@ sub _notes
 		push @n,'';
 	}
 
+	if (@{$an->{geometry} || []})
+	{
+		# WHAT IT COSTS IS INVISIBLE, so it is spelled out.  Ground outside
+		# a parent has no coarser tile above it, so on the E-Series it is
+		# built, it occupies the file, and the reveal aperture never opens
+		# over it.
+
+		push @n,"WARNING - polygons that break a containment rule:";
+		push @n,"  $_->{id}: $_->{why}" for @{$an->{geometry}};
+		push @n,"  These are refused while editing, so this file was made";
+		push @n,"  elsewhere or before the rule. Ground outside a parent has";
+		push @n,"  no coarser tile above it: on the E-Series it is built and";
+		push @n,"  NEVER REVEALED. This is a warning, not a refusal.";
+		push @n,'';
+	}
+
+	if ($an->{source_conflicts})
+	{
+		# SAID IN THE AUTHOR'S TERMS, not in blocks and tiles.  What they
+		# chose was two providers for two places; what they get is one of
+		# them over ground that belongs to both, picked by something they
+		# cannot see.  Naming the levels matters because coarse ones cover
+		# far more ground than the tile count suggests.
+
+		push @n,"WARNING - two places would be built from different sources ".
+			"over the same ground.";
+		my $c = $an->{source_conflicts};
+		for my $pair (sort keys %$c)
+		{
+			my $it = $c->{$pair};
+			my @z  = sort { $a <=> $b } keys %{$it->{levels}};
+			push @n,sprintf("  %s share %d tile(s) at z%s",
+				$pair,$it->{tiles},
+				(@z > 1 ? $z[0].'-'.$z[-1] : $z[0]));
+			push @n,"    but name ".join(' and ',sort keys %{$it->{sources}});
+		}
+		push @n,"  Both files carry those tiles, and neither format can say";
+		push @n,"  which copy to prefer - the plotter shows one of them and";
+		push @n,"  which one is not predictable. Give them the same source to";
+		push @n,"  settle it. This is a warning, not a refusal.";
+		push @n,'';
+	}
+
 	if ($is_rct && @{$an->{overwrite}})
 	{
 		push @n,scalar(@{$an->{overwrite}})." .rct file(s) will be REPLACED:";

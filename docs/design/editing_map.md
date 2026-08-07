@@ -193,7 +193,40 @@ a refused vertex is never a click that simply did nothing.
 Ground outside the parent is not a subregion; it is another polygon on the parent, or another
 region. Both are a right-click away. See [Editing](editing.md).
 
-The same wall applies to dragging a vertex of an existing subregion in the editing bar.
+The same wall applies to dragging a vertex of an existing subregion in the editing bar - and
+there it says nothing, because it does not need to. A refused position is simply not written,
+so the outline holds at the last legal place while the cursor carries on, which reads as a
+wall without any words. On a click there is no outline to speak, which is why that one still
+does.
+
+### Two constraints, two behaviours
+
+**Position and topology are different questions and they are answered differently**, and
+getting that wrong makes an editor feel broken in a way that is hard to name.
+
+A **position** constraint asks *may this vertex be here* - point-in-polygon against the
+parent. It is cheap, it is tested on every drag event, and refusing it by not writing the
+position is what produces the wall you slide along.
+
+A **topology** constraint asks *would this edit make an edge cross something* - segment
+against segment, against the parent's outline, every sibling's, this node's other polygons,
+and this ring's own far side. It is tested **once, at the drop**, and refused by putting the
+vertex back where it was picked up, with a message saying which.
+
+**Never mid-drag**, and that is the whole design decision. A vertex can be in a perfectly
+legal place while the edge behind it is not, so holding the outline on a topology failure
+would freeze it somewhere that looks fine - which reads as a bug rather than as a wall.
+Deciding once, at the moment the gesture ends, also confines the floating-point question to
+one place: the position test never needs a tolerance and the topology test does.
+
+**A midpoint drag puts itself back by disappearing.** The vertex is inserted when the circle
+is grabbed, so the undo of a refused insert is removing it, which leaves nothing behind.
+
+**The applet is not the authority.** `dm_region` asks the same questions again when Confirm
+posts the geometry, because the console and the tree write geometry too, and a `.region` file
+can arrive from somebody else. The applet exists so that a shape which cannot be committed is
+not built up over twenty minutes first. If the two ever disagree, the applet lets something
+through and Confirm refuses it - the right direction to fail in.
 
 ## Editing a polygon
 
@@ -225,9 +258,18 @@ applet reads. Off is the default because snapping is a constraint, and a constra
 did not ask for is indistinguishable from a bug the first time a vertex lands somewhere other
 than where it was clicked.
 
-**With snap on, a vertex lands on the tile grid of the object's own level** - `zauthor` for
-a region, `zmax` for a subregion, and the open set's `zauthor` when nothing is selected
-yet, which is well defined because every region built together must agree on it.
+**With snap on, a vertex lands on the tile grid of the object's own AUTHORED level** -
+`zauthor` for a region, and for a subregion **its parent's `zmax` + 1**, which is the floor of
+its band. When nothing is selected it is the open set's `zauthor`, which is well defined
+because every region built together must agree on it.
+
+**The floor and not the subregion's own `zmax`, and the difference is the whole value of it.**
+Tile grids are nested, so a boundary aligned at the floor is aligned at every finer level as
+well, while one aligned at `zmax` is aligned at nothing coarser. The floor is where two
+sibling detail areas can first land on a common tile - so snapping there is the only choice
+that buys anything, and snapping to `zmax` would leave two areas able to meet inside one tile
+of the level below. A subregion's authored level is derived rather than stored, which is
+exactly why it is easy to reach for the wrong one.
 
 That is the whole of the shared-boundary mechanism. Two regions meet exactly because a
 person put both their vertices on the same intersection, and those two coordinates are
@@ -380,6 +422,18 @@ The rules are in [Editing](editing.md); the applet's part is to say so rather th
 silently ignore a click. While an object is dirty, selecting something else is refused, and
 the refusal names the object and points at Confirm and Cancel - both of which are on screen,
 in the bar, at that moment.
+
+**The geometric ones**, all refused at the drop and all put back where the drag started:
+
+| what | said as |
+| --- | --- |
+| an edge would leave the parent, or cross a sibling, or cross another polygon of this node | `that edge would cross another polygon - put back` |
+| the polygon would cross itself | `the polygon would cross itself - put back` |
+
+Two subregions **touching** is not any of those, and neither is a subregion drawn hard against
+its parent's boundary. Nor is two siblings sharing a *tile*, which happens to polygons that do
+not touch at all and is nobody's mistake. See
+[Regions](regions.md#containment-overlap-and-the-invariant-they-buy).
 
 **A refusal raised outside a mode raises the bar to carry it.** The applet does not compose
 these sentences - it asks the application for its own words, over `/api/log`, so that the map

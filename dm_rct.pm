@@ -484,16 +484,62 @@ sub _planBlocks
 	# Keyed by the node's PATH, because nothing shorter identifies a node:
 	# an id is unique only within its region, and depth+id was not unique
 	# even there.  See dm_region::regionSourceMap.
+	#
+	#-------------------------------------------------------------------
+	# AND THE PER-NODE SETS ARE A COVER, SO THIS IS WHERE THEY BECOME A
+	# PARTITION
+	#-------------------------------------------------------------------
+	# dm_coverage builds each node's set from that node's own polygon and
+	# never compares two of them, so two nodes can hold the same tile.  It
+	# does not take overlapping polygons to do it: a tile is a square that
+	# two polygons can both clip while sharing no area at all.  Measured on
+	# the Example set - Cala Xarraca and Portinatx have zero intersection
+	# and share two tiles at z17 and one at z18.
+	#
+	# WITHIN A FILE THAT HAS TO BE RESOLVED, and this is the only place
+	# that knows it.  Everything a .RCT holds lands in one file, so a tile
+	# claimed twice is written twice and answered by whichever block the
+	# renderer's scan reaches first.  With one source that is merely
+	# wasteful; with two it is a silent, arbitrary choice of imagery.
+	#
+	# IT MUST NOT BE DONE IN THE WALK, AND MBTILES IS THE REASON.
+	# dm_mbtiles reads the same per-node answer and writes ONE FILE PER
+	# NODE, where each file has to stand alone over its own polygon.
+	# Subtracting there would punch a hole in one node's file to spare its
+	# sibling a duplicate that costs a couple of KB.  So the model goes on
+	# saying what each node covers, and the exporter with the one-file
+	# constraint is the one that resolves it - the same division that puts
+	# the sentinel check in dm_engine rather than in its callers.
+	#
+	# WALK ORDER WINS, which is the region and then its subregions in file
+	# order.  It is arbitrary between siblings and it does not matter:
+	# where two nodes disagree about a source, that is refused before this
+	# runs, and where they agree the two copies were identical anyway.
+	# What it must be is DETERMINISTIC, because builds are byte
+	# reproducible and a tiebreak that moved would move megabytes.
 {
 	my ($nodes,$sources) = @_;
 	my %by_zoom;
+	my %taken;					# "z/x_y" => the node path that has it
 
 	for my $node (@$nodes)
 	{
 		my $src = $sources->{$node->{path}};
 		for my $z (sort { $a <=> $b } keys %{$node->{levels}})
 		{
-			my $blk = _blockOf($z,$node->{levels}{$z});
+			my %mine;
+			for my $key (keys %{$node->{levels}{$z}})
+			{
+				next if $taken{"$z/$key"};
+				$taken{"$z/$key"} = $node->{path};
+				$mine{$key} = $node->{levels}{$z}{$key};
+			}
+
+			# A NODE WHOSE TILES WERE ALL CLAIMED CONTRIBUTES NO BLOCK, and
+			# that is right rather than a loss: every one of its tiles is in
+			# the file already, under somebody else's rectangle.
+
+			my $blk = _blockOf($z,\%mine);
 			next if !$blk;
 			$blk->{owner}  = $node->{id};
 			$blk->{source} = $src;
@@ -505,22 +551,58 @@ sub _planBlocks
 
 
 sub _checkDisjoint
-	# Blocks within one zoom OF ONE FILE must not overlap: a tile has to
-	# be addressed by exactly one of them.  Across files they may and do,
-	# but that is the renderer's problem and it resolves it by testing
-	# presence rather than containment.
+	# NO TILE MAY BE PRESENT IN TWO BLOCKS.  Rectangles may overlap freely.
+	#
+	# THIS USED TO REFUSE ON RECTANGLES AND THAT WAS WRONG, expensively:
+	# it failed a build of the shipped Example set after the whole fetch
+	# phase had run, over two subregions that a person can see do not
+	# touch.  The file it refused to write would have worked.
+	#
+	# WHAT THE RENDERER ACTUALLY REQUIRES, read out of aerial.c rather than
+	# out of the spec, which states this more strictly than its own
+	# implementation needs:
+	#
+	#	block_for scans EVERY block at a zoom and tests block_has, which
+	#	is the rectangle AND the presence bit in one test.  Overlapping
+	#	rectangles are therefore ordinary - blocks from every .RCT on a
+	#	card are fused into one array at mount, and chartMaker gives
+	#	adjacent regions identical coarse parents by construction, so a
+	#	card without overlapping rectangles has never existed.
+	#
+	#	draw_level iterates the VIEW rather than the blocks, so a cell is
+	#	drawn once however many blocks hold it.
+	#
+	#	build_mask is blocks-outer and says overlap "would be correct but
+	#	wasted"; it also clamps its cut to zoom_author, so overlap finer
+	#	than that costs nothing at all.
+	#
+	# WHAT IT CANNOT SURVIVE is one tile PRESENT in two blocks, because
+	# block_for returns the first that has it and the array order comes
+	# from the order files sit in the card's directory.  Identical bytes
+	# make that a don't-care - which is the assumption the whole fused
+	# design rests on - and different sources make it a silent, arbitrary
+	# choice of imagery that nothing anywhere would report.
+	#
+	# _planBlocks now makes that impossible by construction, so this is an
+	# assertion rather than a gate.  It stays because the invariant is not
+	# obvious from either side of that seam, and a future change to the
+	# walk could break it without anything else noticing.
 {
 	my ($z,$blocks,$where) = @_;
-	for (my $i = 0; $i < @$blocks; $i++)
+	my %owner;
+	for my $blk (@$blocks)
 	{
-		for (my $j = $i+1; $j < @$blocks; $j++)
+		for my $key (keys %{$blk->{keys}})
 		{
-			my ($a,$b) = ($blocks->[$i],$blocks->[$j]);
-			next if $a->{x_max} < $b->{x_min} || $b->{x_max} < $a->{x_min};
-			next if $a->{y_max} < $b->{y_min} || $b->{y_max} < $a->{y_min};
-			error("$where z$z: blocks '$a->{owner}' and '$b->{owner}' overlap ".
-				"- a tile would be addressed twice");
-			return 0;
+			my $had = $owner{$key};
+			if ($had)
+			{
+				error("$where z$z: '$had' and '$blk->{owner}' both hold tile ".
+					"$key - the plotter would choose between them by the ".
+					"order the files happen to sit in the card's directory");
+				return 0;
+			}
+			$owner{$key} = $blk->{owner};
 		}
 	}
 	return 1;

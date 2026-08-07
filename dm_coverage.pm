@@ -71,6 +71,10 @@ BEGIN
 		previewTiles
 		polygonsContainPoint
 		outsideVertices
+		segmentsCross
+		ringsCross
+		ringSelfCrosses
+		polygonsOverlap
 	);
 }
 
@@ -260,13 +264,217 @@ sub outsideVertices
 		my $vi = 0;
 		for my $pt (@$ring)
 		{
+			# ON THE BOUNDARY COUNTS AS INSIDE, and it has to.  A point
+			# exactly on an edge is what a ray cast is worst at, and it is
+			# not a rare case: the snap grid exists so that an author can
+			# put a subregion's boundary exactly on its parent's, and two
+			# vertices snapped to one grid point are bit identical.  A
+			# rule that refused that would be fighting the convention the
+			# editor offers.
+
 			push @out,[$pi,$vi,$pt->[0],$pt->[1]]
-				if !polygonsContainPoint($outer,$pt->[0],$pt->[1]);
+				if !polygonsContainPoint($outer,$pt->[0],$pt->[1]) &&
+				   !_pointOnEdge($outer,$pt->[0],$pt->[1]);
 			$vi++;
 		}
 		$pi++;
 	}
 	return @out;
+}
+
+
+#---------------------------------------------
+# polygons against polygons
+#---------------------------------------------
+# EVERYTHING BELOW ASKS ONE QUESTION - do two segments strictly cross -
+# and everything the editor and the model refuse is built out of it: a
+# ring against itself is a bowtie, a ring against a sibling's is an
+# overlap, and a child's edges against its parent's is the containment
+# test that outsideVertices above could never be.
+#
+# WHY outsideVertices IS NOT ENOUGH, and it is not a nicety.  It tests
+# VERTICES, so a subregion can have every corner inside a parent while an
+# EDGE runs outside it - cut a concave notch into a region and drag a
+# subregion vertex around the far side of the notch, and every check in
+# the program agrees.  What that breaks is the nested-coverage invariant:
+# the tiles out there have no coarser ancestor, so my_test_rct reports
+# orphans, and on the E-Series that imagery is written and can never be
+# revealed, because the reveal aperture is cut from the region's own
+# coverage at zoom_author.
+#
+# STRICTLY CROSSING, AND TOUCHING IS NOT CROSSING.  Two shapes that share
+# a boundary exactly, or meet at one point, do not overlap - and sharing a
+# boundary is a thing authors do on purpose.  So collinear edges and
+# shared endpoints are all "no".
+
+our $GEOM_EPS = 1e-9;
+	# A DEGREE TOLERANCE, and the two numbers it sits between are what
+	# make it defensible rather than a feeling.  One pixel at the map's
+	# deepest zoom of 22 is 360/(256*2^22) = 3.4e-7 degrees, about 3.7 cm
+	# at the equator; a double holds a longitude near 1.5 to about 1e-16.
+	# So this is roughly 340 times finer than anything a person could
+	# point at and ten million times coarser than the noise, and there are
+	# nine orders of magnitude of daylight on either side of it.
+	#
+	# IT QUANTISES THE COMPARISON, NEVER THE DATA.  Geometry is stored as
+	# drawn; this only decides what counts as touching.  The applet holds
+	# the same constant, because a rule enforced in two places with two
+	# tolerances is two rules.
+
+
+sub _sideOf
+	# Which side of the line a->b the point p is on: 1, -1, or 0 for on
+	# it, where ON means within GEOM_EPS.
+	#
+	# MEASURED AS A DISTANCE AND NOT AS A CROSS PRODUCT.  The cross
+	# product's units are degrees squared and its magnitude scales with
+	# the segment's length, so one threshold against it would mean a
+	# different distance on a long edge than on a short one - a region's
+	# outline and a detail box's differ by two orders of magnitude here.
+{
+	my ($ax,$ay,$bx,$by,$px,$py) = @_;
+	my $dx = $bx - $ax;
+	my $dy = $by - $ay;
+	my $len = sqrt($dx*$dx + $dy*$dy);
+	return 0 if $len <= 0;
+	my $dist = ($dx*($py-$ay) - $dy*($px-$ax)) / $len;
+	return 0 if abs($dist) <= $GEOM_EPS;
+	return $dist > 0 ? 1 : -1;
+}
+
+
+sub segmentsCross
+	# Do the two segments STRICTLY cross - each straddling the other's
+	# line.  A shared endpoint, a T junction and any collinear overlap all
+	# answer no, because a zero on either side kills the product.
+{
+	my ($a,$b,$c,$d) = @_;
+	my $d1 = _sideOf(@$c,@$d,@$a);
+	my $d2 = _sideOf(@$c,@$d,@$b);
+	return 0 if $d1 * $d2 >= 0;
+	my $d3 = _sideOf(@$a,@$b,@$c);
+	my $d4 = _sideOf(@$a,@$b,@$d);
+	return $d3 * $d4 < 0 ? 1 : 0;
+}
+
+
+sub _edges
+	# One ring as a list of [from,to], closing back to the start.
+{
+	my ($ring) = @_;
+	return () if !$ring || scalar(@$ring) < 3;
+	my @e;
+	for my $i (0..$#$ring)
+	{
+		push @e,[$ring->[$i],$ring->[($i+1) % scalar(@$ring)]];
+	}
+	return @e;
+}
+
+
+sub ringsCross
+	# The first place an edge of one polygon set strictly crosses an edge
+	# of the other, as [lon,lat] of the crossing's first vertex, or undef.
+{
+	my ($a,$b) = @_;
+	for my $ra (@{$a || []})
+	{
+		for my $ea (_edges($ra))
+		{
+			for my $rb (@{$b || []})
+			{
+				for my $eb (_edges($rb))
+				{
+					return [ $ea->[0][0], $ea->[0][1] ]
+						if segmentsCross($ea->[0],$ea->[1],$eb->[0],$eb->[1]);
+				}
+			}
+		}
+	}
+	return undef;
+}
+
+
+sub ringSelfCrosses
+	# A bowtie: two edges of ONE ring that cross.  Adjacent edges are
+	# skipped because they share an endpoint by construction and a shared
+	# endpoint is not a crossing anyway - the skip is for speed, not for
+	# correctness.
+{
+	my ($ring) = @_;
+	my @e = _edges($ring);
+	return undef if scalar(@e) < 4;
+	for my $i (0..$#e)
+	{
+		for my $j ($i+2..$#e)
+		{
+			next if $i == 0 && $j == $#e;		# closing edge touches the first
+			return [ $e[$i][0][0], $e[$i][0][1] ]
+				if segmentsCross($e[$i][0],$e[$i][1],$e[$j][0],$e[$j][1]);
+		}
+	}
+	return undef;
+}
+
+
+sub _pointOnEdge
+	# Is the point ON one of these polygons' edges, within GEOM_EPS?  Used
+	# only to keep a shared boundary from reading as containment.
+{
+	my ($polys,$x,$y) = @_;
+	for my $ring (@{$polys || []})
+	{
+		for my $e (_edges($ring))
+		{
+			my ($p,$q) = @$e;
+			next if _sideOf(@$p,@$q,$x,$y) != 0;
+
+			# On the infinite line; now inside the segment's own span,
+			# with the tolerance allowed at each end.
+
+			my ($lo_x,$hi_x) = $p->[0] <= $q->[0] ?
+				($p->[0],$q->[0]) : ($q->[0],$p->[0]);
+			my ($lo_y,$hi_y) = $p->[1] <= $q->[1] ?
+				($p->[1],$q->[1]) : ($q->[1],$p->[1]);
+			return 1 if $x >= $lo_x - $GEOM_EPS && $x <= $hi_x + $GEOM_EPS &&
+						$y >= $lo_y - $GEOM_EPS && $y <= $hi_y + $GEOM_EPS;
+		}
+	}
+	return 0;
+}
+
+
+sub polygonsOverlap
+	# Do these two polygon sets share INTERIOR area?  Returns a point at
+	# the offence, or undef.
+	#
+	# TWO WAYS TO OVERLAP AND BOTH ARE NEEDED.  Either an edge crosses an
+	# edge, or one shape is wholly inside the other and no edge crosses
+	# anything - a small box drawn in the middle of a big one is the second
+	# case entirely.
+	#
+	# A vertex sitting ON the other's boundary does NOT count, which is
+	# what lets two areas share a border, or meet at a corner, without
+	# being called an overlap.
+{
+	my ($a,$b) = @_;
+	my $hit = ringsCross($a,$b);
+	return $hit if $hit;
+
+	for my $pair ([$a,$b],[$b,$a])
+	{
+		my ($inner,$outer) = @$pair;
+		for my $ring (@{$inner || []})
+		{
+			for my $pt (@$ring)
+			{
+				next if !polygonsContainPoint($outer,$pt->[0],$pt->[1]);
+				next if _pointOnEdge($outer,$pt->[0],$pt->[1]);
+				return [ $pt->[0], $pt->[1] ];
+			}
+		}
+	}
+	return undef;
 }
 
 

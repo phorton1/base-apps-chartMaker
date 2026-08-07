@@ -90,6 +90,16 @@ the idea there does not exist here.
 format field; a per-region file spanning two sources could not have filled it in truthfully.
 The same is true of `attribution`. Both fall out of the split rather than being arranged.
 
+**A tile claimed by two nodes is written into both files, deliberately.** Two sibling detail
+areas can share a tile without their polygons touching, because a tile is a square both of
+them clip - see [regions](regions.md#containment-overlap-and-the-invariant-they-buy). The
+`.RCT` exporter resolves that, because everything it writes lands in one file. Here the
+opposite is right: **each file has to stand alone over its own polygon**, so removing the
+tile from one of them to spare the other a duplicate would punch a hole in a chart somebody
+may open by itself. The duplicate costs a couple of kilobytes and the two copies are the
+same image, since two nodes that disagreed about a source would have been refused before the
+build ran.
+
 **Names cannot collide, and that is enforced rather than hoped.** A node id is unique within
 its whole region ([regions](regions.md)), so no two files in one folder can share a name; the
 region folder keeps two regions' identically named detail boxes apart. The resulting path is

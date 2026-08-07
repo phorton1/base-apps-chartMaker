@@ -893,6 +893,31 @@ sub _analyseCommand
 			display(0,1,"$field $_ : ".join(', ',@{$h->{$_}})) for sort keys %$h;
 		}
 	}
+	if (@{$an->{geometry} || []})
+	{
+		warning(0,0,"these break a containment rule and would build ground ".
+			"the plotter can never reveal:");
+		display(0,1,"$_->{id}: $_->{why}") for @{$an->{geometry}};
+	}
+
+	if ($an->{source_conflicts})
+	{
+		warning(0,0,"these would be built from different sources over the ".
+			"same ground:");
+		my $c = $an->{source_conflicts};
+		for my $pair (sort keys %$c)
+		{
+			my $it = $c->{$pair};
+			my @z  = sort { $a <=> $b } keys %{$it->{levels}};
+			display(0,1,sprintf("%s : %d tile(s) at z%s, from %s",
+				$pair,$it->{tiles},
+				(@z > 1 ? $z[0].'-'.$z[-1] : $z[0]),
+				join(' and ',sort keys %{$it->{sources}})));
+		}
+		display(0,1,"the plotter shows one of them and which one is not ".
+			"predictable");
+	}
+
 	display(0,1,"will REPLACE : $_->{leaf}") for @{$an->{overwrite}};
 	display(0,1,"NOT in build : $_->{leaf}") for @{$an->{foreign}};
 }

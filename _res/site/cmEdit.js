@@ -142,11 +142,156 @@ function parentOf(reg, id) {
     return null;
 }
 
-// The level an object's geometry quantises at: zauthor for a region, zmax
-// for a subregion.  Falls back to the set's zauthor when nothing is chosen.
-function snapLevelFor(node) {
+// ============================================================================
+// Polygons against polygons
+// ============================================================================
+// THE SAME RULE THE MODEL ENFORCES, ASKED HERE SO IT IS ANSWERED AT THE
+// DROP RATHER THAN AT THE BUTTON.  dm_region is authoritative and asks it
+// again at Confirm; this exists so that a shape which cannot be committed
+// is not built up over twenty minutes first.  If the two ever disagree the
+// applet lets something through and Confirm refuses it, which is the right
+// direction to fail in.
+//
+// GEOM_EPS MATCHES dm_coverage's, and it has to: a rule enforced in two
+// places with two tolerances is two rules.  One pixel at the map's deepest
+// zoom of 22 is 3.4e-7 degrees; a double holds a longitude near 1.5 to
+// about 1e-16.  1e-9 is three hundred times finer than anything a person
+// can point at and ten million times coarser than the noise.
+
+const GEOM_EPS = 1e-9;
+
+// Which side of the line a->b the point p is on: 1, -1, or 0 for on it.
+// A DISTANCE, not a cross product - the cross product's magnitude scales
+// with the segment's length, so one threshold would mean different things
+// on a region's outline and on a detail box's.
+
+function sideOf(ax, ay, bx, by, px, py) {
+    const dx = bx - ax, dy = by - ay;
+    const len = Math.sqrt(dx * dx + dy * dy);
+    if (len <= 0) return 0;
+    const dist = (dx * (py - ay) - dy * (px - ax)) / len;
+    if (Math.abs(dist) <= GEOM_EPS) return 0;
+    return dist > 0 ? 1 : -1;
+}
+
+// STRICTLY crossing: each segment straddles the other's line.  A shared
+// endpoint, a T junction and any collinear overlap all answer false,
+// because a zero on either side kills the product - which is what lets two
+// areas share a border, or meet at a corner, on purpose.
+
+function segmentsCross(a, b, c, d) {
+    const d1 = sideOf(c[0], c[1], d[0], d[1], a[0], a[1]);
+    const d2 = sideOf(c[0], c[1], d[0], d[1], b[0], b[1]);
+    if (d1 * d2 >= 0) return false;
+    const d3 = sideOf(a[0], a[1], b[0], b[1], c[0], c[1]);
+    const d4 = sideOf(a[0], a[1], b[0], b[1], d[0], d[1]);
+    return d3 * d4 < 0;
+}
+
+// Does the segment p->q cross any edge of any of these rings?
+
+function crossesRings(p, q, rings) {
+    for (const ring of (rings || [])) {
+        if (!ring || ring.length < 3) continue;
+        for (let i = 0; i < ring.length; i++) {
+            const r = ring[i], s = ring[(i + 1) % ring.length];
+            if (segmentsCross(p, q, r, s)) return true;
+        }
+    }
+    return false;
+}
+
+// The rings a vertex of the object being edited must not cross: its
+// parent's outline, every sibling's, and this node's OTHER polygons.
+//
+// NOT the region's own siblings.  Two regions may overlap freely - they
+// are separate files whose coarse parents are shared by construction, and
+// deciding which of them owns a boundary tile is how ground goes missing
+// exactly where somebody is looking.
+
+function forbiddenRings() {
+    const out = [];
+    const root = regionById(target && target.region);
+    if (!root) return out;
+
+    const self = target.sub ? nodeById(target.sub) : null;
+    const node = self ? self.node : root;
+
+    if (target.sub) {
+        const p = parentOf(root, target.sub);
+        for (const r of ((p && p.polygons) || [])) out.push(r);
+        for (const sib of ((p && p.subregions) || [])) {
+            if (sib.id === target.sub) continue;
+            for (const r of (sib.polygons || [])) out.push(r);
+        }
+    }
+    for (const sub of (node.subregions || [])) {
+        for (const r of (sub.polygons || [])) out.push(r);
+    }
+    for (let i = 0; i < working.length; i++) {
+        if (i !== target.poly) out.push(working[i]);
+    }
+    return out;
+}
+
+// WOULD THE RING BE LEGAL WITH VERTEX i WHERE IT NOW IS?  Only the two
+// edges either side of i have moved, so only those are tested - against
+// everything above, and against this ring's own non-adjacent edges, which
+// is the bowtie.
+//
+// Returns a reason, or '' for fine.
+
+function vertexFault(i) {
+    const ring = working[target.poly];
+    if (!ring || ring.length < 3) return '';
+    const n = ring.length;
+    const pairs = [
+        [ring[(i - 1 + n) % n], ring[i]],
+        [ring[i], ring[(i + 1) % n]],
+    ];
+    const walls = forbiddenRings();
+
+    for (const [p, q] of pairs) {
+        if (crossesRings(p, q, walls))
+            return 'that edge would cross another polygon';
+    }
+
+    for (const [p, q] of pairs) {
+        for (let j = 0; j < n; j++) {
+            const a = ring[j], b = ring[(j + 1) % n];
+            if (a === p || a === q || b === p || b === q) continue;
+            if (segmentsCross(p, q, a, b))
+                return 'the polygon would cross itself';
+        }
+    }
+    return '';
+}
+
+// THE LEVEL THE GRID IS DRAWN AND SNAPPED AT, which is the object's own
+// AUTHORED level - the coarsest one its coverage reaches.
+//
+// A region carries zauthor and that is the answer.  A SUBREGION HAS AN
+// AUTHORED LEVEL TOO AND IT IS ITS PARENT'S zmax + 1, the floor of its
+// band; it just is not stored, because nothing in the file needs it.
+//
+// IT USED TO FALL BACK TO THE SUBREGION'S OWN zmax, AND THAT IS ONE OR
+// MORE LEVELS TOO FINE.  Tile grids are nested, so a boundary aligned at
+// z17 is aligned at z18 as well, and one aligned at z18 is aligned at
+// nothing coarser.  The floor is where two siblings can first land on a
+// common tile, so it is the only level at which snapping buys anything at
+// all - snap to zmax and two areas can still meet inside one tile of the
+// level below.
+//
+// The grid is a convention rather than a constraint: it only does anything
+// when it is switched on, and Alt suspends it for a single placement.
+function snapLevelFor(hit) {
+    const node = hit && hit.node;
     if (node && node.zauthor !== undefined) return node.zauthor;
-    if (node && node.zmax !== undefined)    return node.zmax;
+    if (node && hit.root) {
+        const p = parentOf(hit.root, node.id);
+        if (p && p.zmax !== undefined) return p.zmax + 1;
+    }
+    if (node && node.zmax !== undefined) return node.zmax;
     const first = (cmState && cmState.regions || [])[0];
     return first && first.zauthor !== undefined ? first.zauthor : 15;
 }
@@ -307,7 +452,7 @@ let gridLayer = null;
 
 function updateGrid() {
     const sel = selectedNode();
-    gridLevel = snapLevelFor(sel ? sel.node : null);
+    gridLevel = snapLevelFor(sel);
 
     // Thin the DISPLAY, never the grid.  The pitch on SCREEN is what decides,
     // not the level: dots closer together than MIN_DOT_PITCH stop reading as a
@@ -1269,6 +1414,10 @@ function redrawWork() {
     ring.forEach((p, i) => {
         const m = L.marker([p[1], p[0]],
             { icon: VTX_ICON, draggable: true, zIndexOffset: 1000 });
+        m.on('dragstart', () => {
+            dragOrigin = { poly: target.poly, i: i,
+                           pt: working[target.poly][i].slice() };
+        });
         m.on('drag',    e => moveVertex(i, e.target.getLatLng(), false));
         m.on('dragend', e => moveVertex(i, e.target.getLatLng(), true));
         m.on('contextmenu', e => { L.DomEvent.stop(e); deleteVertex(i); });
@@ -1302,6 +1451,7 @@ function redrawWork() {
 
         m.on('dragstart', () => {
             working[target.poly].splice(i + 1, 0, [mid[1], mid[0]]);
+            dragOrigin = { poly: target.poly, i: i + 1, inserted: true };
             dirty = true;
         });
         m.on('drag',    e => moveVertex(i + 1, e.target.getLatLng(), false));
@@ -1317,6 +1467,22 @@ function redrawWork() {
 // that pans the map, which is needed constantly while working across a region too
 // large to see at once.  The pan wins.
 
+
+// WHAT A DRAG WOULD HAVE TO BE PUT BACK TO.  Set when a handle is picked
+// up, cleared when the gesture ends.  A midpoint drag is an INSERT, so its
+// undo is removing the vertex rather than restoring a coordinate - which
+// is the natural undo of that gesture and leaves nothing behind.
+let dragOrigin = null;
+
+function undoDrag() {
+    if (!dragOrigin) return;
+    const ring = working[dragOrigin.poly];
+    if (ring) {
+        if (dragOrigin.inserted) ring.splice(dragOrigin.i, 1);
+        else ring[dragOrigin.i] = dragOrigin.pt;
+    }
+    dragOrigin = null;
+}
 
 function moveVertex(i, latlng, final) {
     const p = snap(latlng, false);
@@ -1340,7 +1506,41 @@ function moveVertex(i, latlng, final) {
     }
     working[target.poly][i] = [p.lng, p.lat];
     dirty = true;
-    if (final) { publishMode(); redrawWork(); shapeBar(); }
+
+    // TOPOLOGY IS TESTED ONCE, AT THE DROP, and never during the drag.
+    //
+    // A POSITION constraint - is this vertex somewhere it may be - is
+    // point-in-polygon, cheap, and refusing it mid-drag by not writing it
+    // produces the wall above, which slides.  A TOPOLOGY constraint - would
+    // this edge cross something - is a different question with a different
+    // shape: the vertex itself may be in a perfectly legal place while the
+    // edge behind it is not, so holding the outline on one would freeze it
+    // somewhere that looks fine, and that reads as a bug rather than as a
+    // wall.  So it is asked once, and refused by putting the vertex back
+    // where it was picked up.
+    //
+    // THAT IS WHY dragOrigin EXISTS: this function overwrites the ring on
+    // every drag event, so by mouseup the original is long gone.
+
+    if (final) {
+        const why = vertexFault(i);
+        if (why) {
+            undoDrag();
+            publishMode(); redrawWork();
+
+            // shapeBar() BEFORE banner(), and the order is not cosmetic.
+            // banner() sets the hint text of a bar that is already up,
+            // while shapeBar() rebuilds the bar from nothing - so doing
+            // them the other way round writes the message and then throws
+            // it away in the same tick.  The refusal happened; nobody was
+            // told about it.
+
+            shapeBar();
+            banner(why + ' - put back', true);
+            return;
+        }
+    }
+    if (final) { dragOrigin = null; publishMode(); redrawWork(); shapeBar(); }
     else {
         workLayer.clearLayers();
         const pts = working[target.poly].map(q => [q[1], q[0]]);

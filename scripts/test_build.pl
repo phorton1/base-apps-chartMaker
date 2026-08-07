@@ -688,6 +688,123 @@ ok(scalar(grep { /CANCELLED/ } @$clines),"a cancel says CANCELLED");
 
 
 #---------------------------------------------
+# two siblings that share a tile
+#---------------------------------------------
+# THE CASE THAT USED TO FAIL A WHOLE BUILD AT THE LAST STEP.  Two detail
+# areas whose polygons do not intersect at all can still land on the same
+# tile, because a tile is a square that both of them clip.  The exporter
+# refused it - after the entire fetch phase had run - on the grounds that
+# their bounding rectangles overlapped.
+#
+# aerial.c does not need disjoint rectangles: block_for tests the rectangle
+# AND the presence bit together, and blocks from every file on a card are
+# fused into one array, so overlapping rectangles are the normal state.
+# What it cannot survive is one tile PRESENT in two blocks, because then
+# the answer depends on the order files sit in the card's directory.
+#
+# THE PRECONDITION IS ASSERTED FIRST, and that is the point of it: if the
+# two fixtures stop sharing a tile the test would go on passing while
+# proving nothing at all.
+
+print "\n=== two siblings sharing a tile ===\n";
+
+sub twinsJson
+	# One region, two sibling detail areas, non-intersecting polygons whose
+	# tile sets meet.  The gap between them is 0.0001 degrees; a z13 tile is
+	# 0.0439, so they cannot help sharing one.
+{
+	my ($lat0,$lat1) = (9.30,9.36);
+	my $west  = "[ [ -82.2500, $lat0 ], [ -82.2300, $lat0 ], ".
+				"[ -82.2300, $lat1 ], [ -82.2500, $lat1 ] ]";
+	my $east  = "[ [ -82.2299, $lat0 ], [ -82.2100, $lat0 ], ".
+				"[ -82.2100, $lat1 ], [ -82.2299, $lat1 ] ]";
+	my $outer = "[ [ -82.39, 9.18 ], [ -82.09, 9.18 ], ".
+				"[ -82.09, 9.48 ], [ -82.39, 9.48 ] ]";
+	return <<"EOJ";
+{
+   "region_version" : 1,
+   "id" : "Twins",
+   "name" : "Twins",
+   "zauthor" : 12,
+   "zmin" : 10,
+   "zmax" : 12,
+   "source" : "bld_a",
+   "geometry" : [ $outer ],
+   "subregions" : [
+      { "id" : "West", "name" : "west bay", "zmax" : 13,
+        "source" : "bld_a", "geometry" : [ $west ], "subregions" : [] },
+      { "id" : "East", "name" : "east bay", "zmax" : 13,
+        "source" : "bld_a", "geometry" : [ $east ], "subregions" : [] }
+   ]
+}
+EOJ
+}
+
+newSet('Twins');
+putFile("$ROOT/region_sets/Twins/Twins.region",twinsJson());
+openSet('Twins');
+
+my $twins = getRegion('Twins');
+ok($twins && scalar(@{$twins->{subregions} || []}) == 2,
+	"the twin fixture loaded with two subregions");
+
+my ($tcov,$tnodes) = regionCoverageNodes($twins,{});
+
+# THE PRECONDITION.  Straight off the WALK, before the exporter sees it,
+# because that is the answer dm_mbtiles keeps and dm_rct resolves.
+
+my ($west_node) = grep { $_->{id} eq 'West' } @$tnodes;
+my ($east_node) = grep { $_->{id} eq 'East' } @$tnodes;
+my @both;
+for my $z (keys %{$west_node->{levels}})
+{
+	next if !$east_node->{levels}{$z};
+	push @both,"$z/$_"
+		for grep { $east_node->{levels}{$z}{$_} } keys %{$west_node->{levels}{$z}};
+}
+ok(scalar(@both) > 0,
+	"the two polygons do not intersect and still share ".scalar(@both).
+	" tile(s) in the walk - which is the whole case");
+
+# AND THE WALK IS LEFT ALONE, deliberately.  dm_mbtiles writes one file per
+# node and each one has to stand alone over its own polygon, so the shared
+# tile belongs in BOTH of their answers.  Only dm_rct, which puts everything
+# in one file, resolves it.
+
+my $planned = dm_rct::_planBlocks($tnodes,regionSourceMap($twins));
+my %seen_tile;
+my $twice = 0;
+for my $z (keys %$planned)
+{
+	for my $blk (@{$planned->{$z}})
+	{
+		for my $key (keys %{$blk->{keys}})
+		{
+			$twice++ if $seen_tile{"$z/$key"}++;
+		}
+	}
+}
+ok($twice == 0,
+	"but the exporter's plan gives every tile to exactly one block ".
+	"($twice claimed twice)");
+
+my $planned_tiles = scalar(keys %seen_tile);
+my $distinct = 0;
+$distinct += scalar(keys %{$tcov->{$_}}) for keys %$tcov;
+ok($planned_tiles == $distinct,
+	"and it plans every tile in the coverage exactly once ".
+	"($planned_tiles planned, $distinct in the merged coverage)");
+
+plant($tnodes->[0],'bld_a');
+plant($tnodes->[1],'bld_a');
+plant($tnodes->[2],'bld_a');
+
+my $rt = buildRct(['Twins'],{ });
+ok($rt->{ok},"and the region builds, where it used to be refused outright");
+ok(-f "$ROOT/raster/Twins/Twins.rct","the file exists");
+
+
+#---------------------------------------------
 
 print "\n".($fails ? "$fails FAILED\n" : "ALL PASSED\n");
 exit($fails ? 1 : 0);

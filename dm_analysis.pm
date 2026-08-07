@@ -140,6 +140,8 @@ sub analyseFetch
 		faults		=> [],
 		displaced	=> [],		# sources that declare a displacement
 		zagree		=> undef,	# set when the build would disagree with itself
+		source_conflicts => undef,	# tiles two nodes would build from two sources
+		geometry	=> [],		# regions whose polygons break a geometry rule
 		overwrite	=> [],		# files in out_dir this build would replace
 		foreign		=> [],		# files in out_dir NOT part of this build
 		elapsed		=> 0,
@@ -148,10 +150,25 @@ sub analyseFetch
 	my %index;					# the (source,zoom) directories read
 	my %seen_src;
 
+	# ACROSS THE WHOLE BUILD, not per region, because the case that matters
+	# most is two REGIONS - they share their coarse parents by construction
+	# and a mismatch there covers far more ground than one inside a region.
+
+	my %tile_source;			# "z/x_y" => [ node path, source id ]
+	my %source_conflict;		# "path + path" => { tiles, levels, sources }
+
 	for my $id (@$ids)
 	{
 		my $reg = getRegion($id) or next;
 		push @{$out->{faults}},@{regionFaults($reg,$purpose)};
+
+		# THE GEOMETRY IT WAS NEVER ASKED ABOUT.  These rules are enforced
+		# at the moment of an edit; a file that arrived from somewhere else
+		# or predates a rule has never been through that door, and the load
+		# path deliberately does not ask.  So the build does, once.
+
+		my $geom = regionGeometryFault($reg);
+		push @{$out->{geometry}},{ id => $id, why => $geom } if $geom;
 
 		my $srcs = regionSourceMap($reg);
 		my ($cov,$nodes) = regionCoverageNodes($reg,
@@ -179,6 +196,44 @@ sub analyseFetch
 			my $sid = $srcs->{$node->{path}};
 			next if sourceState($sid,$purpose) ne $SRC_OK;
 			my $src = getSource($sid);
+
+			# WHICH TILES TWO NODES WOULD BUILD FROM TWO DIFFERENT SOURCES.
+			#
+			# Two nodes sharing a tile is ordinary and mostly harmless - a
+			# tile is a square that two polygons can both clip without
+			# touching each other, and adjacent regions share their coarse
+			# parents BY CONSTRUCTION, which is what lets one .rct stand
+			# alone on a card.  The whole fused design rests on those copies
+			# being the same picture.
+			#
+			# WHEN THEY ARE NOT, NOBODY IS TOLD.  The E-Series takes the
+			# first block that holds the tile, and the block array is filled
+			# in the order the files sit in the card's directory; OpenCPN
+			# picks by its own quilting rules.  So the imagery shown is
+			# decided by something the author cannot see and did not choose,
+			# and at coarse zoom the shared parents of two neighbouring
+			# regions can be a wide band of ground rather than a seam.
+			#
+			# ASKED HERE because this loop has already resolved which source
+			# every node would really be built from, including the ones a
+			# fault excludes - so the answer costs a hash walk and no
+			# geometry, and it is the same walk the totals come from.
+
+			for my $z (keys %{$node->{levels}})
+			{
+				for my $key (keys %{$node->{levels}{$z}})
+				{
+					my $had = $tile_source{"$z/$key"};
+					if (!$had) { $tile_source{"$z/$key"} = [$node->{path},$sid]; next }
+					next if $had->[1] eq $sid;
+					my $pair = join(' + ',sort($had->[0],$node->{path}));
+					my $c = ($source_conflict{$pair} ||= { tiles => 0,
+							 levels => {}, sources => {} });
+					$c->{tiles}++;
+					$c->{levels}{$z}++;
+					$c->{sources}{$_} = 1 for ($had->[1],$sid);
+				}
+			}
 
 			if (!$seen_src{$sid}++)
 			{
@@ -284,6 +339,14 @@ sub analyseFetch
 	# charts has no chartset to disagree with and no headers to read, so
 	# asking would produce a warning about nothing - which is how a real
 	# warning gets trained out of being read.
+
+	# THE SOURCE CONFLICT IS NOT AN .rct QUESTION and sits outside the test
+	# below for that reason.  Both formats put the same tile in two places
+	# and neither can express a preference between them: the E-Series takes
+	# the first block holding it, OpenCPN quilts by its own rules.  What
+	# differs is only who does the arbitrating.
+
+	$out->{source_conflicts} = %source_conflict ? \%source_conflict : undef;
 
 	if (($opts->{format} || 'rct') eq 'rct')
 	{

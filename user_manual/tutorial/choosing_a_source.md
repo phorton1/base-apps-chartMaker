@@ -61,6 +61,17 @@ by the end of this chapter you will be in a position to know whether you have on
 is the moment to set it. The source you are *looking* at is a separate matter entirely - you
 can browse Esri while building from Spain IGN, and often should.
 
+**Regions near each other should use the same source.** Neighbouring regions overlap at the
+coarse zoom levels - they have to, because each file has to work on its own - so the same
+ground ends up in both of them. If the two name different providers, the plotter shows one of
+those pictures over that ground and there is no way to say which, so zooming in can change
+what you are looking at. Formentera and Ibiza are close enough for this to apply, which is
+why both of them are on Spain IGN.
+
+You are not stopped from mixing them. The build tells you which regions overlap and which
+sources they name, and leaves the decision with you - there are good reasons to want two
+providers, and none of them are hurt by knowing.
+
 ## Probe: does this service hold anything here, and how deep
 
 Reading a service's documentation tells you what it claims. A **probe** tells you what it
