@@ -165,8 +165,15 @@ the smallest shape that contains the answer.
 ## Snapping to the grid
 
 Turn on **`grid`**. Small grey dots appear at tile-grid intersections and vertices now
-land on them; the number in the row is the level being snapped to - your region's `zauthor`,
-or a detail area's `zmax`.
+land on them; the number in the row is the level being snapped to.
+
+**That level follows what is selected.** For a region it is its `zauthor`. For a detail area
+it is **one finer than its parent's `zmax`** - the coarsest level the detail area itself
+supplies, which for Ibiza's bays is z17. It is not the detail area's own `zmax`, and the
+difference is the whole use of the grid here: tile grids nest, so a boundary put on a z17
+intersection is on a z18 one as well, while a boundary put on a z18 intersection can still cut
+a z17 tile in half. Snapping at the coarser level is what makes two neighbouring detail areas
+land on different tiles rather than sharing one.
 
 It is off by default, because a constraint you did not ask for is indistinguishable from a
 bug the first time a vertex lands somewhere other than where you clicked. Hold a modifier to
@@ -195,15 +202,25 @@ your line.
 
 ## Containment
 
-A detail area cannot leave its parent, and chartMaker maintains that rather than complaining
-about it afterwards:
+A detail area cannot leave its parent, and you will feel the rule rather than read about it.
+Drag a vertex towards the parent's edge and the outline follows you until the boundary, then
+stops while your cursor carries on. Nothing is moved somewhere you did not put it, and nothing
+is announced. The wall is simply there.
 
-- **Drag a detail area outside its parent** and the parent grows to contain it.
-- **Shrink a region** and anything now outside is clipped, or removed if nothing of it
-  remains. That one destroys work, so it asks first and names exactly what it will take.
+Two more things are refused the same way, and both are put back where you picked them up,
+with a line in the bar saying which:
 
-The reason it can be this strict without fighting you is that ground outside the parent was
-never a detail area in the first place.
+- **an edge that would cross another polygon** - the parent's outline, another detail area, or
+  another part of this one
+- **a polygon that would cross itself**
+
+Two detail areas may **touch**, and a detail area may sit hard against its parent's boundary.
+Neither is an overlap. If you want them to share a line exactly, switch the grid on and put
+both vertices on the same intersection.
+
+The reason all of this can be strict without fighting you is that ground outside the parent
+was never a detail area in the first place. What you want there is another polygon on the
+region, or another region.
 
 Save the set - `File - Save`.
 

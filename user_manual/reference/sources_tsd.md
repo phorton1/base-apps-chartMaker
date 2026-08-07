@@ -32,7 +32,7 @@ A TSD is JSON. The fields you will actually touch:
 | `attribution` | Mandatory and non-empty. A file without it will not load. |
 | `license`, `terms_url` | What the publisher permits, and where they said so. |
 | `cache_key` | Which cache folder its tiles go in. Defaults to the file's own name. |
-| `min_interval_ms`, `max_concurrency` | How gently to treat this server. |
+| `min_interval_ms`, `max_concurrency` | How gently to treat this server. **Present only when the operator publishes a figure** - of everything chartMaker ships, one source does. Absent means chartMaker's own limit applies, which you set in Preferences. |
 | `keys` | The **names** of any values the url needs. Never the values. |
 | `notes` | Free text. JSON has no comments. |
 

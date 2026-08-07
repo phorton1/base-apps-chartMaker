@@ -176,9 +176,22 @@ describes, and nothing needs cleaning up when a window disappears.
 
 It answers two questions that had no answer before. The hand-off items need a browser, and
 offer to open one instead of handing off into nothing. And **an edit belongs to a browser**:
-a map that has stopped polling is holding nothing, so the edit state it left behind is
-cleared rather than left refusing deletes on account of a window that was closed an hour
-ago.
+a map that has stopped polling is holding nothing, so every question that could be obstructed
+by an edit answers as though there were none. The tree stops refusing deletes on account of a
+window that was closed an hour ago.
+
+**Nothing is CLEARED, and that distinction cost an afternoon.** The obvious reading is to
+throw the edit state away once the map goes quiet, and that is what used to happen - and it
+reached over and cancelled live edits. Measured: a browser sitting idle in an edit went 5427
+ms without a poll, because browsers throttle timers in a page they judge hidden or occluded.
+No request failed, so nothing on that side even noticed, and the application read five seconds
+of silence as a closed window and discarded a polygon that was on screen in front of the user.
+
+No grace period fixes that, because there is no silence long enough to mean *closed* and short
+enough to be useful. **Gate the consumers on liveness instead of destroying the state.** The
+consumers self-heal the instant a poll arrives; the destruction does not. Being quiet for six
+seconds now costs nothing at all, and a browser that closes for good still cannot block the
+tree.
 
 ## One selection, one order
 

@@ -41,21 +41,6 @@ structure of it may be changed at anytime by Patrick, and only by Patrick.
 
 ### Dont offer dark tiles as blank sentinal possibliities
 
-### cache source display text
-
-I think it takes a long time to swtich between sources and
-that occasionally the sources are refreshed during other operations
-which slows down the ux thread, even though no new tiles have been
-fetched.
-
-My idea is to keep an in memory "version index" per source and
-bump it when the tile count changes, and to only regenerate that
-text when it is zero or changes and you would have normally done it.
-
-I think the counts are likely what is taking the time.
-Not sure but I think its likely.
-
-
 
 ### Documentation and User Manual/Reference Rework
 
